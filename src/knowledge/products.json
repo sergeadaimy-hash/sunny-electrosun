@@ -1,0 +1,25 @@
+{
+  "last_updated": "2026-05-03",
+  "currency": "NGN",
+  "categories": {
+    "inverters": [
+      { "brand": "Deye", "model": "6kW off-grid inverter", "size_kw": 6, "phase": "single", "type": "off-grid", "price_ngn": 650000, "in_stock": true },
+      { "brand": "Deye", "model": "8kW single phase inverter", "size_kw": 8, "phase": "single", "type": "hybrid", "price_ngn": 1700000, "in_stock": true },
+      { "brand": "Deye", "model": "12kW single phase inverter", "size_kw": 12, "phase": "single", "type": "hybrid", "price_ngn": 2400000, "in_stock": true },
+      { "brand": "Deye", "model": "12kW three phase inverter", "size_kw": 12, "phase": "three", "type": "hybrid", "price_ngn": 2400000, "in_stock": true },
+      { "brand": "Deye", "model": "16kW single phase inverter", "size_kw": 16, "phase": "single", "type": "hybrid", "price_ngn": 2900000, "in_stock": true },
+      { "brand": "Deye", "model": "16kW three phase inverter", "size_kw": 16, "phase": "three", "type": "hybrid", "price_ngn": 2950000, "in_stock": true },
+      { "brand": "Deye", "model": "18kW single phase inverter", "size_kw": 18, "phase": "single", "type": "hybrid", "price_ngn": 3250000, "in_stock": true },
+      { "brand": "Deye", "model": "20kW three phase inverter", "size_kw": 20, "phase": "three", "type": "hybrid", "price_ngn": 3800000, "in_stock": true }
+    ],
+    "batteries": [
+      { "brand": "Deye", "model": "5kWh battery", "capacity_kwh": 5, "price_ngn": 860000, "in_stock": true },
+      { "brand": "Deye", "model": "16kWh battery", "capacity_kwh": 16, "price_ngn": 2600000, "in_stock": true }
+    ]
+  },
+  "notes": [
+    "All prices are unit prices for the inverter or battery alone. A complete installed system also includes solar panels, mounting, cables, labour, and is meaningfully higher.",
+    "Stock status reflects general availability. The team confirms exact stock and delivery before any commitment.",
+    "Brother and Serge can update this file at any time. Restart Sunny (or git push to deploy) for the new prices to take effect."
+  ]
+}

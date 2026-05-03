@@ -80,8 +80,12 @@ Examples that are NOT hot_lead (these are silent_query or no-escalation):
 - "I'm interested in solar for my hotel" (no escalation, capture as C3 WARM)
 - "How does the inverter work?" (no escalation, C4 COLD)
 
-**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent cannot reasonably know without checking with the team. The bar is HIGH: most messages should NOT escalate. Triggers:
-- Customer asks for **the exact price** of a specific Electro-Sun product, in Naira ("what is your final price for Deye 12kW", "send me your price list for Sungrow 50kW"). General price-range questions ("roughly how much does solar cost in Nigeria") do NOT escalate.
+**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent cannot reasonably know without checking with the team. The bar is HIGH: most messages should NOT escalate.
+
+**The agent already has prices for these products and does NOT need to escalate when asked about them:** Deye inverters (6kW off-grid, 8kW single phase, 12kW single and three phase, 16kW single and three phase, 18kW single phase, 20kW three phase) and Deye batteries (5kWh, 16kWh). Pricing or availability questions about these specific Deye products do NOT escalate.
+
+Triggers:
+- Customer asks for the price of a product NOT in the catalog above (e.g. Sungrow, Jinko, JA, Longi, custom configurations, products by other brands).
 - Customer asks about **current stock or availability** ("do you have it in stock right now", "when can you deliver to me on Friday").
 - Customer asks for an **Electro-Sun specific install date** ("when can your engineer come on Tuesday").
 - A complaint about an existing Electro-Sun product or service.

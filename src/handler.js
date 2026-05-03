@@ -198,7 +198,7 @@ async function handleInbound(payload) {
 
       const contact = getOrCreateContact(msg.from, msg.profileName);
       const conversation = getActiveConversation(contact.id);
-      const priorHistory = getRecentHistory(contact.id, 20);
+      const priorHistory = getRecentHistory(contact.id, 50);
 
       appendMessage(conversation.id, 'inbound', msg.body, {
         whatsapp_message_id: msg.id
