@@ -11,28 +11,17 @@ const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
 const { sendMessage } = require('./whatsapp');
 
-const HOLDING_REPLIES = {
-  english: "Thanks for reaching out. Our engineer will follow up shortly.",
-  pidgin: "Thanks o, our engineer go reach you soon.",
-  hausa: "Na gode. Injiniyanmu zai tuntube ka nan ba da jimawa ba.",
-  yoruba: "E se. Onise wa yoo kan si yin laipe.",
-  igbo: "Daalu. Onye injinia anyi ga-akpoghachi gi n'oge na-adighi anya."
-};
+const HOT_LEAD_REPLY = "Great. One of our specialists will reach out to you shortly to finalise the details and send the formal documents.";
+const SILENT_QUERY_REPLY = "Let me confirm the exact spec or price and get back to you in a few minutes.";
+const UNSUPPORTED_REPLY = "Hello, this number receives text messages only. Please type your question and I'll get back to you right away.";
 
-const UNSUPPORTED_REPLIES = {
-  english: "Hi, I can only read text messages on this number. Please type your question and I'll help you right away.",
-  pidgin: "Abeg, na text messages I fit read for this number. Just type your question and I go answer you sharp sharp.",
-  hausa: "Sannu, sako na rubutu kawai nake iya karantawa a wannan lambar. Don Allah ka rubuto tambayarka, zan amsa nan take.",
-  yoruba: "Pẹlẹ o, ọrọ kíkà nikan ni mo lè ka lori nọmba yi. Ẹ jọwọ kọ ìbéèrè yín, mo máa dáhùn ní kíákíá.",
-  igbo: "Ndewo, naanị ozi ederede ka m nwere ike ịgụ na nọmba a. Biko dee ajụjụ gị, m ga-azaghachi ozugbo."
-};
-
-function pickHoldingReply(language) {
-  return HOLDING_REPLIES[language] || HOLDING_REPLIES.english;
+function pickHoldingReply(escalationType) {
+  if (escalationType === 'hot_lead') return HOT_LEAD_REPLY;
+  return SILENT_QUERY_REPLY;
 }
 
-function pickUnsupportedReply(language) {
-  return UNSUPPORTED_REPLIES[language] || UNSUPPORTED_REPLIES.english;
+function pickUnsupportedReply() {
+  return UNSUPPORTED_REPLY;
 }
 
 function extractMessages(payload) {
@@ -73,17 +62,27 @@ async function notifyOwnerEscalation(contact, message, classification) {
     return;
   }
 
+  const isHot = classification.escalation_type === 'hot_lead';
+  const header = isHot
+    ? 'HOT LEAD, action needed now.'
+    : 'Lead query, please confirm.';
+
   const lines = [
-    'New escalation needed.',
+    header,
     `Contact: ${contact.name || 'unknown'} (${contact.phone})`,
-    `Category: ${classification.category}`,
+    `Category: ${classification.category || 'unsorted'}`,
+    `Temperature: ${classification.lead_temperature || 'unknown'}`,
+    `Client type: ${classification.client_type || 'unknown'}`,
     `Intent: ${classification.intent}`,
     `Confidence: ${classification.confidence}`,
     `Location: ${contact.location || 'unknown'}`,
-    `Use case: ${contact.use_case || 'unknown'}`,
     '',
     'Last message:',
-    message
+    message,
+    '',
+    isHot
+      ? 'Reply directly to the customer to take over.'
+      : 'Reply with the answer; the team will pass it back to the customer.'
   ];
   await sendMessage(ownerPhone, lines.join('\n'));
 }
@@ -100,7 +99,7 @@ async function handleUnsupported(msg) {
 
   logEvent(contact.id, 'unsupported_received', { type: msg.type, whatsappId: msg.id });
 
-  const reply = pickUnsupportedReply(language);
+  const reply = pickUnsupportedReply();
   const sendRes = await sendMessage(msg.from, reply);
   appendMessage(conversation.id, 'outbound', reply, {
     whatsapp_message_id: sendRes.messageId,
@@ -143,14 +142,15 @@ async function handleInbound(payload) {
       if (classification.needs_escalation) {
         logEvent(contact.id, 'escalated', {
           intent: classification.intent,
+          escalation_type: classification.escalation_type || 'silent_query',
           confidence: classification.confidence
         });
         await notifyOwnerEscalation(refreshedContact, msg.body, classification);
-        const holding = pickHoldingReply(classification.language);
+        const holding = pickHoldingReply(classification.escalation_type);
         const sendRes = await sendMessage(msg.from, holding);
         appendMessage(conversation.id, 'outbound', holding, {
           whatsapp_message_id: sendRes.messageId,
-          intent: 'escalation_needed',
+          intent: classification.escalation_type === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
           language: classification.language
         });
         continue;
@@ -158,7 +158,7 @@ async function handleInbound(payload) {
 
       const reply = await generateReply(priorHistory, msg.body, refreshedContact);
       if (!reply.ok || !reply.text) {
-        const fallback = pickHoldingReply(classification.language);
+        const fallback = pickHoldingReply('silent_query');
         const sendRes = await sendMessage(msg.from, fallback);
         appendMessage(conversation.id, 'outbound', fallback, {
           whatsapp_message_id: sendRes.messageId,
