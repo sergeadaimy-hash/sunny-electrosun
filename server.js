@@ -16,6 +16,7 @@ const {
   sendOwnerReport,
   sendDailyLearningReport
 } = require('./src/reports');
+const { runWindowScan } = require('./src/window_monitor');
 
 initDb();
 
@@ -98,6 +99,17 @@ if (require.main === module) {
       logger.error('cron.daily_learning.error', { message: err.message });
     }
   }, { timezone: 'Africa/Lagos' });
+
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const res = await runWindowScan();
+      if (res.warned || res.expired) {
+        logger.info('cron.window_scan.done', res);
+      }
+    } catch (err) {
+      logger.error('cron.window_scan.error', { message: err.message });
+    }
+  });
 
   for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => {

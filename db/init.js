@@ -26,6 +26,9 @@ function applyMigrations(db) {
       { name: 'products_asked_about', type: 'TEXT' },
       { name: 'brand_preference', type: 'TEXT' },
       { name: 'budget_mentioned', type: 'TEXT' }
+    ],
+    pending_queries: [
+      { name: 'expiring_warning_sent_at', type: 'TIMESTAMP' }
     ]
   };
 

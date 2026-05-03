@@ -164,6 +164,42 @@ function listPendingQueries() {
   ).all();
 }
 
+function findPendingQueriesNeedingWarning(warnAfterIso) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT pq.*, c.phone AS customer_phone, c.name AS customer_name
+    FROM pending_queries pq
+    LEFT JOIN contacts c ON c.id = pq.contact_id
+    WHERE pq.status = 'pending'
+      AND pq.expiring_warning_sent_at IS NULL
+      AND pq.created_at <= ?
+    ORDER BY pq.created_at ASC
+  `).all(warnAfterIso);
+}
+
+function markPendingQueryWarned(queryId) {
+  const db = getDb();
+  db.prepare('UPDATE pending_queries SET expiring_warning_sent_at = ? WHERE id = ?')
+    .run(nowIso(), queryId);
+}
+
+function findExpiredPendingQueries(expiredBeforeIso) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT pq.*, c.phone AS customer_phone, c.name AS customer_name
+    FROM pending_queries pq
+    LEFT JOIN contacts c ON c.id = pq.contact_id
+    WHERE pq.status = 'pending'
+      AND pq.created_at <= ?
+    ORDER BY pq.created_at ASC
+  `).all(expiredBeforeIso);
+}
+
+function markPendingQueryExpired(queryId) {
+  const db = getDb();
+  db.prepare("UPDATE pending_queries SET status = 'expired' WHERE id = ?").run(queryId);
+}
+
 function getContactById(contactId) {
   const db = getDb();
   return db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId) || null;
@@ -182,6 +218,10 @@ module.exports = {
   findPendingByAlertId,
   resolvePendingQuery,
   listPendingQueries,
+  findPendingQueriesNeedingWarning,
+  markPendingQueryWarned,
+  findExpiredPendingQueries,
+  markPendingQueryExpired,
   getContactById,
   CONVERSATION_WINDOW_MS
 };
