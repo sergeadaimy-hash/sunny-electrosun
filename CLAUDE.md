@@ -2,13 +2,13 @@
 
 This file is the working memory for Sunny. Read it before making any change. It captures decisions already made so they do not need to be re-litigated.
 
-## Current launch status (paused 2026-05-03 afternoon Beirut)
+## Current launch status (paused 2026-05-03 evening Beirut)
 
-Phase 1 (Setup), Phase 2 (Local end-to-end test), and substantively Phase 3 (Tune) are closed. Tasks #13 and #14 are done end-to-end against the brother's foundation document; Task #15 (48-hour soak) is the next user-driven step.
+Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Phase B code work (separate from launch sequence) substantially closed in the same session: schema migration, 2-hour reports with HOT/WARM/COLD aggregations, silent-query workflow with reply-to routing, daily learning report, seed.js modernization. Task #15 (48-hour soak) is the next user-driven launch step.
 
 **Phase 5 is cloud-first** (Railway or Fly.io, NOT Mac Mini). PM2 + named tunnel are no longer in the production path. See `memory/project_cloud_first_decision.md`.
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Latest commit: `e845237`.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Latest local commit: `6384bc9`. NOTE: 5 commits queued locally past origin (push hangs in non-interactive shell on credential prompt; Serge pushes manually). After the next `git push`, origin will be at `6384bc9`.
 
 **Done (15 of 27, plus #16 came free):**
 1. Meta Developer app `ElectroSun_Whtspp` created. App ID `2440193806402796`.
@@ -33,7 +33,15 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), and substantively Phase 3 (Tun
 - `notifyOwnerEscalation` differentiates hot lead vs silent query in alert text (RED vs YELLOW, includes lead_temperature and client_type).
 - Cloud-deploy readiness: `LOG_TO_FILE` env var (default true) opt-out for cloud PaaS. Disables `logs/sunny.log` writes and daily DB snapshot when set to `false`.
 - Templates `templates/owner_hourly_report_en.json` and `templates/follow_up_24h_en.json` drafted with Meta API schema, ready for one-click submission.
-- Contact #5 (Serge's test number) wiped clean: category, language, location, use_case, load_estimate cleared; conversations, messages, events for that contact deleted; contact row preserved for idempotency keys.
+- Contact #5 (Serge's test number) wiped clean multiple times during testing.
+
+**Phase B code work shipped today (separate from launch sequence):**
+- **Schema migration.** Added `lead_temperature`, `client_type`, `products_asked_about`, `brand_preference`, `budget_mentioned` columns to `contacts`. Added `pending_queries` table with status / alert_message_id / customer_message_id / classifier_intent / created_at / resolved_at / owner_reply_text. Idempotent ALTER TABLE migration in `db/init.js > applyMigrations`.
+- **Reports refactor.** `src/reports.js` now aggregates by `lead_temperature` (HOT/WARM/COLD/DISQUALIFIED) and `category` (C1-C5). Brother's foundation doc Section 9.2 format implemented in `formatReportForWhatsApp`: emoji headers, no em-dashes, hot/warm/silent_query sections. Hourly cron switched from `0 * * * *` to `0 */2 * * *` (every 2 hours per brother's spec).
+- **Silent-query workflow (the killer feature).** When Sunny doesn't know an answer, she sends a YELLOW alert to the owner with `[QID:N]` tag and creates a `pending_queries` row with the alert's wamid. When the owner long-presses the alert and replies in WhatsApp, the webhook delivers the reply with `context.id` matching the alert wamid. `handleOwnerReply` in `src/handler.js` matches the pending row, posts the owner's reply text to the customer, marks resolved, logs `silent_query_resolved` event with `elapsed_ms`. Verified end-to-end: 27.5s loopback test, customer received the relayed answer.
+- **Classifier HOT lock-down.** Initial hardening over-fired HOT for plain pricing questions (a "what's the price of Sungrow 50kW?" came back as HOT/hot_lead, skipping the silent_query workflow). Tightened `src/prompts/classifier.md` so HOT temperature requires explicit commitment phrases (pay/account/proforma/deposit/install-date/proceed/order). Specific-brand pricing now defaults to C2/WARM/silent_query.
+- **Daily learning report (Section 9.3).** `generateDailyLearningReport` in `src/reports.js`. New cron at 21:30 Africa/Lagos (30 min after the daily summary). Pulls unanswered `pending_queries` (still pending after 24h), unsorted contacts, frequent inbound intents (3+ occurrences). Sections 2 ("new patterns with draft replies") and 3 ("internal questions") kept as v2 placeholders.
+- **scripts/seed.js modernized** to C1-C5 + HOT/WARM/COLD demo data.
 
 **Open items the brother explicitly left blank** in Section 11 of the foundation doc, must answer before production launch:
 - Reference WhatsApp number for escalations (currently `OWNER_WHATSAPP=966502392650` is Serge's; needs swap to brother's actual number for go-live).
@@ -52,12 +60,10 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), and substantively Phase 3 (Tun
 2. Task #15: 48-hour soak with 3-5 testers on the test number. Captures real conversation patterns to feed the daily learning loop.
 3. Task #17: Add ElectroSun's real WhatsApp number to the WABA, swap `META_PHONE_NUMBER_ID` and `OWNER_WHATSAPP` in `.env`.
 4. Task #19: submit the two drafted templates to Meta. 24-48h approval clock.
-5. Phase B code work (separate from launch tasks):
-   - Schema migration: add `lead_temperature` and `client_type` columns to `contacts`.
-   - Refactor `src/reports.js` to aggregate by HOT/WARM/COLD instead of old categories.
-   - 2-hour reports replacing hourly cron.
-   - Daily learning report (new cron, new format).
-   - True silent_query workflow (wait for owner reply before sending to customer).
+5. Phase B code work (separate from launch tasks). MOSTLY DONE 2026-05-03 evening. Remaining:
+   - **23-hour window flag** (defensive). Background scan that warns the owner when a `pending_queries` row is approaching the 24h Meta free-form window. Not blocking; the silent-query workflow works without it.
+   - **v2 daily learning sections.** "New patterns with draft replies" requires an LLM pass over the day's conversations. "Internal questions I have" requires self-generated learning items. Both are placeholders today.
+   - **Custom delivery / installation / warranty default lines** in the system prompt. Currently the silent-query workflow handles "I don't know" gracefully, so these aren't urgent. Comes from brother's Section 11 answers.
    - 23-hour window flagging.
    - Cleanup `scripts/seed.js` (still has old category names).
 6. Phase 5 cloud deploy as the final cutover.
