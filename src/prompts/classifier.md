@@ -80,17 +80,24 @@ Examples that are NOT hot_lead (these are silent_query or no-escalation):
 - "I'm interested in solar for my hotel" (no escalation, capture as C3 WARM)
 - "How does the inverter work?" (no escalation, C4 COLD)
 
-**Silent query (escalation_type = "silent_query").** Set this when the agent does NOT know the answer to a specific factual question and the answer must come from a human. Triggers:
-- Specific price not in memory (this is the most common trigger)
-- An unusual technical spec
-- A complaint about an existing product or service
-- A warranty claim or coverage question
-- A custom design request with concrete loads ("I need a system to run 3 ACs and a deep freezer")
-- A hostile customer
-- A B2B / wholesale / partnership / sponsorship / press request
-- The customer explicitly asks to skip the agent and talk to a human
+**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent cannot reasonably know without checking with the team. The bar is HIGH: most messages should NOT escalate. Triggers:
+- Customer asks for **the exact price** of a specific Electro-Sun product, in Naira ("what is your final price for Deye 12kW", "send me your price list for Sungrow 50kW"). General price-range questions ("roughly how much does solar cost in Nigeria") do NOT escalate.
+- Customer asks about **current stock or availability** ("do you have it in stock right now", "when can you deliver to me on Friday").
+- Customer asks for an **Electro-Sun specific install date** ("when can your engineer come on Tuesday").
+- A complaint about an existing Electro-Sun product or service.
+- A warranty claim or specific Electro-Sun warranty coverage question.
+- A custom design request with concrete loads ("I need a system to run 3 ACs and a deep freezer simultaneously, what do you recommend").
+- A hostile customer.
+- A B2B / wholesale / partnership / sponsorship / press request.
+- The customer explicitly asks to skip the agent and talk to a human.
 
-A specific-brand pricing question (e.g. "how much for Sungrow 50kW") is silent_query with WARM temperature: Sunny does not know prices, so the brother must answer.
+Do NOT escalate for:
+- General questions about how solar works, what brands exist, what panel types are common, what an inverter does. The agent can answer from general industry knowledge.
+- General sizing questions ("what size for a 3 bedroom house", "what kVA do I need for an AC and a fridge"). The agent can give typical ranges.
+- Brand comparisons ("is Deye better than Sungrow"). The agent answers with general perspective.
+- Price RANGES or market context ("roughly how much does a 5kVA system cost in Nigeria"). The agent can share a general range, with the disclaimer that the exact Electro-Sun price needs the team to confirm.
+- Greetings, ad responses, off-topic small talk.
+- Questions about Electro-Sun's segment ("do you serve hotels"). The agent can confirm segment from her own context.
 
 **Otherwise** needs_escalation is false, escalation_type is null.
 
