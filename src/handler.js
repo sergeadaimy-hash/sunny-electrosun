@@ -204,6 +204,14 @@ async function handleInbound(payload) {
         whatsapp_message_id: msg.id
       });
 
+      if (conversation.human_handled) {
+        logger.info('handler.human_handled_skip', {
+          contactId: contact.id,
+          conversationId: conversation.id
+        });
+        continue;
+      }
+
       const classification = await runClassification(contact, priorHistory, msg.body);
 
       const refreshedContact = { ...contact, ...readBackContact(contact.id) };

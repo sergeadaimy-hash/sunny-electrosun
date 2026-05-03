@@ -29,6 +29,10 @@ function applyMigrations(db) {
     ],
     pending_queries: [
       { name: 'expiring_warning_sent_at', type: 'TIMESTAMP' }
+    ],
+    conversations: [
+      { name: 'human_handled', type: 'INTEGER NOT NULL DEFAULT 0' },
+      { name: 'human_handled_at', type: 'TIMESTAMP' }
     ]
   };
 

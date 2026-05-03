@@ -37,8 +37,14 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.use(express.static(path.join(__dirname, 'public')));
+
 app.use(webhookRouter);
 app.use('/api', dashboardRouter);
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
 
 app.use((err, req, res, next) => {
   logger.error('express.error', { message: err.message, stack: err.stack });

@@ -205,6 +205,49 @@ function getContactById(contactId) {
   return db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId) || null;
 }
 
+function getConversationById(conversationId) {
+  const db = getDb();
+  return db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) || null;
+}
+
+function setConversationHandled(conversationId, handled) {
+  const db = getDb();
+  const ts = handled ? nowIso() : null;
+  db.prepare('UPDATE conversations SET human_handled = ?, human_handled_at = ? WHERE id = ?')
+    .run(handled ? 1 : 0, ts, conversationId);
+}
+
+function getRecentConversationsForInbox(limit = 50, offset = 0) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT
+      conv.id AS conversation_id,
+      conv.contact_id,
+      conv.status,
+      conv.human_handled,
+      conv.human_handled_at,
+      conv.last_message_at,
+      c.phone, c.name, c.category, c.lead_temperature, c.client_type, c.location,
+      (SELECT body FROM messages WHERE conversation_id = conv.id ORDER BY id DESC LIMIT 1) AS last_message_body,
+      (SELECT direction FROM messages WHERE conversation_id = conv.id ORDER BY id DESC LIMIT 1) AS last_message_direction,
+      (SELECT COUNT(*) FROM pending_queries pq WHERE pq.contact_id = c.id AND pq.status = 'pending') AS pending_queries_count
+    FROM conversations conv
+    JOIN contacts c ON c.id = conv.contact_id
+    ORDER BY conv.last_message_at DESC NULLS LAST
+    LIMIT ? OFFSET ?
+  `).all(limit, offset);
+}
+
+function getMessagesForConversation(conversationId) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT id, direction, body, intent, language, whatsapp_message_id, timestamp
+    FROM messages
+    WHERE conversation_id = ?
+    ORDER BY id ASC
+  `).all(conversationId);
+}
+
 module.exports = {
   getOrCreateContact,
   updateContactFields,
@@ -223,5 +266,9 @@ module.exports = {
   findExpiredPendingQueries,
   markPendingQueryExpired,
   getContactById,
+  getConversationById,
+  setConversationHandled,
+  getRecentConversationsForInbox,
+  getMessagesForConversation,
   CONVERSATION_WINDOW_MS
 };

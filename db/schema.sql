@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   contact_id INTEGER NOT NULL,
   status TEXT DEFAULT 'active',
+  human_handled INTEGER NOT NULL DEFAULT 0,
+  human_handled_at TIMESTAMP,
   started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   last_message_at TIMESTAMP,
   FOREIGN KEY (contact_id) REFERENCES contacts(id)
