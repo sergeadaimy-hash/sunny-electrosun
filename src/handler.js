@@ -20,9 +20,24 @@ const HOT_LEAD_REPLY = "Great. One of our specialists will reach out to you shor
 const SILENT_QUERY_REPLY = "Let me confirm the exact spec or price and get back to you in a few minutes.";
 const UNSUPPORTED_REPLY = "Hello, this number receives text messages only. Please type your question and I'll get back to you right away.";
 
-function pickHoldingReply(escalationType) {
-  if (escalationType === 'hot_lead') return HOT_LEAD_REPLY;
-  return SILENT_QUERY_REPLY;
+function buildSpecialistLink(customerMessage) {
+  const num = (process.env.SPECIALIST_DIRECT_LINK || '').replace(/\D/g, '');
+  if (!num) return null;
+  const topic = (customerMessage || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const prefilled = topic
+    ? `Hi, I was speaking with Electro-Sun and have a question: "${topic}"`
+    : 'Hi, I was speaking with Electro-Sun and have an urgent question.';
+  return `https://wa.me/${num}?text=${encodeURIComponent(prefilled)}`;
+}
+
+function pickHoldingReply(escalationType, customerMessage) {
+  const base = escalationType === 'hot_lead' ? HOT_LEAD_REPLY : SILENT_QUERY_REPLY;
+  const link = buildSpecialistLink(customerMessage);
+  if (!link) return base;
+  if (escalationType === 'hot_lead') {
+    return base + `\n\nIf you'd like to reach our specialist directly now: ${link}`;
+  }
+  return base + `\n\nFor urgent matters you can also reach our specialist directly: ${link}`;
 }
 
 function pickUnsupportedReply() {
@@ -244,7 +259,7 @@ async function handleInbound(payload) {
           });
         }
 
-        const holding = pickHoldingReply(escalationType);
+        const holding = pickHoldingReply(escalationType, msg.body);
         const sendRes = await sendMessage(msg.from, holding);
         appendMessage(conversation.id, 'outbound', holding, {
           whatsapp_message_id: sendRes.messageId,
@@ -256,7 +271,7 @@ async function handleInbound(payload) {
 
       const reply = await generateReply(priorHistory, msg.body, refreshedContact);
       if (!reply.ok || !reply.text) {
-        const fallback = pickHoldingReply('silent_query');
+        const fallback = pickHoldingReply('silent_query', msg.body);
         const sendRes = await sendMessage(msg.from, fallback);
         appendMessage(conversation.id, 'outbound', fallback, {
           whatsapp_message_id: sendRes.messageId,
