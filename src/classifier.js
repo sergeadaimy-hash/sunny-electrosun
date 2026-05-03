@@ -5,6 +5,15 @@ const logger = require('./utils/logger');
 async function runClassification(contact, history, message) {
   const result = await classify(history, message);
 
+  if (result.lead_temperature === 'HOT' && !result.needs_escalation) {
+    logger.warn('classifier.hot_temperature_without_escalation_fixed', {
+      contactId: contact.id,
+      original_escalation_type: result.escalation_type
+    });
+    result.needs_escalation = true;
+    result.escalation_type = 'hot_lead';
+  }
+
   const updates = {};
   if (result.language && !contact.language) updates.language = result.language;
   if (result.lead_data) {
@@ -30,12 +39,24 @@ async function runClassification(contact, history, message) {
     logEvent(contact.id, 'category_changed', {
       from: contact.category,
       to: result.category,
-      confidence: result.confidence
+      confidence: result.confidence,
+      lead_temperature: result.lead_temperature,
+      escalation_type: result.escalation_type
     });
     logger.info('classifier.category_changed', {
       contactId: contact.id,
       from: contact.category,
-      to: result.category
+      to: result.category,
+      temp: result.lead_temperature,
+      escalation_type: result.escalation_type
+    });
+  } else if (result.lead_temperature) {
+    logger.info('classifier.no_category_change', {
+      contactId: contact.id,
+      category: result.category,
+      temp: result.lead_temperature,
+      escalation_type: result.escalation_type,
+      needs_escalation: result.needs_escalation
     });
   }
 
