@@ -5,7 +5,12 @@ const {
   appendMessage,
   getRecentHistory,
   getMessageByWhatsappId,
-  logEvent
+  logEvent,
+  createPendingQuery,
+  setPendingQueryAlertId,
+  findPendingByAlertId,
+  resolvePendingQuery,
+  getContactById
 } = require('./memory');
 const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
@@ -41,7 +46,8 @@ function extractMessages(payload) {
           id: msg.id,
           timestamp: msg.timestamp,
           type: msg.type,
-          profileName: profileNameByPhone[msg.from] || null
+          profileName: profileNameByPhone[msg.from] || null,
+          replyToId: msg.context?.id || null
         };
         if (msg.type === 'text' && msg.text?.body) {
           out.push({ ...base, kind: 'text', body: msg.text.body });
@@ -55,17 +61,18 @@ function extractMessages(payload) {
   return out;
 }
 
-async function notifyOwnerEscalation(contact, message, classification) {
+async function notifyOwnerEscalation(contact, message, classification, pendingQueryId) {
   const ownerPhone = process.env.OWNER_WHATSAPP;
   if (!ownerPhone) {
     logger.warn('escalation.no_owner_phone');
-    return;
+    return null;
   }
 
   const isHot = classification.escalation_type === 'hot_lead';
+  const tag = pendingQueryId ? ` [QID:${pendingQueryId}]` : '';
   const header = isHot
-    ? 'HOT LEAD, action needed now.'
-    : 'Lead query, please confirm.';
+    ? `HOT LEAD, action needed now.${tag}`
+    : `Lead query, please confirm.${tag}`;
 
   const lines = [
     header,
@@ -77,14 +84,67 @@ async function notifyOwnerEscalation(contact, message, classification) {
     `Confidence: ${classification.confidence}`,
     `Location: ${contact.location || 'unknown'}`,
     '',
-    'Last message:',
+    'Customer message:',
     message,
     '',
     isHot
-      ? 'Reply directly to the customer to take over.'
-      : 'Reply with the answer; the team will pass it back to the customer.'
+      ? 'Reply directly to the customer in WhatsApp to take over.'
+      : 'REPLY to THIS message with the answer. The team will deliver it to the customer automatically.'
   ];
-  await sendMessage(ownerPhone, lines.join('\n'));
+  return await sendMessage(ownerPhone, lines.join('\n'));
+}
+
+async function handleOwnerReply(msg, pending) {
+  if (pending.status !== 'pending') {
+    logger.info('handler.owner_reply.already_resolved', { queryId: pending.id, status: pending.status });
+    return;
+  }
+
+  const ownerContact = getOrCreateContact(msg.from, msg.profileName);
+  const ownerConv = getActiveConversation(ownerContact.id);
+  appendMessage(ownerConv.id, 'inbound', msg.body, {
+    whatsapp_message_id: msg.id,
+    intent: 'owner_reply_to_query'
+  });
+
+  const customer = getContactById(pending.contact_id);
+  if (!customer) {
+    logger.error('handler.owner_reply.customer_not_found', {
+      queryId: pending.id,
+      contactId: pending.contact_id
+    });
+    return;
+  }
+
+  const sendRes = await sendMessage(customer.phone, msg.body);
+  if (!sendRes.ok) {
+    logger.error('handler.owner_reply.customer_send_failed', {
+      queryId: pending.id,
+      customerPhone: customer.phone,
+      status: sendRes.status
+    });
+    return;
+  }
+
+  const customerConv = getActiveConversation(customer.id);
+  appendMessage(customerConv.id, 'outbound', msg.body, {
+    whatsapp_message_id: sendRes.messageId,
+    intent: 'owner_provided_answer'
+  });
+
+  resolvePendingQuery(pending.id, msg.body);
+
+  const elapsedMs = Date.now() - new Date(pending.created_at).getTime();
+  logEvent(customer.id, 'silent_query_resolved', {
+    queryId: pending.id,
+    by: 'owner',
+    elapsed_ms: elapsedMs
+  });
+  logger.info('handler.owner_reply.routed', {
+    queryId: pending.id,
+    customerPhone: customer.phone,
+    elapsedMs
+  });
 }
 
 async function handleUnsupported(msg) {
@@ -127,6 +187,15 @@ async function handleInbound(payload) {
         continue;
       }
 
+      const ownerPhone = process.env.OWNER_WHATSAPP;
+      if (ownerPhone && msg.from === ownerPhone && msg.replyToId) {
+        const pending = findPendingByAlertId(msg.replyToId);
+        if (pending) {
+          await handleOwnerReply(msg, pending);
+          continue;
+        }
+      }
+
       const contact = getOrCreateContact(msg.from, msg.profileName);
       const conversation = getActiveConversation(contact.id);
       const priorHistory = getRecentHistory(contact.id, 20);
@@ -140,17 +209,38 @@ async function handleInbound(payload) {
       const refreshedContact = { ...contact, ...readBackContact(contact.id) };
 
       if (classification.needs_escalation) {
+        const escalationType = classification.escalation_type || 'silent_query';
         logEvent(contact.id, 'escalated', {
           intent: classification.intent,
-          escalation_type: classification.escalation_type || 'silent_query',
+          escalation_type: escalationType,
           confidence: classification.confidence
         });
-        await notifyOwnerEscalation(refreshedContact, msg.body, classification);
-        const holding = pickHoldingReply(classification.escalation_type);
+
+        let pendingQueryId = null;
+        if (escalationType === 'silent_query') {
+          pendingQueryId = createPendingQuery({
+            contactId: contact.id,
+            customerMessageId: msg.id,
+            customerMessageText: msg.body,
+            classifierIntent: classification.intent
+          });
+        }
+
+        const alertSendRes = await notifyOwnerEscalation(refreshedContact, msg.body, classification, pendingQueryId);
+        if (pendingQueryId && alertSendRes?.messageId) {
+          setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
+          logger.info('handler.silent_query.created', {
+            queryId: pendingQueryId,
+            alertMessageId: alertSendRes.messageId,
+            customerPhone: contact.phone
+          });
+        }
+
+        const holding = pickHoldingReply(escalationType);
         const sendRes = await sendMessage(msg.from, holding);
         appendMessage(conversation.id, 'outbound', holding, {
           whatsapp_message_id: sendRes.messageId,
-          intent: classification.escalation_type === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
+          intent: escalationType === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
           language: classification.language
         });
         continue;

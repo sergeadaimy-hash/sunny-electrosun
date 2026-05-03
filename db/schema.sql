@@ -57,6 +57,23 @@ CREATE TABLE IF NOT EXISTS reports (
   generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS pending_queries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contact_id INTEGER NOT NULL,
+  customer_message_id TEXT,
+  customer_message_text TEXT,
+  classifier_intent TEXT,
+  alert_message_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  resolved_at TIMESTAMP,
+  owner_reply_text TEXT,
+  FOREIGN KEY (contact_id) REFERENCES contacts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_queries_status ON pending_queries(status);
+CREATE INDEX IF NOT EXISTS idx_pending_queries_alert ON pending_queries(alert_message_id);
+
 CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);

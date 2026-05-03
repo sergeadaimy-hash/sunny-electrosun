@@ -125,6 +125,50 @@ function getMessageByWhatsappId(whatsappMessageId) {
   return db.prepare('SELECT * FROM messages WHERE whatsapp_message_id = ?').get(whatsappMessageId);
 }
 
+function createPendingQuery({ contactId, customerMessageId, customerMessageText, classifierIntent }) {
+  const db = getDb();
+  const ts = nowIso();
+  const info = db.prepare(
+    `INSERT INTO pending_queries
+       (contact_id, customer_message_id, customer_message_text, classifier_intent, status, created_at)
+     VALUES (?, ?, ?, ?, 'pending', ?)`
+  ).run(contactId, customerMessageId || null, customerMessageText || null, classifierIntent || null, ts);
+  return info.lastInsertRowid;
+}
+
+function setPendingQueryAlertId(queryId, alertMessageId) {
+  if (!alertMessageId) return;
+  const db = getDb();
+  db.prepare('UPDATE pending_queries SET alert_message_id = ? WHERE id = ?').run(alertMessageId, queryId);
+}
+
+function findPendingByAlertId(alertMessageId) {
+  if (!alertMessageId) return null;
+  const db = getDb();
+  return db.prepare(
+    "SELECT * FROM pending_queries WHERE alert_message_id = ? AND status = 'pending' LIMIT 1"
+  ).get(alertMessageId) || null;
+}
+
+function resolvePendingQuery(queryId, ownerReplyText) {
+  const db = getDb();
+  db.prepare(
+    "UPDATE pending_queries SET status = 'resolved', resolved_at = ?, owner_reply_text = ? WHERE id = ?"
+  ).run(nowIso(), ownerReplyText, queryId);
+}
+
+function listPendingQueries() {
+  const db = getDb();
+  return db.prepare(
+    "SELECT * FROM pending_queries WHERE status = 'pending' ORDER BY created_at ASC"
+  ).all();
+}
+
+function getContactById(contactId) {
+  const db = getDb();
+  return db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId) || null;
+}
+
 module.exports = {
   getOrCreateContact,
   updateContactFields,
@@ -133,5 +177,11 @@ module.exports = {
   getRecentHistory,
   logEvent,
   getMessageByWhatsappId,
+  createPendingQuery,
+  setPendingQueryAlertId,
+  findPendingByAlertId,
+  resolvePendingQuery,
+  listPendingQueries,
+  getContactById,
   CONVERSATION_WINDOW_MS
 };
