@@ -5,7 +5,7 @@
   "components": [
     {
       "type": "BODY",
-      "text": "Sunny hourly report from ElectroSun. New conversations: {{1}}. Replies sent: {{2}}. Escalations: {{3}}. Top intent: {{4}}. Full breakdown in the dashboard.",
+      "text": "Electro-Sun agent report. New conversations: {{1}}. Replies sent: {{2}}. Escalations: {{3}}. Top intent: {{4}}. Full breakdown in the dashboard.",
       "example": {
         "body_text": [["3", "8", "1", "feature_question"]]
       }

@@ -5,7 +5,7 @@
   "components": [
     {
       "type": "BODY",
-      "text": "Hi {{1}}, this is Sunny from ElectroSun. Just checking back about your recent solar enquiry. Were you able to get the info you needed, or do you have any other questions for our team? Reply STOP to opt out of further follow-ups.",
+      "text": "Hi {{1}}, this is the Electro-Sun team. Just checking back about your recent solar enquiry. Were you able to get what you needed, or any other questions we can help with? Reply STOP to opt out of further follow-ups.",
       "example": {
         "body_text": [["Tunde"]]
       }
