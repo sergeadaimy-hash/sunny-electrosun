@@ -8,7 +8,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Phase 5 is cloud-first** (Railway or Fly.io, NOT Mac Mini). PM2 + named tunnel are no longer in the production path. See `memory/project_cloud_first_decision.md`.
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Latest local commit: `6384bc9`. NOTE: 5 commits queued locally past origin (push hangs in non-interactive shell on credential prompt; Serge pushes manually). After the next `git push`, origin will be at `6384bc9`.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Latest local commit: `d88f70c`. NOTE: 11 commits queued locally past origin (push hangs in non-interactive shell on credential prompt; Serge pushes manually). After the next `git push`, origin will be at `d88f70c`.
 
 **Done (15 of 27, plus #16 came free):**
 1. Meta Developer app `ElectroSun_Whtspp` created. App ID `2440193806402796`.
@@ -36,12 +36,16 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 - Contact #5 (Serge's test number) wiped clean multiple times during testing.
 
 **Phase B code work shipped today (separate from launch sequence):**
-- **Schema migration.** Added `lead_temperature`, `client_type`, `products_asked_about`, `brand_preference`, `budget_mentioned` columns to `contacts`. Added `pending_queries` table with status / alert_message_id / customer_message_id / classifier_intent / created_at / resolved_at / owner_reply_text. Idempotent ALTER TABLE migration in `db/init.js > applyMigrations`.
-- **Reports refactor.** `src/reports.js` now aggregates by `lead_temperature` (HOT/WARM/COLD/DISQUALIFIED) and `category` (C1-C5). Brother's foundation doc Section 9.2 format implemented in `formatReportForWhatsApp`: emoji headers, no em-dashes, hot/warm/silent_query sections. Hourly cron switched from `0 * * * *` to `0 */2 * * *` (every 2 hours per brother's spec).
-- **Silent-query workflow (the killer feature).** When Sunny doesn't know an answer, she sends a YELLOW alert to the owner with `[QID:N]` tag and creates a `pending_queries` row with the alert's wamid. When the owner long-presses the alert and replies in WhatsApp, the webhook delivers the reply with `context.id` matching the alert wamid. `handleOwnerReply` in `src/handler.js` matches the pending row, posts the owner's reply text to the customer, marks resolved, logs `silent_query_resolved` event with `elapsed_ms`. Verified end-to-end: 27.5s loopback test, customer received the relayed answer.
-- **Classifier HOT lock-down.** Initial hardening over-fired HOT for plain pricing questions (a "what's the price of Sungrow 50kW?" came back as HOT/hot_lead, skipping the silent_query workflow). Tightened `src/prompts/classifier.md` so HOT temperature requires explicit commitment phrases (pay/account/proforma/deposit/install-date/proceed/order). Specific-brand pricing now defaults to C2/WARM/silent_query.
-- **Daily learning report (Section 9.3).** `generateDailyLearningReport` in `src/reports.js`. New cron at 21:30 Africa/Lagos (30 min after the daily summary). Pulls unanswered `pending_queries` (still pending after 24h), unsorted contacts, frequent inbound intents (3+ occurrences). Sections 2 ("new patterns with draft replies") and 3 ("internal questions") kept as v2 placeholders.
+- **Schema migration.** Added `lead_temperature`, `client_type`, `products_asked_about`, `brand_preference`, `budget_mentioned`, `expiring_warning_sent_at` columns. Added `pending_queries` and `daily_costs` tables. Idempotent ALTER TABLE migration in `db/init.js > applyMigrations`.
+- **Reports refactor.** `src/reports.js` aggregates by `lead_temperature` (HOT/WARM/COLD/DISQUALIFIED) and `category` (C1-C5). Brother's Section 9.2 format with emoji headers, no em-dashes. Hourly cron switched from `0 * * * *` to `0 */2 * * *` per brother's spec.
+- **Silent-query workflow (the killer feature).** Sunny holds the customer reply, sends YELLOW alert to owner with `[QID:N]` tag and `alert_message_id` captured. When owner long-presses the alert and replies in WhatsApp, webhook's `context.id` matches the pending row. `handleOwnerReply` posts the answer to the customer, marks pending resolved, logs `silent_query_resolved` event with `elapsed_ms`. Verified end-to-end: 27.5s loopback test.
+- **Classifier HOT lock-down.** Tightened `src/prompts/classifier.md` so HOT temperature requires explicit commitment phrases (pay/account/proforma/deposit/install-date/proceed/order). Specific-brand pricing defaults to C2/WARM/silent_query.
+- **Daily learning report (Section 9.3).** `generateDailyLearningReport` in `src/reports.js`. New cron at 21:30 Africa/Lagos. Pulls unanswered `pending_queries`, unsorted contacts, frequent inbound intents.
 - **scripts/seed.js modernized** to C1-C5 + HOT/WARM/COLD demo data.
+- **23h/24h window monitor (`src/window_monitor.js`).** New cron `*/30 * * * *` scans `pending_queries`. Rows past 22h: one-time reminder to owner. Rows past 24h: marked status='expired' and owner gets a "Meta window closed, needs template" alert. Idempotent via `expiring_warning_sent_at` column.
+- **Budget guardrail (`src/cost_tracker.js`).** Per-day spend tracked in `daily_costs` table (cents, integers, no float drift). `recordUsage` after every Anthropic response includes input/output/cache_read/cache_write costs per model. `isOverBudget` short-circuits classify and generateReply to fallback paths when daily spend exceeds `DAILY_LLM_BUDGET_USD`. One-time over-budget alert to owner via the window-scan cron. Pricing per million tokens (cents): haiku in 80/out 400/cache_read 8/cache_write 100; sonnet in 300/out 1500/cache_read 30/cache_write 375.
+- **Template voice aligned.** Both `templates/owner_hourly_report_en.json` and `templates/follow_up_24h_en.json` now say "Electro-Sun team" instead of "Sunny" (brother's foundation doc forbids the name).
+- **FALLBACK_CLASSIFICATION updated** in `src/claude.js` from old `category=explorer` to new C1-C5 framework: `category=unsorted`, `lead_temperature=COLD`, `client_type=unknown`, `escalation_type=silent_query`. Plus generateReply context block now includes `client_type`, `lead_temperature`, `products_asked_about`, `brand_preference`, `budget_mentioned`.
 
 **Open items the brother explicitly left blank** in Section 11 of the foundation doc, must answer before production launch:
 - Reference WhatsApp number for escalations (currently `OWNER_WHATSAPP=966502392650` is Serge's; needs swap to brother's actual number for go-live).
@@ -60,10 +64,11 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 2. Task #15: 48-hour soak with 3-5 testers on the test number. Captures real conversation patterns to feed the daily learning loop.
 3. Task #17: Add ElectroSun's real WhatsApp number to the WABA, swap `META_PHONE_NUMBER_ID` and `OWNER_WHATSAPP` in `.env`.
 4. Task #19: submit the two drafted templates to Meta. 24-48h approval clock.
-5. Phase B code work (separate from launch tasks). MOSTLY DONE 2026-05-03 evening. Remaining:
-   - **23-hour window flag** (defensive). Background scan that warns the owner when a `pending_queries` row is approaching the 24h Meta free-form window. Not blocking; the silent-query workflow works without it.
+5. Phase B code work (separate from launch tasks). DONE 2026-05-03 evening. Only remaining items are nice-to-haves:
    - **v2 daily learning sections.** "New patterns with draft replies" requires an LLM pass over the day's conversations. "Internal questions I have" requires self-generated learning items. Both are placeholders today.
-   - **Custom delivery / installation / warranty default lines** in the system prompt. Currently the silent-query workflow handles "I don't know" gracefully, so these aren't urgent. Comes from brother's Section 11 answers.
+   - **Hot-lead alert with conversation summary.** Brother's foundation doc shows "Project: ..., Ready to: ..., full conversation summary attached." Currently we send classifier metadata + last message. A small Haiku synthesis call could enrich this. Not urgent; brother can scroll history in WhatsApp.
+   - **Dashboard endpoints** for `pending_queries` and `daily_costs` visibility (for a future web UI).
+   - **Custom delivery / installation / warranty default lines** in the system prompt. Comes from brother's Section 11 answers, not blocking.
    - 23-hour window flagging.
    - Cleanup `scripts/seed.js` (still has old category names).
 6. Phase 5 cloud deploy as the final cutover.
