@@ -75,6 +75,15 @@ CREATE TABLE IF NOT EXISTS pending_queries (
 CREATE INDEX IF NOT EXISTS idx_pending_queries_status ON pending_queries(status);
 CREATE INDEX IF NOT EXISTS idx_pending_queries_alert ON pending_queries(alert_message_id);
 
+CREATE TABLE IF NOT EXISTS daily_costs (
+  date TEXT PRIMARY KEY,
+  total_cents INTEGER NOT NULL DEFAULT 0,
+  classifier_calls INTEGER NOT NULL DEFAULT 0,
+  reply_calls INTEGER NOT NULL DEFAULT 0,
+  budget_warning_sent INTEGER NOT NULL DEFAULT 0,
+  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);

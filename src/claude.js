@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const logger = require('./utils/logger');
+const { recordUsage, isOverBudget } = require('./cost_tracker');
 
 const MODEL_CLASSIFIER = 'claude-haiku-4-5';
 const MODEL_REPLY = 'claude-sonnet-4-6';
@@ -41,12 +42,18 @@ async function withRetry(fn, label, maxAttempts = 3) {
 }
 
 const FALLBACK_CLASSIFICATION = {
-  category: 'explorer',
+  category: 'unsorted',
+  lead_temperature: 'COLD',
+  client_type: 'unknown',
   intent: 'other',
   language: 'english',
   confidence: 0,
   needs_escalation: true,
-  lead_data: { name: null, location: null, use_case: null, load_estimate: null, timeline: null }
+  escalation_type: 'silent_query',
+  lead_data: {
+    name: null, location: null, use_case: null, load_estimate: null, timeline: null,
+    products_asked_about: null, brand_preference: null, budget_mentioned: null
+  }
 };
 
 function tryParseJson(text) {
@@ -73,6 +80,11 @@ function formatHistoryAsText(history) {
 }
 
 async function classify(history, message) {
+  if (isOverBudget()) {
+    logger.warn('claude.classify.budget_exceeded');
+    return { ...FALLBACK_CLASSIFICATION };
+  }
+
   const userBlock = `Conversation history:\n${formatHistoryAsText(history)}\n\nLatest customer message:\n${message}\n\nReturn JSON now.`;
 
   const callOnce = () => withRetry(() => client().messages.create({
@@ -83,9 +95,12 @@ async function classify(history, message) {
   }), 'classify');
 
   let parsed = null;
+  let lastResp = null;
   for (let i = 0; i < 2; i++) {
     try {
       const resp = await callOnce();
+      lastResp = resp;
+      if (resp.usage) recordUsage(MODEL_CLASSIFIER, resp.usage, 'classifier');
       const text = resp.content?.[0]?.text || '';
       parsed = tryParseJson(text);
       if (parsed) break;
@@ -124,13 +139,23 @@ function ensureAlternating(messages) {
 }
 
 async function generateReply(history, message, contact) {
+  if (isOverBudget()) {
+    logger.warn('claude.reply.budget_exceeded');
+    return { ok: false, text: null, error: 'budget_exceeded' };
+  }
+
   const contextLines = [];
   if (contact?.name) contextLines.push(`Customer name: ${contact.name}`);
   if (contact?.location) contextLines.push(`Known location: ${contact.location}`);
   if (contact?.use_case) contextLines.push(`Use case: ${contact.use_case}`);
+  if (contact?.client_type) contextLines.push(`Client type: ${contact.client_type}`);
   if (contact?.load_estimate) contextLines.push(`Load: ${contact.load_estimate}`);
   if (contact?.timeline) contextLines.push(`Timeline: ${contact.timeline}`);
   if (contact?.category) contextLines.push(`Current category: ${contact.category}`);
+  if (contact?.lead_temperature) contextLines.push(`Current temperature: ${contact.lead_temperature}`);
+  if (contact?.products_asked_about) contextLines.push(`Products discussed: ${contact.products_asked_about}`);
+  if (contact?.brand_preference) contextLines.push(`Brand preference: ${contact.brand_preference}`);
+  if (contact?.budget_mentioned) contextLines.push(`Budget mentioned: ${contact.budget_mentioned}`);
   const contextBlock = contextLines.length
     ? `\n\n# Known about this customer\n${contextLines.join('\n')}`
     : '';
@@ -153,6 +178,7 @@ async function generateReply(history, message, contact) {
       messages
     }), 'generateReply');
 
+    if (resp.usage) recordUsage(MODEL_REPLY, resp.usage, 'reply');
     const text = resp.content?.find(b => b.type === 'text')?.text?.trim() || '';
     return { ok: true, text, usage: resp.usage };
   } catch (err) {

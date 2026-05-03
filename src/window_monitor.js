@@ -6,6 +6,13 @@ const {
   markPendingQueryExpired,
   logEvent
 } = require('./memory');
+const {
+  shouldSendBudgetWarning,
+  markBudgetWarningSent,
+  getTodaySpendCents,
+  getBudgetCents,
+  getTodayStats
+} = require('./cost_tracker');
 const { sendMessage } = require('./whatsapp');
 
 const WARN_AFTER_HOURS = 22;
@@ -78,7 +85,36 @@ async function runWindowScan() {
     }
   }
 
-  return { warned: needWarning.length, expired: expired.length };
+  let budgetWarningSent = 0;
+  if (shouldSendBudgetWarning()) {
+    const spend = getTodaySpendCents();
+    const budget = getBudgetCents();
+    const stats = getTodayStats();
+    markBudgetWarningSent();
+    budgetWarningSent = 1;
+    logger.warn('window_monitor.budget_warning', {
+      spend_cents: spend,
+      budget_cents: budget,
+      classifier_calls: stats.classifier_calls,
+      reply_calls: stats.reply_calls
+    });
+    if (ownerPhone) {
+      const text = [
+        `Heads up: today's LLM spend has crossed your daily budget.`,
+        `Spent: $${(spend / 100).toFixed(2)} (cap: $${(budget / 100).toFixed(2)})`,
+        `Classifier calls: ${stats.classifier_calls}, reply calls: ${stats.reply_calls}`,
+        '',
+        'New customer messages will get the holding reply only until the budget resets at UTC midnight, or until you raise DAILY_LLM_BUDGET_USD.'
+      ].join('\n');
+      try {
+        await sendMessage(ownerPhone, text);
+      } catch (err) {
+        logger.error('window_monitor.budget_alert_failed', { message: err.message });
+      }
+    }
+  }
+
+  return { warned: needWarning.length, expired: expired.length, budget_warning: budgetWarningSent };
 }
 
 module.exports = { runWindowScan, WARN_AFTER_HOURS, EXPIRE_AFTER_HOURS };
