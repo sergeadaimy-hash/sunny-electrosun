@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
+const LOG_TO_FILE = process.env.LOG_TO_FILE !== 'false';
 const LOG_DIR = path.join(__dirname, '..', '..', 'logs');
-if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+if (LOG_TO_FILE && !fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const KEEP_ROTATIONS = 5;
@@ -48,6 +49,7 @@ function write(level, msg, meta) {
   const stream = level === 'error' ? process.stderr : process.stdout;
   stream.write(line + '\n');
 
+  if (!LOG_TO_FILE) return;
   rotateIfNeeded();
   fs.appendFileSync(currentLogPath(), line + '\n');
 }

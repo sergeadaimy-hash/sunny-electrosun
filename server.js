@@ -98,6 +98,10 @@ if (require.main === module) {
 }
 
 function snapshotDb() {
+  if (process.env.LOG_TO_FILE === 'false') {
+    logger.info('snapshot.skipped', { reason: 'LOG_TO_FILE=false (cloud deploy uses platform backups)' });
+    return;
+  }
   try {
     const date = new Date().toISOString().slice(0, 10);
     const dest = path.join(__dirname, 'logs', `sunny_${date}.db`);
