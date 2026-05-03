@@ -17,7 +17,7 @@ const { generateReply } = require('./claude');
 const { sendMessage } = require('./whatsapp');
 
 const HOT_LEAD_REPLY = "Great. One of our specialists will reach out to you shortly to finalise the details and send the formal documents.";
-const SILENT_QUERY_REPLY = "Let me confirm the exact spec or price and get back to you in a few minutes.";
+const SILENT_QUERY_REPLY = "Our specialist will confirm the exact figure for you shortly.";
 const UNSUPPORTED_REPLY = "Hello, this number receives text messages only. Please type your question and I'll get back to you right away.";
 
 function buildSpecialistLink(customerMessage) {
