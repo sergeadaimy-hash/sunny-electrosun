@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+db/sunny.db
+db/sunny.db-journal
+db/sunny.db-wal
+db/sunny.db-shm
+logs/
+!logs/.gitkeep
+.DS_Store
+*.swp
+.idea/
+.vscode/

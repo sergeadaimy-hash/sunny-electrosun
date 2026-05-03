@@ -1,0 +1,132 @@
+const { getDb } = require('../db/init');
+
+const CONVERSATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function getOrCreateContact(phone, name = null) {
+  const db = getDb();
+  let row = db.prepare('SELECT * FROM contacts WHERE phone = ?').get(phone);
+  if (row) return row;
+
+  const ts = nowIso();
+  const info = db.prepare(
+    'INSERT INTO contacts (phone, name, first_seen, last_active) VALUES (?, ?, ?, ?)'
+  ).run(phone, name, ts, ts);
+  return db.prepare('SELECT * FROM contacts WHERE id = ?').get(info.lastInsertRowid);
+}
+
+function updateContactFields(contactId, fields) {
+  const db = getDb();
+  const allowed = ['name', 'category', 'language', 'location', 'use_case', 'load_estimate', 'timeline', 'notes', 'last_active'];
+  const updates = [];
+  const values = [];
+
+  for (const key of allowed) {
+    if (fields[key] !== undefined && fields[key] !== null) {
+      updates.push(`${key} = ?`);
+      values.push(fields[key]);
+    }
+  }
+  if (!updates.length) return;
+  values.push(contactId);
+  db.prepare(`UPDATE contacts SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+}
+
+function getActiveConversation(contactId) {
+  const db = getDb();
+  const latest = db.prepare(
+    "SELECT * FROM conversations WHERE contact_id = ? ORDER BY id DESC LIMIT 1"
+  ).get(contactId);
+
+  if (latest && latest.last_message_at) {
+    const lastMs = new Date(latest.last_message_at).getTime();
+    if (Date.now() - lastMs < CONVERSATION_WINDOW_MS) {
+      return latest;
+    }
+  } else if (latest && !latest.last_message_at) {
+    return latest;
+  }
+
+  const ts = nowIso();
+  const info = db.prepare(
+    'INSERT INTO conversations (contact_id, status, started_at, last_message_at) VALUES (?, ?, ?, ?)'
+  ).run(contactId, 'active', ts, ts);
+  return db.prepare('SELECT * FROM conversations WHERE id = ?').get(info.lastInsertRowid);
+}
+
+function appendMessage(conversationId, direction, body, meta = {}) {
+  const db = getDb();
+  const { intent = null, language = null, whatsapp_message_id = null } = meta;
+
+  if (whatsapp_message_id) {
+    const existing = db.prepare(
+      'SELECT id FROM messages WHERE whatsapp_message_id = ?'
+    ).get(whatsapp_message_id);
+    if (existing) return { id: existing.id, duplicate: true };
+  }
+
+  const ts = nowIso();
+  const info = db.prepare(
+    'INSERT INTO messages (conversation_id, direction, body, intent, language, whatsapp_message_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(conversationId, direction, body, intent, language, whatsapp_message_id, ts);
+
+  db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').run(ts, conversationId);
+
+  const conv = db.prepare('SELECT contact_id FROM conversations WHERE id = ?').get(conversationId);
+  if (conv) {
+    db.prepare('UPDATE contacts SET last_active = ? WHERE id = ?').run(ts, conv.contact_id);
+  }
+
+  return { id: info.lastInsertRowid, duplicate: false };
+}
+
+function getRecentHistory(contactId, limit = 20) {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT m.direction, m.body, m.timestamp
+    FROM messages m
+    JOIN conversations c ON c.id = m.conversation_id
+    WHERE c.contact_id = ?
+    ORDER BY m.id DESC
+    LIMIT ?
+  `).all(contactId, limit);
+
+  rows.reverse();
+
+  const messages = [];
+  for (const r of rows) {
+    const role = r.direction === 'inbound' ? 'user' : 'assistant';
+    const last = messages[messages.length - 1];
+    if (last && last.role === role) {
+      last.content += '\n' + r.body;
+    } else {
+      messages.push({ role, content: r.body });
+    }
+  }
+  return messages;
+}
+
+function logEvent(contactId, type, payload = null) {
+  const db = getDb();
+  const payloadStr = payload ? JSON.stringify(payload) : null;
+  db.prepare('INSERT INTO events (contact_id, type, payload, timestamp) VALUES (?, ?, ?, ?)').run(contactId, type, payloadStr, nowIso());
+}
+
+function getMessageByWhatsappId(whatsappMessageId) {
+  const db = getDb();
+  return db.prepare('SELECT * FROM messages WHERE whatsapp_message_id = ?').get(whatsappMessageId);
+}
+
+module.exports = {
+  getOrCreateContact,
+  updateContactFields,
+  getActiveConversation,
+  appendMessage,
+  getRecentHistory,
+  logEvent,
+  getMessageByWhatsappId,
+  CONVERSATION_WINDOW_MS
+};

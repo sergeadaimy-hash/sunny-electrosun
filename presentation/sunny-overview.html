@@ -1,0 +1,1176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sunny, the WhatsApp Account Manager for ElectroSun</title>
+<meta name="description" content="A plain-language overview of Sunny, the WhatsApp account manager built for ElectroSun in Nigeria." />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --cream: #f6efe1;
+    --cream-deep: #efe5cf;
+    --paper: #fbf6ea;
+    --ink: #15202b;
+    --ink-soft: #2d3a45;
+    --ink-mute: #5a6672;
+    --sun: #f4a72a;
+    --sun-deep: #e2871d;
+    --sun-soft: #fdd98a;
+    --ember: #c5481c;
+    --teal: #1f6f7a;
+    --teal-soft: #cde5e6;
+    --line: #1520200f;
+    --line-strong: #15202022;
+    --shadow: 0 1px 0 #15202010, 0 6px 18px -10px #15202022;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:'Inter', system-ui, -apple-system, sans-serif;
+    background: var(--cream);
+    color: var(--ink);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    background-image:
+      radial-gradient(1200px 600px at 90% -10%, #fbe2a955 0%, transparent 60%),
+      radial-gradient(900px 500px at -10% 20%, #f3d27e44 0%, transparent 55%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.12 0 0 0 0 0.16 0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    background-attachment: fixed, fixed, fixed;
+  }
+
+  a{color:var(--ink); text-decoration: none; border-bottom:1px solid var(--line-strong)}
+  a:hover{color:var(--ember)}
+
+  /* ----- Layout ----- */
+  .wrap{max-width:1180px; margin:0 auto; padding:32px 40px}
+  header.topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 40px; max-width:1180px; margin:0 auto;
+    border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex; align-items:center; gap:12px; font-weight:600; letter-spacing:0.02em}
+  .brand-mark{width:36px; height:36px}
+  .brand-name{font-family:'Fraunces', serif; font-size:22px; font-weight:600; letter-spacing:-0.01em}
+  .brand-sub{font-size:12px; color:var(--ink-mute); margin-left:6px; text-transform:uppercase; letter-spacing:0.18em}
+  nav.toc{display:flex; gap:22px; font-size:13px; color:var(--ink-mute)}
+  nav.toc a{border:none; color:var(--ink-mute)}
+  nav.toc a:hover{color:var(--ember)}
+
+  section{padding:72px 0; border-top:1px dashed var(--line-strong)}
+  section:first-of-type{border-top:none}
+  .eyebrow{
+    font-size:11px; letter-spacing:0.22em; text-transform:uppercase;
+    color:var(--ember); font-weight:600; margin-bottom:16px;
+    display:inline-flex; align-items:center; gap:10px;
+  }
+  .eyebrow .num{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:22px; height:22px; border-radius:50%; background:var(--sun);
+    color:var(--ink); font-family:'Fraunces',serif; font-size:13px; font-weight:600;
+  }
+  h1,h2,h3,h4{font-family:'Fraunces', serif; color:var(--ink); margin:0 0 14px; font-weight:600; letter-spacing:-0.015em}
+  h1{font-size: clamp(44px, 6vw, 80px); line-height:1.02}
+  h2{font-size: clamp(30px, 3.4vw, 44px); line-height:1.08; max-width: 760px}
+  h3{font-size: 20px; line-height:1.25}
+  h4{font-size: 15px; line-height:1.3; font-family:'Inter',sans-serif; font-weight:600; letter-spacing:0}
+  p{margin:0 0 12px; color:var(--ink-soft)}
+  .lede{font-size:18px; color:var(--ink-soft); max-width:720px}
+
+  /* ----- Hero ----- */
+  .hero{
+    position:relative;
+    padding-top: 28px; padding-bottom: 88px;
+    overflow:hidden;
+  }
+  .hero-grid{
+    display:grid; grid-template-columns: 1.15fr 0.85fr; gap: 56px; align-items:center;
+  }
+  .hero-tag{
+    display:inline-flex; align-items:center; gap:10px;
+    background: #ffffff8a; border:1px solid var(--line-strong);
+    padding:8px 14px; border-radius:999px; font-size:12px; color:var(--ink-soft);
+    backdrop-filter: blur(2px);
+  }
+  .hero-tag .dot{width:7px; height:7px; border-radius:50%; background:#2aa05a; box-shadow:0 0 0 4px #2aa05a22}
+  h1 .accent{
+    background: linear-gradient(180deg, #f4a72a 0%, #e2871d 100%);
+    -webkit-background-clip: text; background-clip:text; color:transparent;
+    font-style: italic;
+  }
+  h1 .underline{
+    position:relative; display:inline-block;
+  }
+  h1 .underline::after{
+    content:""; position:absolute; left:2%; right:2%; bottom:-4px; height:8px;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 10' preserveAspectRatio='none'><path d='M2 6 Q 50 -2 100 6 T 198 6' stroke='%23f4a72a' stroke-width='3' fill='none' stroke-linecap='round'/></svg>") no-repeat center / 100% 100%;
+  }
+  .value{font-size: 19px; max-width: 560px; color:var(--ink-soft); margin-top:22px}
+  .meta{
+    margin-top:28px; display:flex; flex-wrap:wrap; gap:22px;
+    color:var(--ink-mute); font-size:13px; letter-spacing:0.02em;
+  }
+  .meta span{display:inline-flex; align-items:center; gap:8px}
+  .meta svg{width:14px; height:14px}
+
+  .hero-art{
+    position:relative; aspect-ratio: 1 / 1.05;
+    background: var(--paper);
+    border:1px solid var(--line-strong);
+    border-radius: 18px;
+    overflow:hidden;
+    box-shadow: var(--shadow);
+  }
+  .hero-art .label{
+    position:absolute; top:14px; left:18px; font-size:11px; color:var(--ink-mute);
+    letter-spacing:0.18em; text-transform:uppercase;
+  }
+  .hero-art .label-r{
+    position:absolute; top:14px; right:18px; font-size:11px; color:var(--ink-mute);
+    letter-spacing:0.18em; text-transform:uppercase;
+  }
+
+  /* ----- Generic cards ----- */
+  .grid{display:grid; gap:18px}
+  .grid-3{grid-template-columns: repeat(3, 1fr)}
+  .grid-2{grid-template-columns: repeat(2, 1fr)}
+  .grid-6{grid-template-columns: repeat(3, 1fr)}
+  .card{
+    background: var(--paper);
+    border:1px solid var(--line-strong);
+    border-radius: 14px;
+    padding: 22px 22px 20px;
+    position:relative;
+  }
+  .card .icn{
+    width:38px; height:38px; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    background: var(--sun-soft);
+    color:var(--ink);
+    margin-bottom:14px;
+  }
+  .card.teal .icn{background: var(--teal-soft); color: var(--teal)}
+  .card .label{
+    font-size:10px; letter-spacing:0.18em; text-transform:uppercase;
+    color: var(--ink-mute); margin-bottom: 4px;
+  }
+  .card p{font-size:14px; color:var(--ink-soft); margin:0}
+  .card.tile h3{font-size:16px; margin-bottom:6px}
+
+  /* ----- Section: Capabilities ----- */
+  .caps{display:grid; grid-template-columns: repeat(6, 1fr); gap:14px}
+  .cap{
+    background: var(--paper);
+    border:1px solid var(--line-strong);
+    border-radius:14px; padding:18px 16px 16px; min-height:170px;
+    display:flex; flex-direction:column; justify-content:space-between;
+  }
+  .cap .icn{
+    width:34px; height:34px; border-radius:9px; background:var(--sun-soft);
+    display:flex; align-items:center; justify-content:center; margin-bottom:14px;
+  }
+  .cap h4{font-size:14px; margin:0; line-height:1.3}
+
+  /* ----- Flow diagram ----- */
+  .flow{
+    background: var(--paper);
+    border:1px solid var(--line-strong);
+    border-radius:18px; padding: 28px;
+    position:relative; overflow:hidden;
+  }
+  .flow-steps{
+    display:grid; grid-template-columns: repeat(4, 1fr); gap:18px;
+  }
+  .step{
+    background: #fff; border:1px solid var(--line-strong); border-radius:12px;
+    padding:16px 16px 14px; position:relative;
+  }
+  .step .step-num{
+    position:absolute; top:-12px; left:14px;
+    width:26px; height:26px; border-radius:50%;
+    background: var(--ink); color: var(--cream);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Fraunces',serif; font-size:13px;
+  }
+  .step h4{margin:8px 0 6px; font-size:14px}
+  .step p{font-size:13px; line-height:1.5; color:var(--ink-soft); margin:0}
+  .step .step-icn{width:22px; height:22px; color:var(--ember); margin-top:2px}
+  .branch{
+    margin-top:22px; display:grid; grid-template-columns: 1fr 1fr; gap:14px;
+  }
+  .branch .step{
+    border-left: 4px solid;
+  }
+  .branch .a{border-left-color: var(--ember)}
+  .branch .b{border-left-color: var(--teal)}
+  .branch .tag{
+    position:absolute; top:-10px; right:14px;
+    font-size:10px; letter-spacing:0.16em; text-transform:uppercase;
+    background: #fff; padding:3px 8px; border-radius:999px; border:1px solid var(--line-strong);
+    color:var(--ink-mute);
+  }
+  .flow-final{
+    margin-top:22px; display:grid; grid-template-columns: 1fr 1fr; gap:14px;
+  }
+
+  /* SVG arrow helpers in flow */
+  .flow-steps .step::after{
+    content:""; position:absolute; right:-14px; top:50%;
+    width:14px; height:2px; background: var(--ink-soft); opacity:.35;
+  }
+  .flow-steps .step:last-child::after{display:none}
+
+  /* ----- Brain section ----- */
+  .brains{display:grid; grid-template-columns: 1fr 1fr; gap:22px}
+  .brain{
+    background: var(--paper); border:1px solid var(--line-strong);
+    border-radius:16px; padding:26px;
+  }
+  .brain .pill{
+    display:inline-block; font-size:11px; letter-spacing:0.16em; text-transform:uppercase;
+    padding:5px 10px; border-radius:999px; margin-bottom:14px; font-weight:600;
+  }
+  .brain.fast .pill{background: var(--sun); color: var(--ink)}
+  .brain.smart .pill{background: var(--teal); color: #fff}
+  .brain h3{font-size:24px}
+  .brain ul{margin:14px 0 0; padding:0; list-style:none}
+  .brain li{
+    font-size:14px; color:var(--ink-soft);
+    padding:8px 0; border-top:1px dashed var(--line-strong);
+    display:flex; gap:10px; align-items:flex-start;
+  }
+  .brain li::before{
+    content:""; flex:0 0 7px; width:7px; height:7px; border-radius:50%;
+    background: currentColor; opacity:.5; margin-top:8px;
+  }
+  .footnote{font-size:12px; color:var(--ink-mute); margin-top:18px; font-style:italic}
+
+  /* ----- Categories ----- */
+  .cat-grid{display:grid; grid-template-columns: repeat(3, 1fr); gap:14px}
+  .cat{
+    background: var(--paper); border:1px solid var(--line-strong); border-radius:12px;
+    padding:18px;
+  }
+  .cat .key{
+    font-family:'Fraunces',serif; font-size:13px; color:var(--ember);
+    letter-spacing:0.02em; margin-bottom:4px; font-style:italic;
+  }
+  .cat h4{margin:0 0 8px; font-size:16px}
+  .cat .sample{
+    font-size:13px; color:var(--ink-mute); font-style:italic;
+    border-left:2px solid var(--sun); padding-left:10px; margin-top:10px;
+  }
+
+  /* ----- Languages ----- */
+  .langs{display:grid; grid-template-columns: repeat(5, 1fr); gap:12px}
+  .lang{
+    background: var(--paper); border:1px solid var(--line-strong); border-radius:12px;
+    padding:18px 16px; text-align:left;
+  }
+  .lang .flag{
+    width:42px; height:28px; border-radius:4px; margin-bottom:12px;
+    border:1px solid var(--line-strong); overflow:hidden;
+  }
+  .lang h4{margin:0 0 6px; font-size:15px}
+  .lang .sample{font-size:13px; color:var(--ink-soft); font-style:italic; line-height:1.45}
+  .lang .region{font-size:11px; color:var(--ink-mute); letter-spacing:0.12em; text-transform:uppercase; margin-top:8px}
+
+  /* ----- Escalation ----- */
+  .esc{display:grid; grid-template-columns: 1.05fr 0.95fr; gap:24px}
+  .esc-list{
+    background: var(--paper); border:1px solid var(--line-strong);
+    border-radius:14px; padding:22px;
+  }
+  .esc-list ul{list-style:none; padding:0; margin:0}
+  .esc-list li{
+    display:flex; gap:12px; align-items:flex-start;
+    padding:12px 0; border-top:1px dashed var(--line-strong); font-size:14px; color:var(--ink-soft);
+  }
+  .esc-list li:first-child{border-top:none; padding-top:0}
+  .esc-list .icn{
+    width:28px; height:28px; border-radius:8px;
+    background: var(--ember); color: #fff;
+    display:flex; align-items:center; justify-content:center; flex:0 0 28px;
+  }
+  .alert-card{
+    background: #fff; border:1px solid var(--line-strong); border-radius:14px;
+    padding:0; overflow:hidden;
+  }
+  .alert-card header{
+    background: var(--ink); color: var(--cream);
+    padding:14px 18px; font-size:12px; letter-spacing:0.14em; text-transform:uppercase;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .alert-card .body{padding:18px 20px}
+  .alert-card .row{
+    display:flex; justify-content:space-between; gap:12px;
+    padding:8px 0; border-top:1px dashed var(--line-strong);
+    font-size:14px;
+  }
+  .alert-card .row:first-of-type{border-top:none}
+  .alert-card .row .k{color:var(--ink-mute); font-size:12px; letter-spacing:0.06em; text-transform:uppercase}
+  .alert-card .row .v{font-weight:600; color:var(--ink); text-align:right}
+  .alert-card .quote{
+    margin-top:12px; padding:12px 14px; background: var(--cream-deep);
+    border-radius:10px; font-size:14px; font-style:italic; color:var(--ink-soft);
+  }
+
+  /* ----- Reports ----- */
+  .reports{display:grid; grid-template-columns: 1fr 1fr 1fr; gap:18px}
+  .report-col{
+    background: var(--paper); border:1px solid var(--line-strong); border-radius:14px;
+    padding:22px;
+  }
+  .report-col h3{font-size:18px; margin-bottom:6px}
+  .report-col .meta{margin:0 0 14px; font-size:12px; color:var(--ink-mute)}
+  .report-col ul{list-style:none; padding:0; margin:0}
+  .report-col li{
+    font-size:13px; color:var(--ink-soft);
+    padding:8px 0; border-top:1px dashed var(--line-strong);
+    display:flex; gap:10px;
+  }
+  .report-col li::before{
+    content:""; width:6px; height:6px; border-radius:50%;
+    background: var(--sun-deep); margin-top:8px; flex:0 0 6px;
+  }
+  .digest{
+    background: #fff; border:1px solid var(--line-strong); border-radius:14px; overflow:hidden;
+  }
+  .digest header{
+    background: var(--teal); color: #fff;
+    padding:12px 16px; font-size:12px; letter-spacing:0.14em; text-transform:uppercase;
+    display:flex; justify-content:space-between;
+  }
+  .digest .body{padding:16px}
+  .digest .stat{display:flex; justify-content:space-between; padding:7px 0; font-size:13px; color:var(--ink-soft); border-top:1px dashed var(--line-strong)}
+  .digest .stat:first-of-type{border-top:none}
+  .digest .stat b{color:var(--ink); font-variant-numeric: tabular-nums}
+
+  /* ----- Dashboard teaser ----- */
+  .dash{
+    background: var(--paper); border:1px solid var(--line-strong);
+    border-radius:18px; padding:28px;
+    display:grid; grid-template-columns: 1fr 1.1fr; gap:28px; align-items:center;
+  }
+  .wires{display:grid; grid-template-columns: repeat(3, 1fr); gap:12px}
+  .wire{
+    background: #fff; border:1px solid var(--line-strong); border-radius:12px;
+    padding:14px; min-height:170px; display:flex; flex-direction:column; gap:8px;
+  }
+  .wire .bar{height:8px; background:#15202012; border-radius:4px}
+  .wire .bar.short{width:55%}
+  .wire .bar.tall{height:34px}
+  .wire .bar.sun{background: var(--sun-soft)}
+  .wire .bar.teal{background: var(--teal-soft)}
+  .wire h4{margin:0 0 4px; font-size:13px}
+
+  /* ----- Tech stack ----- */
+  .stack{display:grid; gap:16px}
+  .stack-row{
+    display:grid; grid-template-columns: 180px 1fr; gap:18px; align-items:flex-start;
+    padding:14px 0; border-top:1px dashed var(--line-strong);
+  }
+  .stack-row:first-child{border-top:none}
+  .stack-row .group{
+    font-family:'Fraunces',serif; font-size:18px; color:var(--ink);
+  }
+  .chips{display:flex; flex-wrap:wrap; gap:8px}
+  .chip{
+    display:inline-flex; align-items:center; gap:8px;
+    background: var(--paper); border:1px solid var(--line-strong);
+    padding:7px 12px; border-radius:999px; font-size:13px; color:var(--ink-soft);
+  }
+  .chip b{color:var(--ink); font-weight:600}
+  .chip .dot{width:7px; height:7px; border-radius:50%; background: var(--sun)}
+  .chip.teal .dot{background: var(--teal)}
+  .chip.ember .dot{background: var(--ember)}
+
+  /* ----- Big numbers ----- */
+  .bignums{display:grid; grid-template-columns: repeat(3, 1fr); gap:18px}
+  .bignum{
+    background: var(--paper); border:1px solid var(--line-strong); border-radius:14px;
+    padding:26px; position:relative; overflow:hidden;
+  }
+  .bignum .n{
+    font-family:'Fraunces',serif; font-size:48px; line-height:1; letter-spacing:-0.02em;
+    color:var(--ink);
+  }
+  .bignum .n .unit{font-size:18px; color:var(--ink-mute); font-style:italic}
+  .bignum .lbl{
+    margin-top:10px; font-size:13px; color:var(--ink-soft);
+  }
+  .bignum::before{
+    content:""; position:absolute; right:-30px; top:-30px;
+    width:120px; height:120px; border-radius:50%;
+    background: radial-gradient(circle at 30% 30%, var(--sun-soft), transparent 65%);
+    opacity:.7;
+  }
+
+  /* ----- Status columns ----- */
+  .status{display:grid; grid-template-columns: 1fr 1fr; gap:24px}
+  .status .col{
+    background: var(--paper); border:1px solid var(--line-strong); border-radius:14px;
+    padding:24px;
+  }
+  .status .col h3{display:flex; align-items:center; gap:10px}
+  .status ul{list-style:none; padding:0; margin:14px 0 0}
+  .status li{
+    display:flex; gap:12px; padding:10px 0; border-top:1px dashed var(--line-strong);
+    font-size:14px; color:var(--ink-soft);
+  }
+  .status li:first-of-type{border-top:none}
+  .status .ck{
+    flex:0 0 22px; width:22px; height:22px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    background: #2aa05a; color:#fff;
+  }
+  .status .next .ck{background: var(--teal)}
+  .badge{
+    display:inline-block; font-size:10px; letter-spacing:0.16em; text-transform:uppercase;
+    padding:4px 8px; border-radius:999px; font-weight:600;
+  }
+  .badge.live{background:#2aa05a; color:#fff}
+  .badge.next{background: var(--teal); color:#fff}
+
+  /* ----- Footer ----- */
+  footer{
+    padding: 36px 40px 64px; max-width:1180px; margin: 0 auto;
+    color:var(--ink-mute); font-size:12px; display:flex; justify-content:space-between;
+    border-top:1px solid var(--line-strong);
+  }
+  footer .mark{display:flex; align-items:center; gap:10px}
+  footer svg{width:18px; height:18px}
+
+  /* ----- Mock chat ----- */
+  .chat{
+    position:absolute; inset:46px 24px 24px;
+    display:flex; flex-direction:column; gap:10px; justify-content:flex-end;
+  }
+  .bubble{
+    max-width:78%; padding:10px 14px; border-radius:14px;
+    font-size:13.5px; line-height:1.45;
+    border:1px solid var(--line-strong);
+  }
+  .bubble.cust{
+    align-self:flex-start; background:#fff;
+    border-top-left-radius:4px;
+  }
+  .bubble.sun{
+    align-self:flex-end; background: var(--sun-soft);
+    border-top-right-radius:4px;
+  }
+  .bubble small{display:block; font-size:10px; letter-spacing:0.1em; color:var(--ink-mute); margin-top:4px; text-transform:uppercase}
+
+  /* ----- Sun mark ----- */
+  .sunmark{position:absolute; pointer-events:none}
+
+  /* ----- Responsiveness ----- */
+  @media (max-width: 980px){
+    .hero-grid{grid-template-columns: 1fr; gap:32px}
+    .grid-3, .reports{grid-template-columns: 1fr}
+    .grid-2, .brains, .esc, .dash, .status{grid-template-columns: 1fr}
+    .caps{grid-template-columns: repeat(2, 1fr)}
+    .langs{grid-template-columns: repeat(2, 1fr)}
+    .cat-grid{grid-template-columns: 1fr}
+    .flow-steps{grid-template-columns: 1fr 1fr}
+    .flow-steps .step::after{display:none}
+    .branch, .flow-final{grid-template-columns: 1fr}
+    .wires{grid-template-columns: 1fr 1fr}
+    .bignums{grid-template-columns: 1fr}
+    .stack-row{grid-template-columns: 1fr}
+    nav.toc{display:none}
+  }
+
+  /* ----- Print ----- */
+  @media print{
+    html, body{
+      background: #fff !important;
+      color:#000 !important;
+      font-size: 11pt;
+    }
+    body{background-image:none !important}
+    header.topbar nav.toc{display:none}
+    header.topbar{position:static}
+    .wrap{padding: 12mm 14mm; max-width:none}
+    section{padding: 18mm 14mm; page-break-inside: avoid; border-top:1px solid #ddd}
+    .hero{padding-top: 8mm}
+    .card, .cap, .step, .brain, .cat, .lang, .esc-list, .alert-card, .digest, .report-col,
+    .dash, .wire, .bignum, .status .col{
+      box-shadow: none !important;
+      background: #fff !important;
+      border:1px solid #ccc !important;
+    }
+    .flow, .esc, .dash, .reports, .stack{page-break-inside: avoid}
+    h1, h2, h3, h4{color:#000 !important}
+    .bignum::before, .sunmark{display:none !important}
+    a{color:#000; border:none}
+    footer{border-color:#ccc}
+    nav.toc{display:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ======= TOP BAR ======= -->
+<header class="topbar" role="banner">
+  <div class="brand" aria-label="Sunny logo">
+    <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+      <circle cx="32" cy="32" r="12" fill="#f4a72a"/>
+      <g stroke="#f4a72a" stroke-width="3.5" stroke-linecap="round">
+        <line x1="32" y1="6" x2="32" y2="14"/>
+        <line x1="32" y1="50" x2="32" y2="58"/>
+        <line x1="6" y1="32" x2="14" y2="32"/>
+        <line x1="50" y1="32" x2="58" y2="32"/>
+        <line x1="13" y1="13" x2="19" y2="19"/>
+        <line x1="45" y1="45" x2="51" y2="51"/>
+        <line x1="13" y1="51" x2="19" y2="45"/>
+        <line x1="45" y1="19" x2="51" y2="13"/>
+      </g>
+    </svg>
+    <div>
+      <div class="brand-name">Sunny<span class="brand-sub">for ElectroSun</span></div>
+    </div>
+  </div>
+  <nav class="toc" aria-label="Section links">
+    <a href="#problem">Problem</a>
+    <a href="#flow">Flow</a>
+    <a href="#brain">Brain</a>
+    <a href="#reports">Reports</a>
+    <a href="#stack">Stack</a>
+    <a href="#status">Status</a>
+  </nav>
+</header>
+
+<main class="wrap">
+
+<!-- ======= 1. HERO ======= -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-grid">
+    <div>
+      <span class="hero-tag"><span class="dot" aria-hidden="true"></span> Project brief, May 2026</span>
+      <h1 id="hero-title" style="margin-top:18px">
+        Meet <span class="accent">Sunny</span>,<br/>
+        a tireless WhatsApp <span class="underline">teammate</span> for ElectroSun.
+      </h1>
+      <p class="value">
+        Sunny replies to every WhatsApp customer the moment they message, in their own language, qualifies real buyers, escalates the urgent ones, and keeps the owner informed every hour.
+      </p>
+      <div class="meta">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> Always on, 24/7</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 L2 22 H22 Z"/></svg> Built for ElectroSun, Nigeria</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg> Powered by Claude AI</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg> Runs on a Mac Mini</span>
+      </div>
+    </div>
+
+    <!-- Hero illustration: a panel of bubbles + sunmark -->
+    <div class="hero-art" role="img" aria-label="Illustration of customer WhatsApp messages and Sunny replying with a sun motif overhead">
+      <div class="label">Customer</div>
+      <div class="label-r">Sunny</div>
+      <!-- Decorative sun -->
+      <svg class="sunmark" style="top:-46px; right:-46px; width:200px; height:200px" viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <radialGradient id="sg" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#fdd98a"/>
+            <stop offset="100%" stop-color="#f4a72a"/>
+          </radialGradient>
+        </defs>
+        <circle cx="100" cy="100" r="56" fill="url(#sg)"/>
+        <g stroke="#e2871d" stroke-width="3" stroke-linecap="round" opacity="0.75">
+          <line x1="100" y1="20" x2="100" y2="40"/>
+          <line x1="100" y1="160" x2="100" y2="180"/>
+          <line x1="20" y1="100" x2="40" y2="100"/>
+          <line x1="160" y1="100" x2="180" y2="100"/>
+          <line x1="40" y1="40" x2="55" y2="55"/>
+          <line x1="145" y1="145" x2="160" y2="160"/>
+          <line x1="40" y1="160" x2="55" y2="145"/>
+          <line x1="145" y1="55" x2="160" y2="40"/>
+        </g>
+      </svg>
+      <!-- Decorative panel grid (solar) bottom-left -->
+      <svg class="sunmark" style="bottom:-30px; left:-30px; width:180px; height:180px; opacity:.5" viewBox="0 0 180 180" aria-hidden="true">
+        <g transform="rotate(-12 90 90)" stroke="#1f6f7a" stroke-width="1.4" fill="#cde5e6">
+          <rect x="20" y="40" width="40" height="60" rx="3"/>
+          <rect x="62" y="40" width="40" height="60" rx="3"/>
+          <rect x="20" y="102" width="40" height="60" rx="3"/>
+          <rect x="62" y="102" width="40" height="60" rx="3"/>
+          <line x1="40" y1="40" x2="40" y2="100" stroke="#1f6f7a" stroke-width="0.6"/>
+          <line x1="82" y1="40" x2="82" y2="100" stroke="#1f6f7a" stroke-width="0.6"/>
+          <line x1="20" y1="70" x2="100" y2="70" stroke="#1f6f7a" stroke-width="0.6"/>
+          <line x1="20" y1="132" x2="100" y2="132" stroke="#1f6f7a" stroke-width="0.6"/>
+        </g>
+      </svg>
+
+      <div class="chat" aria-hidden="true">
+        <div class="bubble cust">Good day, abeg how much for solar wey go run my barbing salon?</div>
+        <div class="bubble sun">
+          Hello! I can help with that. To size the right system, please share two things: the appliances you run (clipper, fan, lights, fridge?) and your location.
+          <small>Sunny, in Pidgin context</small>
+        </div>
+        <div class="bubble cust">Sannu, ina son tsarin solar don gida na</div>
+        <div class="bubble sun">
+          Sannu da zuwa! Zan iya taimaka maka. Ina gidanka yake, kuma kayan lantarki nawa kake amfani da su a kowace rana?
+          <small>Sunny, in Hausa</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======= 2. PROBLEM ======= -->
+<section id="problem" aria-labelledby="problem-title">
+  <span class="eyebrow"><span class="num">01</span> The problem</span>
+  <h2 id="problem-title">Customers reach out anytime. The team can only be in one chat at a time.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    Across Lagos, Abuja, Kano and beyond, the first message a buyer sends is often the only window we have. Three pressures compound at once.
+  </p>
+  <div class="grid grid-3">
+    <article class="card">
+      <div class="icn" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </div>
+      <div class="label">Speed</div>
+      <h3>Replies are slow, leads go cold.</h3>
+      <p>Customers ping at 11pm, on weekends, during installs. The longer they wait, the more likely they ring a competitor instead.</p>
+    </article>
+    <article class="card">
+      <div class="icn" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h10M4 17h16"/></svg>
+      </div>
+      <div class="label">Languages</div>
+      <h3>Five languages on one number.</h3>
+      <p>English, Pidgin, Hausa, Yoruba, Igbo. The team cannot always switch context fast enough, and tone matters as much as words.</p>
+    </article>
+    <article class="card">
+      <div class="icn" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>
+      </div>
+      <div class="label">Signal</div>
+      <h3>Hard to spot serious buyers.</h3>
+      <p>Most chats are general questions. The few buyers ready to invoice are buried in the noise unless someone reads every thread.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ======= 3. CAPABILITIES ======= -->
+<section aria-labelledby="cap-title">
+  <span class="eyebrow"><span class="num">02</span> What Sunny does</span>
+  <h2 id="cap-title">A friendly account manager that never goes off shift.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    Six things Sunny does, every hour of every day, on the same WhatsApp number ElectroSun customers already know.
+  </p>
+  <div class="caps">
+    <div class="cap">
+      <div class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15202b" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg></div>
+      <h4>Replies to every WhatsApp message instantly.</h4>
+    </div>
+    <div class="cap">
+      <div class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15202b" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a14 14 0 010 20M12 2a14 14 0 000 20"/></svg></div>
+      <h4>Speaks the customer's language: English, Pidgin, Hausa, Yoruba, Igbo.</h4>
+    </div>
+    <div class="cap">
+      <div class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15202b" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h10M7 14h6"/></svg></div>
+      <h4>Explains ElectroSun's solar systems, sizing, and timelines.</h4>
+    </div>
+    <div class="cap">
+      <div class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15202b" stroke-width="2"><path d="M12 2l2.4 6.9H22l-6 4.4 2.3 7L12 16l-6.3 4.3 2.3-7-6-4.4h7.6z"/></svg></div>
+      <h4>Spots serious buyers and flags them to the team.</h4>
+    </div>
+    <div class="cap">
+      <div class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15202b" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18M8 4v4M16 4v4"/></svg></div>
+      <h4>Sends the owner a clean summary every hour.</h4>
+    </div>
+    <div class="cap">
+      <div class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15202b" stroke-width="2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></div>
+      <h4>Stores every chat so nothing is ever lost.</h4>
+    </div>
+  </div>
+</section>
+
+<!-- ======= 4. FLOW ======= -->
+<section id="flow" aria-labelledby="flow-title">
+  <span class="eyebrow"><span class="num">03</span> How it works</span>
+  <h2 id="flow-title">From a customer's first message to a warm reply, in seconds.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    Every incoming message follows the same path. Two AI models share the work: one reads, one writes. A human is pulled in only when it actually matters.
+  </p>
+
+  <div class="flow" role="group" aria-label="Sunny message flow diagram">
+    <!-- top row: 4 sequential steps -->
+    <div class="flow-steps">
+      <div class="step">
+        <span class="step-num">1</span>
+        <svg class="step-icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+        <h4>Customer sends a WhatsApp message</h4>
+        <p>To ElectroSun's official WhatsApp Business number.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">2</span>
+        <svg class="step-icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        <h4>Meta forwards it to Sunny</h4>
+        <p>The webhook is signature-verified so we know the message is real and untampered.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">3</span>
+        <svg class="step-icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/></svg>
+        <h4>Sunny looks up the contact</h4>
+        <p>New visitor or returning customer? The active conversation thread is loaded.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">4</span>
+        <svg class="step-icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a9 9 0 109 9"/><path d="M12 8v4l3 2"/></svg>
+        <h4>The classifier reads it</h4>
+        <p>A fast Claude model decides: who is this, what do they want, which language, do we need a human?</p>
+      </div>
+    </div>
+
+    <!-- branch row -->
+    <div class="branch" role="group" aria-label="Branch: human escalation or auto reply">
+      <div class="step a">
+        <span class="step-num">5A</span>
+        <span class="tag" style="color:var(--ember)">Human path</span>
+        <h4>Polite holding reply, owner is alerted</h4>
+        <p>For specific quotes, complaints, warranty claims, or custom designs. The owner gets the full context immediately.</p>
+      </div>
+      <div class="step b">
+        <span class="step-num">5B</span>
+        <span class="tag" style="color:var(--teal)">Auto reply</span>
+        <h4>Sunny writes a warm, on-brand answer</h4>
+        <p>A smarter Claude model drafts the reply in the customer's language and ElectroSun's tone.</p>
+      </div>
+    </div>
+
+    <!-- final row -->
+    <div class="flow-final">
+      <div class="step">
+        <span class="step-num">6</span>
+        <h4>The reply goes back through WhatsApp</h4>
+        <p>Same number, no app to install, no link to click. The customer just gets an answer.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">7</span>
+        <h4>Everything is saved</h4>
+        <p>The message, the category, the language, the lead's location, load, and timeline. Nothing falls through the cracks.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======= 5. THE BRAIN ======= -->
+<section id="brain" aria-labelledby="brain-title">
+  <span class="eyebrow"><span class="num">04</span> The brain</span>
+  <h2 id="brain-title">Two AI models, one job each.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    Big questions need a careful answer. Quick triage needs a quick brain. We split the work so we get both quality and low cost.
+  </p>
+
+  <div class="brains">
+    <article class="brain fast">
+      <span class="pill">Step 4: Classifier</span>
+      <h3>Claude Haiku 4.5</h3>
+      <p style="color:var(--ink-soft); font-size:15px">Fast and cheap. Reads each new message in well under a second and produces a strict, structured decision the rest of the system can act on.</p>
+      <ul style="color:var(--sun-deep)">
+        <li><span style="color:var(--ink-soft)">Picks the customer category (new client, explorer, serious buyer, etc.)</span></li>
+        <li><span style="color:var(--ink-soft)">Detects the language being used</span></li>
+        <li><span style="color:var(--ink-soft)">Estimates intent (sizing, pricing, support, complaint)</span></li>
+        <li><span style="color:var(--ink-soft)">Reports a confidence score</span></li>
+        <li><span style="color:var(--ink-soft)">Flags whether a human needs to step in</span></li>
+      </ul>
+    </article>
+
+    <article class="brain smart">
+      <span class="pill">Step 5B: Replier</span>
+      <h3>Claude Sonnet 4.6</h3>
+      <p style="color:var(--ink-soft); font-size:15px">The careful, well-spoken one. Reads the full conversation history, knows what we already learned about the customer, and writes the actual reply in Sunny's voice.</p>
+      <ul style="color:var(--teal)">
+        <li><span style="color:var(--ink-soft)">Stays in the customer's language and register</span></li>
+        <li><span style="color:var(--ink-soft)">Answers in plain words, never jargon</span></li>
+        <li><span style="color:var(--ink-soft)">Knows ElectroSun's products, sizing logic, and timelines</span></li>
+        <li><span style="color:var(--ink-soft)">Asks for the missing fact (location, load) when needed</span></li>
+        <li><span style="color:var(--ink-soft)">Hands off cleanly when a quote or site visit is required</span></li>
+      </ul>
+    </article>
+  </div>
+  <p class="footnote">We use the right size of brain for each job, which keeps quality high and cost low.</p>
+</section>
+
+<!-- ======= 6. CATEGORIES ======= -->
+<section aria-labelledby="cat-title">
+  <span class="eyebrow"><span class="num">05</span> Categorization</span>
+  <h2 id="cat-title">Every customer is sorted into one of six buckets.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    The category drives everything that happens next: how Sunny replies, how often we follow up, and whether the team should jump in.
+  </p>
+  <div class="cat-grid">
+    <article class="cat">
+      <div class="key">new_client</div>
+      <h4>First message ever</h4>
+      <p style="font-size:14px; color:var(--ink-soft)">Someone reaching out for the first time, no history yet.</p>
+      <div class="sample">"Hello, I saw your billboard, please can you tell me about your solar systems?"</div>
+    </article>
+    <article class="cat">
+      <div class="key">explorer</div>
+      <h4>General questions, browsing</h4>
+      <p style="font-size:14px; color:var(--ink-soft)">Curious, gathering information, not yet ready to commit.</p>
+      <div class="sample">"How long does a battery last on average?"</div>
+    </article>
+    <article class="cat">
+      <div class="key">queries_only</div>
+      <h4>Info seeking, not buying</h4>
+      <p style="font-size:14px; color:var(--ink-soft)">Asking on behalf of someone else, or comparing options for later.</p>
+      <div class="sample">"Do you sell inverters separately, or only the full system?"</div>
+    </article>
+    <article class="cat">
+      <div class="key">serious_buyer</div>
+      <h4>Location, load, timeline</h4>
+      <p style="font-size:14px; color:var(--ink-soft)">Has the three signals needed to size and quote a real system.</p>
+      <div class="sample">"I'm in Ikeja, I run two ACs, fridge, lights, want to install before end of month."</div>
+    </article>
+    <article class="cat">
+      <div class="key">returning_customer</div>
+      <h4>Mentions a past install or service</h4>
+      <p style="font-size:14px; color:var(--ink-soft)">Existing customer, often needs maintenance, expansion, or a warranty answer.</p>
+      <div class="sample">"My panel from last year is not charging well in the morning."</div>
+    </article>
+    <article class="cat">
+      <div class="key">spam</div>
+      <h4>Not solar related</h4>
+      <p style="font-size:14px; color:var(--ink-soft)">Marketing, mistaken number, unrelated requests. Logged but not replied.</p>
+      <div class="sample">"Please send me crypto signals daily."</div>
+    </article>
+  </div>
+</section>
+
+<!-- ======= 7. LANGUAGES ======= -->
+<section aria-labelledby="lang-title">
+  <span class="eyebrow"><span class="num">06</span> Five languages</span>
+  <h2 id="lang-title">Sunny answers in the language the customer wrote in.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    Tone matters as much as translation. Sunny opens with a greeting that feels local, and stays in that register through the whole chat.
+  </p>
+  <div class="langs">
+    <article class="lang">
+      <div class="flag" aria-hidden="true">
+        <svg viewBox="0 0 60 40" width="100%" height="100%"><rect width="60" height="40" fill="#012169"/><path d="M0 0l60 40M60 0L0 40" stroke="#fff" stroke-width="6"/><path d="M0 0l60 40M60 0L0 40" stroke="#C8102E" stroke-width="2"/><path d="M30 0v40M0 20h60" stroke="#fff" stroke-width="10"/><path d="M30 0v40M0 20h60" stroke="#C8102E" stroke-width="6"/></svg>
+      </div>
+      <h4>English</h4>
+      <p class="sample">"Hello, welcome to ElectroSun. How can I help you today?"</p>
+      <div class="region">Lingua franca</div>
+    </article>
+    <article class="lang">
+      <div class="flag" aria-hidden="true">
+        <svg viewBox="0 0 60 40" width="100%" height="100%"><rect width="20" height="40" fill="#008751"/><rect x="20" width="20" height="40" fill="#fff"/><rect x="40" width="20" height="40" fill="#008751"/></svg>
+      </div>
+      <h4>Nigerian Pidgin</h4>
+      <p class="sample">"How far, welcome to ElectroSun. Wetin you wan know about solar?"</p>
+      <div class="region">Nationwide</div>
+    </article>
+    <article class="lang">
+      <div class="flag" aria-hidden="true">
+        <svg viewBox="0 0 60 40" width="100%" height="100%"><rect width="60" height="40" fill="#f4a72a"/><circle cx="30" cy="20" r="9" fill="#15202b"/></svg>
+      </div>
+      <h4>Hausa</h4>
+      <p class="sample">"Sannu da zuwa ElectroSun. Ta yaya zan iya taimaka maka yau?"</p>
+      <div class="region">Northern Nigeria</div>
+    </article>
+    <article class="lang">
+      <div class="flag" aria-hidden="true">
+        <svg viewBox="0 0 60 40" width="100%" height="100%"><rect width="60" height="40" fill="#1f6f7a"/><path d="M0 28 Q30 14 60 28 V40 H0Z" fill="#cde5e6"/></svg>
+      </div>
+      <h4>Yoruba</h4>
+      <p class="sample">"E ku abo si ElectroSun. Bawo ni mo se le ran yin lowo loni?"</p>
+      <div class="region">Southwest Nigeria</div>
+    </article>
+    <article class="lang">
+      <div class="flag" aria-hidden="true">
+        <svg viewBox="0 0 60 40" width="100%" height="100%"><rect width="60" height="40" fill="#c5481c"/><path d="M30 8l4 12h12l-10 7 4 12-10-7-10 7 4-12-10-7h12z" fill="#fdd98a"/></svg>
+      </div>
+      <h4>Igbo</h4>
+      <p class="sample">"Nno na ElectroSun. Kedu otu m ga-esi nyere gi aka taa?"</p>
+      <div class="region">Southeast Nigeria</div>
+    </article>
+  </div>
+</section>
+
+<!-- ======= 8. ESCALATION ======= -->
+<section aria-labelledby="esc-title">
+  <span class="eyebrow"><span class="num">07</span> When a human is needed</span>
+  <h2 id="esc-title">Sunny knows its limits, and pings the owner the moment it matters.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    Most chats are answered in seconds. The few that need a human get a polite holding reply, and the owner gets a clean alert with all the context.
+  </p>
+
+  <div class="esc">
+    <div class="esc-list" aria-label="Escalation triggers">
+      <h3 style="margin-top:0">Triggers</h3>
+      <ul>
+        <li>
+          <span class="icn" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M12 22v-2M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-2M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24"/></svg></span>
+          Customer asks for a specific quote or price.
+        </li>
+        <li>
+          <span class="icn" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></span>
+          Complaint about an existing installation.
+        </li>
+        <li>
+          <span class="icn" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+          Warranty claim on hardware or service.
+        </li>
+        <li>
+          <span class="icn" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20l9-9-3-3-9 9z"/><path d="M14 7l3 3"/></svg></span>
+          Custom system design request.
+        </li>
+        <li>
+          <span class="icn" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9 12h6M12 9v6"/></svg></span>
+          Sunny is less than 90% confident about its own answer.
+        </li>
+      </ul>
+    </div>
+
+    <aside class="alert-card" aria-label="Sample escalation message to the owner">
+      <header>
+        <span>Owner alert</span>
+        <span>Auto generated</span>
+      </header>
+      <div class="body">
+        <div class="row"><span class="k">Type</span><span class="v" style="color:var(--ember)">New escalation needed</span></div>
+        <div class="row"><span class="k">Customer</span><span class="v">Adaeze Okonkwo</span></div>
+        <div class="row"><span class="k">Phone</span><span class="v">+234 801 111 2222</span></div>
+        <div class="row"><span class="k">Category</span><span class="v">Serious buyer</span></div>
+        <div class="row"><span class="k">Location</span><span class="v">Lagos, Surulere</span></div>
+        <div class="row"><span class="k">Need</span><span class="v">5kVA for shop</span></div>
+        <div class="quote">"Please can someone send me a real quote for 5kVA inverter and 8 panels for my barbing salon. I want to install before next Friday."</div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ======= 9. REPORTS ======= -->
+<section id="reports" aria-labelledby="rep-title">
+  <span class="eyebrow"><span class="num">08</span> What the owner sees</span>
+  <h2 id="rep-title">A clean digest every hour. A full report every night.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    No need to read every chat. Sunny sends a summary that fits on one screen, on the hour, and a deeper one at the end of the day.
+  </p>
+
+  <div class="reports">
+    <article class="report-col">
+      <h3>Hourly digest</h3>
+      <p class="meta">Delivered on the hour, every hour</p>
+      <ul>
+        <li>Total messages received and sent</li>
+        <li>New unique contacts</li>
+        <li>Category changes (e.g. explorer to serious buyer)</li>
+        <li>Top intents in the last hour</li>
+        <li>New serious buyers, with names and phones</li>
+        <li>Pending escalations still waiting</li>
+      </ul>
+    </article>
+
+    <article class="report-col">
+      <h3>Daily report</h3>
+      <p class="meta">Delivered at 9 PM Lagos time</p>
+      <ul>
+        <li>Everything from the hourly digests, rolled up across 24h</li>
+        <li>Full breakdown by category and language</li>
+        <li>Conversion of explorers into serious buyers</li>
+        <li>List of unresolved escalations to action tomorrow</li>
+        <li>A copy of the database snapshot is saved off-disk</li>
+      </ul>
+    </article>
+
+    <aside class="digest" aria-label="Sample hourly digest preview">
+      <header>
+        <span>Sunny hourly digest</span>
+        <span>14:00 WAT</span>
+      </header>
+      <div class="body">
+        <div class="stat"><span>Messages in</span><b>34</b></div>
+        <div class="stat"><span>Messages out</span><b>34</b></div>
+        <div class="stat"><span>New contacts</span><b>7</b></div>
+        <div class="stat"><span>Explorers</span><b>5</b></div>
+        <div class="stat"><span>Serious buyers</span><b>2</b></div>
+        <div class="stat"><span>Escalations</span><b style="color:var(--ember)">1 open</b></div>
+        <div class="stat"><span>Top intent</span><b>Sizing for home</b></div>
+        <div class="stat"><span>Languages</span><b>EN 60% / Pidgin 25% / Yor 10%</b></div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ======= 10. DASHBOARD TEASER ======= -->
+<section aria-labelledby="dash-title">
+  <span class="eyebrow"><span class="num">09</span> Dashboard, coming next</span>
+  <h2 id="dash-title">A web dashboard for when WhatsApp is not enough.</h2>
+  <div class="dash">
+    <div>
+      <p style="font-size:16px; color:var(--ink-soft)">
+        Everything Sunny tracks is also available through a clean web dashboard, coming next. The data is already being collected and exposed through a secure API ready for the frontend to plug into.
+      </p>
+      <p style="font-size:14px; color:var(--ink-mute); margin-top:10px">
+        Three views to start: every contact, every conversation, and the reports library.
+      </p>
+    </div>
+    <div class="wires" aria-hidden="true">
+      <div class="wire">
+        <h4>Contacts</h4>
+        <div class="bar tall sun"></div>
+        <div class="bar"></div>
+        <div class="bar short"></div>
+        <div class="bar"></div>
+        <div class="bar short"></div>
+      </div>
+      <div class="wire">
+        <h4>Conversations</h4>
+        <div class="bar"></div>
+        <div class="bar tall teal"></div>
+        <div class="bar short"></div>
+        <div class="bar"></div>
+        <div class="bar short"></div>
+      </div>
+      <div class="wire">
+        <h4>Reports</h4>
+        <div class="bar short"></div>
+        <div class="bar"></div>
+        <div class="bar tall sun"></div>
+        <div class="bar"></div>
+        <div class="bar short"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======= 11. STACK ======= -->
+<section id="stack" aria-labelledby="stack-title">
+  <span class="eyebrow"><span class="num">10</span> Built on solid ground</span>
+  <h2 id="stack-title">Boring, well-tested pieces. Fewer surprises in production.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    Each piece does one thing well. Nothing exotic, nothing unproven, and nothing locked into a single cloud vendor.
+  </p>
+  <div class="stack">
+    <div class="stack-row">
+      <div class="group">Foundation</div>
+      <div class="chips">
+        <span class="chip"><span class="dot"></span><b>Node.js 20</b>, the runtime</span>
+        <span class="chip"><span class="dot"></span><b>Express</b>, the web server</span>
+        <span class="chip"><span class="dot"></span><b>SQLite</b> (better-sqlite3), local storage</span>
+      </div>
+    </div>
+    <div class="stack-row">
+      <div class="group">Messaging</div>
+      <div class="chips">
+        <span class="chip teal"><span class="dot"></span><b>Meta WhatsApp Cloud API</b>, the official channel</span>
+      </div>
+    </div>
+    <div class="stack-row">
+      <div class="group">Intelligence</div>
+      <div class="chips">
+        <span class="chip ember"><span class="dot"></span><b>Claude API</b>, by Anthropic</span>
+        <span class="chip"><span class="dot"></span><b>Haiku 4.5</b>, classification</span>
+        <span class="chip teal"><span class="dot"></span><b>Sonnet 4.6</b>, replies</span>
+      </div>
+    </div>
+    <div class="stack-row">
+      <div class="group">Operations</div>
+      <div class="chips">
+        <span class="chip"><span class="dot"></span><b>node-cron</b>, schedules the digests</span>
+        <span class="chip"><span class="dot"></span><b>Nodemailer</b>, email fallback</span>
+        <span class="chip"><span class="dot"></span><b>PM2</b>, autostart and restart</span>
+      </div>
+    </div>
+    <div class="stack-row">
+      <div class="group">Security</div>
+      <div class="chips">
+        <span class="chip ember"><span class="dot"></span><b>Meta signature</b> verified on every webhook</span>
+        <span class="chip ember"><span class="dot"></span><b>API key</b> on the dashboard endpoints</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======= 12. COST AND SCALE ======= -->
+<section aria-labelledby="cost-title">
+  <span class="eyebrow"><span class="num">11</span> Cost and scale</span>
+  <h2 id="cost-title">Light footprint, heavy lifting.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    The whole stack runs from the office, not the cloud. The only running cost is the AI calls themselves, which we measure per conversation.
+  </p>
+  <div class="bignums">
+    <div class="bignum">
+      <div class="n">$0.005<span class="unit"> to $0.015</span></div>
+      <div class="lbl">Per AI-handled conversation, end to end. Hundreds of conversations a day still cost less than one team coffee run.</div>
+    </div>
+    <div class="bignum">
+      <div class="n">24/7</div>
+      <div class="lbl">No breaks, no holidays, no missed messages. Replies arrive in seconds, day or night.</div>
+    </div>
+    <div class="bignum">
+      <div class="n">1<span class="unit"> Mac Mini</span></div>
+      <div class="lbl">Runs on a single machine in the office. No monthly cloud bills, no third party hosting Sunny's brain.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ======= 13. STATUS ======= -->
+<section id="status" aria-labelledby="status-title">
+  <span class="eyebrow"><span class="num">12</span> Status</span>
+  <h2 id="status-title">What is ready today, and what comes next.</h2>
+  <p class="lede" style="margin-bottom:30px">
+    Honest snapshot. The technical work is done; the remaining steps are mostly business and Meta side approvals.
+  </p>
+  <div class="status">
+    <div class="col live-col">
+      <h3><span class="badge live">Ready today</span></h3>
+      <p style="font-size:14px; color:var(--ink-mute); margin:6px 0 0">Build is complete and verified locally.</p>
+      <ul>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>Webhook handshake with Meta (verify endpoint).</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>Signature verification on every inbound message.</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>Contact, conversation, and message storage.</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>Classifier and replier integration with Claude.</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>Owner escalation alerts.</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>Hourly and daily reports (WhatsApp first, email fallback).</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>Dashboard REST API behind an API key.</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>Health check endpoint.</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>PM2 config so it runs on Mac Mini boot.</li>
+      </ul>
+    </div>
+
+    <div class="col next">
+      <h3><span class="badge next">Next steps</span></h3>
+      <p style="font-size:14px; color:var(--ink-mute); margin:6px 0 0">Need business or Meta action.</p>
+      <ul>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 5l7 7-7 7"/></svg></span>Connect ElectroSun's real WhatsApp Business number.</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 5l7 7-7 7"/></svg></span>Submit message templates to Meta for outside-24h follow-ups (24 to 48 hour approval).</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 5l7 7-7 7"/></svg></span>Live test with a small group of customers before going wide.</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 5l7 7-7 7"/></svg></span>Build the web dashboard frontend (the API is ready).</li>
+        <li><span class="ck"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14M13 5l7 7-7 7"/></svg></span>Optional: enforce a daily AI spend cap.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="mark">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <circle cx="32" cy="32" r="12" fill="#f4a72a"/>
+      <g stroke="#f4a72a" stroke-width="4" stroke-linecap="round">
+        <line x1="32" y1="8" x2="32" y2="14"/>
+        <line x1="32" y1="50" x2="32" y2="56"/>
+        <line x1="8" y1="32" x2="14" y2="32"/>
+        <line x1="50" y1="32" x2="56" y2="32"/>
+      </g>
+    </svg>
+    <span>Sunny v0.1, prepared by Serge for ElectroSun, May 2026.</span>
+  </div>
+  <div>An internal overview document. Not for external distribution.</div>
+</footer>
+
+</body>
+</html>
