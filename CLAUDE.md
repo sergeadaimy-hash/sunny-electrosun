@@ -2,44 +2,65 @@
 
 This file is the working memory for Sunny. Read it before making any change. It captures decisions already made so they do not need to be re-litigated.
 
-## Current launch status (paused 2026-05-03 mid-morning Beirut)
+## Current launch status (paused 2026-05-03 afternoon Beirut)
 
-We are partway through the 27-task launch sequence (see `~/.claude/projects/-Users-sergeadaimy-Desktop-Claude-Projects-Sunny-Whatsapp-Account-Manager/memory/launch_sequence.md` for the full list). Phase 1 (Setup) and Phase 2 (Local end-to-end test) are fully closed; Task #18 (permanent System User token) is also closed out of order. Resume from Task #13.
+Phase 1 (Setup), Phase 2 (Local end-to-end test), and substantively Phase 3 (Tune) are closed. Tasks #13 and #14 are done end-to-end against the brother's foundation document; Task #15 (48-hour soak) is the next user-driven step.
 
-**Phase 5 was rewritten cloud-first on 2026-05-03.** Production target is now Railway or Fly.io (push-to-deploy from the GitHub repo), NOT the Mac Mini. Reason: Nigerian office power and ISP can be flaky, cloud PaaS gives 99.9%+ uptime SLA. Mac Mini stays as a future on-prem option but is NOT the launch target. PM2 (was Task #23) and named Cloudflare Tunnel (was Task #21) are no longer in the production path. See `memory/project_cloud_first_decision.md`.
+**Phase 5 is cloud-first** (Railway or Fly.io, NOT Mac Mini). PM2 + named tunnel are no longer in the production path. See `memory/project_cloud_first_decision.md`.
 
-**GitHub repo (source of truth):** https://github.com/sergeadaimy-hash/sunny-electrosun (private, owned by `sergeadaimy-hash`). 23 files, no secrets. See `memory/reference_github_repo.md` for clone recipe.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Latest commit: `e845237`.
 
-**Done (13 of 27, plus #16 came free):**
+**Done (15 of 27, plus #16 came free):**
 1. Meta Developer app `ElectroSun_Whtspp` created. App ID `2440193806402796`.
-2. Meta credentials captured. Test number `+1 555 172 6906`. Phone Number ID `1111486288711551`. WABA ID `1713234916358524`. Owner whitelisted as a test recipient (Saudi number `+966502392650`).
-3. Anthropic API key created in Default workspace (`Sunny-dev`). Org ID `7e197f14-a3e1-4b93-9836-cd54cd831e1f`. Tier 2 reached.
-4. Meta business verification confirmed already verified for ELECTROSUN since 2026-06-27. (Also closes Task #16.)
-5. `.env` filled with all 7 required keys, sanity check passed.
-6. `cloudflared` 2026.3.0 installed via Homebrew (dev-only now; cloud deploy will not use it).
-7. Sunny + quick tunnel booted on laptop, both healthy. Quick-tunnel URLs rotate per launch.
-8. Meta webhook configured, `webhook.verify.ok`, `messages` field subscribed. Will be repointed at the cloud platform URL during Phase 5.
-9. First live WhatsApp test passed end-to-end. Anthropic API unblocked. Classifier ran clean, three `whatsapp.send.ok` outbound, owner phone confirmed receipt.
-10. Five-language coverage marked done by code review (not formally tested live). Classifier prompt has the language field, `HOLDING_REPLIES` map has all 5 languages, paths are identical regardless of language.
-11. Force-escalation test passed. Complaint+warranty message moved category `explorer` to `returning_customer`, owner alert + customer holding reply both sent and received.
-12. Hourly report verified. Cron `0 * * * *` UTC fired at `08:00:00` on 2026-05-03, owner WhatsApp received the report.
-18. Permanent System User access token issued. System User name "Sunny-Server", ID `615889422441392`, Admin access, Full control on App `ElectroSun_Whtspp` + both WhatsApp accounts (Test WABA + "Esther Electro-Sun Admin" production WABA). Token does NOT expire after 24h. No more token rot.
+2. Meta credentials captured. Test number `+1 555 172 6906`. Phone Number ID `1111486288711551`. WABA ID `1713234916358524`. Owner whitelisted (Saudi `+966502392650`).
+3. Anthropic API key, Org `7e197f14-a3e1-4b93-9836-cd54cd831e1f`, Tier 2.
+4. Meta business verification confirmed (since 2026-06-27, also closes #16).
+5. `.env` filled, sanity check passed.
+6. `cloudflared` installed (dev-only).
+7. Sunny + quick tunnel booted on laptop.
+8. Meta webhook configured.
+9. First live WhatsApp test passed end-to-end. Anthropic block resolved on its own.
+10. Five-language coverage by code review.
+11. Force-escalation test passed.
+12. Hourly report cron verified.
+13. **Task #13 system prompt deployed against brother's Electro-Sun foundation document.** Identity: "member of the Electro-Sun team", never reveals AI. Voice: fast, direct, confident, professional, English-only. New categorization C1-C5. New lead temperature HOT/WARM/COLD/DISQUALIFIED/CLOSED/LOST. New client_type taxonomy. Two escalation patterns: silent_query and hot_lead. Punctuation rule (no double dashes) preserved.
+14. **Task #14 classifier prompt deployed and hardened.** Outputs C1-C5, lead_temperature, client_type, escalation_type. HOT triggers force escalation regardless of prior context. Code-level safety net: if classifier sets HOT temperature without escalation, handler forces it. Live tested: 5 categories all classified correctly, hot lead handoff fires both customer reply and owner RED alert.
+18. Permanent System User token issued. System User "Sunny-Server", ID `615889422441392`. No expiry.
 
-**Bonus shipped this session (not on the formal task list):**
-- Voice-note / image / document / sticker / location messages no longer drop silently. New `handleUnsupported()` path in `src/handler.js` sends a polite "I can only read text" reply in the contact's stored language (English fallback) and logs an `unsupported_received` event. Verified live with a voice note. Idempotent on `whatsapp_message_id`. Zero new dependencies.
-- Classifier escalation rule tightened in `src/prompts/classifier.md`. Removed the "confidence < 90 auto-escalate" trigger that was pinging the owner on every borderline message. Now escalates only on explicit triggers (specific quote, complaint, warranty, custom design with concrete loads, hostility, B2B/wholesale).
-- System prompt punctuation rule added in `src/prompts/system.md`. Sunny's replies must contain no em-dashes, en-dashes, or double hyphens (hard rule #1 enforced for customer output). Verified live: post-fix replies use commas, colons, parentheses cleanly.
-- GitHub repo created and pushed (initial commit `c6332cf`).
+**Bonus shipped today (not on the formal task list):**
+- `handleUnsupported()` in `src/handler.js`: voice notes / images / documents / stickers / locations no longer drop silently, customer gets a polite "text only" reply.
+- HOLDING_REPLIES (multi-language) replaced with English-only HOT_LEAD_REPLY and SILENT_QUERY_REPLY constants per brother's "Always English" directive. Multi-language detection still runs in classifier for data capture only.
+- `notifyOwnerEscalation` differentiates hot lead vs silent query in alert text (RED vs YELLOW, includes lead_temperature and client_type).
+- Cloud-deploy readiness: `LOG_TO_FILE` env var (default true) opt-out for cloud PaaS. Disables `logs/sunny.log` writes and daily DB snapshot when set to `false`.
+- Templates `templates/owner_hourly_report_en.json` and `templates/follow_up_24h_en.json` drafted with Meta API schema, ready for one-click submission.
+- Contact #5 (Serge's test number) wiped clean: category, language, location, use_case, load_estimate cleared; conversations, messages, events for that contact deleted; contact row preserved for idempotency keys.
+
+**Open items the brother explicitly left blank** in Section 11 of the foundation doc, must answer before production launch:
+- Reference WhatsApp number for escalations (currently `OWNER_WHATSAPP=966502392650` is Serge's; needs swap to brother's actual number for go-live).
+- Working hours (24/7 or specific?). Affects after-hours fallback.
+- Greeting opener variations (one fixed or 2-3 to rotate?).
+- Location-specific tags (Lagos, Abuja, Port Harcourt, Kano, Ibadan?).
+- Currency: NGN only or also USD for installers / regional?
+- Default delivery and installation policy lines.
+- Default warranty messaging.
+- Competitor pricing doctrine (beat / match / justify / walk).
+- After-hours auto-reply text.
+- Pricing data: Deye 12kW, Sungrow 50kW, JA 550W, etc. Until provided, every C2 inquiry triggers silent_query escalation to the brother.
 
 **Resume plan:**
-1. Check whether intake answers from Serge's brother have come in (the 12 ElectroSun facts + 4 escalation policy questions). If not, ask Serge.
-2. If Sunny is not running, restart with `npm start` from project root. Restart cloudflared quick tunnel for dev, capture new URL, repaste into Meta webhook (still pointed at the test number).
-3. Once intake is back, rewrite `src/prompts/system.md` against the answers. Fix the placeholder bug on line 66 (`[X] hours` is literal text that will leak to customers). Update `src/prompts/classifier.md` with any new escalation triggers. Commit and push to GitHub.
-4. Run a 5-message smoke test (greeting, technical question, pricing question, complaint, returning customer) to verify the new voice + escalation rules.
-5. Move to Task #15 (48-hour soak with 3-5 testers on test number), then Tasks #17 (real ElectroSun number), #19 (templates), #20 (template approval wait).
-6. Phase 5 cloud deploy (Railway or Fly.io) is the FINAL step before launch, not in parallel with anything else.
-
-**Open decision parked by Serge:** tiered escalation notifications (hot vs warm). Whether complaints + warranty + hostility should ping the owner immediately while specific-quote / custom-design / B2B should be batched into the hourly report. Not blocking; revisit when Serge brings it up.
+1. Once brother provides pricing data and Section 11 decisions, update prompts with concrete prices and policies. Until then, silent_query escalations to him are the right behavior.
+2. Task #15: 48-hour soak with 3-5 testers on the test number. Captures real conversation patterns to feed the daily learning loop.
+3. Task #17: Add ElectroSun's real WhatsApp number to the WABA, swap `META_PHONE_NUMBER_ID` and `OWNER_WHATSAPP` in `.env`.
+4. Task #19: submit the two drafted templates to Meta. 24-48h approval clock.
+5. Phase B code work (separate from launch tasks):
+   - Schema migration: add `lead_temperature` and `client_type` columns to `contacts`.
+   - Refactor `src/reports.js` to aggregate by HOT/WARM/COLD instead of old categories.
+   - 2-hour reports replacing hourly cron.
+   - Daily learning report (new cron, new format).
+   - True silent_query workflow (wait for owner reply before sending to customer).
+   - 23-hour window flagging.
+   - Cleanup `scripts/seed.js` (still has old category names).
+6. Phase 5 cloud deploy as the final cutover.
 
 **Hard rule reminder:** before recommending or relying on a remembered fact (file path, function, key, URL), verify it still holds. Quick-tunnel URLs are stale-by-design; the Meta webhook config will need redoing next session if cloudflared was restarted.
 
