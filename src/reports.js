@@ -103,6 +103,118 @@ function generateDailyReport() {
   return report;
 }
 
+function generateDailyLearningReport() {
+  const db = getDb();
+  const end = new Date().toISOString();
+  const start = isoMinus(24 * 60 * 60 * 1000);
+
+  const unansweredQueries = db.prepare(`
+    SELECT pq.id, pq.customer_message_text, pq.classifier_intent, pq.created_at,
+           c.phone, c.name
+    FROM pending_queries pq
+    LEFT JOIN contacts c ON c.id = pq.contact_id
+    WHERE pq.status = 'pending' AND pq.created_at >= ? AND pq.created_at < ?
+    ORDER BY pq.created_at ASC
+  `).all(start, end);
+
+  const unsortedContacts = db.prepare(`
+    SELECT id, phone, name, first_seen
+    FROM contacts
+    WHERE (category IS NULL OR category = 'unsorted')
+      AND first_seen >= ? AND first_seen < ?
+    ORDER BY first_seen ASC
+  `).all(start, end);
+
+  const intentRows = db.prepare(`
+    SELECT intent, COUNT(*) AS n
+    FROM messages
+    WHERE direction = 'inbound' AND intent IS NOT NULL AND timestamp >= ? AND timestamp < ?
+    GROUP BY intent
+    HAVING n >= 3
+    ORDER BY n DESC
+  `).all(start, end);
+
+  const data = {
+    period_start: start,
+    period_end: end,
+    unanswered_queries: unansweredQueries,
+    unsorted_contacts: unsortedContacts,
+    frequent_inbound_intents: intentRows
+  };
+
+  const report = { type: 'daily_learning', period_start: start, period_end: end, payload: data };
+  persistReport(report);
+  return report;
+}
+
+function formatDailyLearningReportForWhatsApp(report) {
+  const p = report.payload;
+  const date = new Date(p.period_end).toISOString().slice(0, 10);
+  const lines = [];
+
+  lines.push(`📚 *ELECTRO-SUN AGENT, DAILY LEARNING SUGGESTIONS, ${date}*`);
+  lines.push('');
+
+  lines.push('*1. UNANSWERED FROM TODAY (you didn\'t reply yet)*');
+  if (p.unanswered_queries.length === 0) {
+    lines.push('  None today.');
+  } else {
+    for (const q of p.unanswered_queries.slice(0, 15)) {
+      const who = q.name ? `${q.name} (${q.phone})` : q.phone;
+      const text = (q.customer_message_text || '').slice(0, 120);
+      lines.push(`  • ${who}: "${text}"  Still waiting.`);
+    }
+  }
+  lines.push('');
+
+  lines.push('*2. NEW QUESTION PATTERNS I SAW*');
+  if (p.frequent_inbound_intents.length === 0) {
+    lines.push('  No repeat patterns above 3 occurrences today.');
+  } else {
+    for (const i of p.frequent_inbound_intents.slice(0, 10)) {
+      lines.push(`  • Intent "${i.intent}" came up ${i.n} times today.`);
+    }
+    lines.push('  (Pattern extraction with draft replies is on the roadmap.)');
+  }
+  lines.push('');
+
+  lines.push('*3. INTERNAL QUESTIONS I HAVE*');
+  lines.push('  (Self-generated learning questions are on the roadmap.)');
+  lines.push('');
+
+  lines.push('*4. CASES I FLAGGED AS UNSORTED*');
+  if (p.unsorted_contacts.length === 0) {
+    lines.push('  None today.');
+  } else {
+    for (const c of p.unsorted_contacts.slice(0, 15)) {
+      const who = c.name ? `${c.name} (${c.phone})` : c.phone;
+      lines.push(`  • ${who}: which category should this be?`);
+    }
+  }
+  lines.push('');
+
+  lines.push('Reply to each item with Approve / Edit / Skip when you have a moment.');
+
+  let out = lines.join('\n');
+  if (out.length > 1500) out = out.slice(0, 1490) + '\n(truncated)';
+  return out;
+}
+
+async function sendDailyLearningReport(report) {
+  const text = formatDailyLearningReportForWhatsApp(report);
+  const ownerPhone = process.env.OWNER_WHATSAPP;
+  if (!ownerPhone) {
+    logger.warn('learning_report.no_owner_phone');
+    return;
+  }
+  const res = await sendMessage(ownerPhone, text);
+  if (!res.ok) {
+    logger.warn('learning_report.whatsapp.fail', { status: res.status });
+  } else {
+    logger.info('learning_report.sent', { reportId: report.id });
+  }
+}
+
 function persistReport(report) {
   const db = getDb();
   const info = db.prepare(
@@ -241,6 +353,9 @@ async function sendOwnerEmail(report, text) {
 module.exports = {
   generateHourlyReport,
   generateDailyReport,
+  generateDailyLearningReport,
   formatReportForWhatsApp,
-  sendOwnerReport
+  formatDailyLearningReportForWhatsApp,
+  sendOwnerReport,
+  sendDailyLearningReport
 };

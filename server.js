@@ -9,7 +9,13 @@ const logger = require('./src/utils/logger');
 const { initDb, DB_PATH } = require('./db/init');
 const webhookRouter = require('./src/webhook');
 const dashboardRouter = require('./api/dashboard');
-const { generateHourlyReport, generateDailyReport, sendOwnerReport } = require('./src/reports');
+const {
+  generateHourlyReport,
+  generateDailyReport,
+  generateDailyLearningReport,
+  sendOwnerReport,
+  sendDailyLearningReport
+} = require('./src/reports');
 
 initDb();
 
@@ -79,6 +85,17 @@ if (require.main === module) {
       logger.info('cron.daily.done', { reportId: report.id });
     } catch (err) {
       logger.error('cron.daily.error', { message: err.message });
+    }
+  }, { timezone: 'Africa/Lagos' });
+
+  cron.schedule('30 21 * * *', async () => {
+    try {
+      logger.info('cron.daily_learning.start');
+      const report = generateDailyLearningReport();
+      await sendDailyLearningReport(report);
+      logger.info('cron.daily_learning.done', { reportId: report.id });
+    } catch (err) {
+      logger.error('cron.daily_learning.error', { message: err.message });
     }
   }, { timezone: 'Africa/Lagos' });
 
