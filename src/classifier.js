@@ -16,6 +16,15 @@ async function runClassification(contact, history, message) {
 
   const updates = {};
   if (result.language && !contact.language) updates.language = result.language;
+
+  if (result.lead_temperature) {
+    updates.lead_temperature = result.lead_temperature;
+  }
+
+  if (result.client_type && result.client_type !== 'unknown' && !contact.client_type) {
+    updates.client_type = result.client_type;
+  }
+
   if (result.lead_data) {
     const ld = result.lead_data;
     if (ld.name && !contact.name) updates.name = ld.name;
@@ -23,6 +32,9 @@ async function runClassification(contact, history, message) {
     if (ld.use_case && !contact.use_case) updates.use_case = ld.use_case;
     if (ld.load_estimate && !contact.load_estimate) updates.load_estimate = ld.load_estimate;
     if (ld.timeline && !contact.timeline) updates.timeline = ld.timeline;
+    if (ld.products_asked_about && !contact.products_asked_about) updates.products_asked_about = ld.products_asked_about;
+    if (ld.brand_preference && !contact.brand_preference) updates.brand_preference = ld.brand_preference;
+    if (ld.budget_mentioned && !contact.budget_mentioned) updates.budget_mentioned = ld.budget_mentioned;
   }
 
   let categoryChanged = false;

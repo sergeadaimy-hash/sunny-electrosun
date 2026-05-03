@@ -20,7 +20,12 @@ function getOrCreateContact(phone, name = null) {
 
 function updateContactFields(contactId, fields) {
   const db = getDb();
-  const allowed = ['name', 'category', 'language', 'location', 'use_case', 'load_estimate', 'timeline', 'notes', 'last_active'];
+  const allowed = [
+    'name', 'category', 'lead_temperature', 'client_type', 'language',
+    'location', 'use_case', 'load_estimate', 'timeline',
+    'products_asked_about', 'brand_preference', 'budget_mentioned',
+    'notes', 'last_active'
+  ];
   const updates = [];
   const values = [];
 

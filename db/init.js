@@ -13,7 +13,36 @@ function initDb() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schema);
 
+  applyMigrations(db);
+
   return db;
+}
+
+function applyMigrations(db) {
+  const expected = {
+    contacts: [
+      { name: 'lead_temperature', type: 'TEXT' },
+      { name: 'client_type', type: 'TEXT' },
+      { name: 'products_asked_about', type: 'TEXT' },
+      { name: 'brand_preference', type: 'TEXT' },
+      { name: 'budget_mentioned', type: 'TEXT' }
+    ]
+  };
+
+  for (const [table, cols] of Object.entries(expected)) {
+    const existing = db.prepare(`PRAGMA table_info(${table})`).all().map(r => r.name);
+    for (const col of cols) {
+      if (!existing.includes(col.name)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.type}`);
+        console.log(`migration: added ${table}.${col.name}`);
+      }
+    }
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_contacts_lead_temperature ON contacts(lead_temperature);
+    CREATE INDEX IF NOT EXISTS idx_contacts_client_type ON contacts(client_type);
+  `);
 }
 
 let instance = null;
