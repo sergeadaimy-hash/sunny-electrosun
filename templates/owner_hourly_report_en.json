@@ -1,0 +1,24 @@
+{
+  "name": "owner_hourly_report_en",
+  "language": "en",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Sunny hourly report from ElectroSun. New conversations: {{1}}. Replies sent: {{2}}. Escalations: {{3}}. Top intent: {{4}}. Full breakdown in the dashboard.",
+      "example": {
+        "body_text": [["3", "8", "1", "feature_question"]]
+      }
+    }
+  ],
+  "_notes": {
+    "purpose": "Sent to OWNER_WHATSAPP every hour by node-cron in src/reports.js. Required because the cron may fire when the owner's last inbound message to Sunny is older than 24 hours, in which case free-form sends are blocked by Meta and only approved templates can be used.",
+    "category_reason": "UTILITY because it is a stats update tied to the operational relationship between the owner and the platform, not promotional. Meta is generally lenient on internal-facing UTILITY templates.",
+    "variables": {
+      "{{1}}": "count of new conversations opened in the past hour (integer)",
+      "{{2}}": "count of replies sent (integer)",
+      "{{3}}": "count of escalations triggered (integer)",
+      "{{4}}": "top intent string from the classifier (e.g. feature_question, pricing_question)"
+    }
+  }
+}

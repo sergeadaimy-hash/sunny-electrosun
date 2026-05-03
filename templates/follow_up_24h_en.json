@@ -1,0 +1,23 @@
+{
+  "name": "follow_up_24h_en",
+  "language": "en",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hi {{1}}, this is Sunny from ElectroSun. Just checking back about your recent solar enquiry. Were you able to get the info you needed, or do you have any other questions for our team? Reply STOP to opt out of further follow-ups.",
+      "example": {
+        "body_text": [["Tunde"]]
+      }
+    }
+  ],
+  "_notes": {
+    "purpose": "Sent to a customer who messaged ElectroSun, got at least one reply from Sunny, then went silent for more than 24 hours and we want to re-engage. Without a template, Meta blocks all outbound after the 24h window closes.",
+    "category_reason": "Submitted as UTILITY because it continues a prior conversation the customer initiated. Meta MAY reclassify to MARKETING during review (re-engagement messages are a known grey area). If rejected as MARKETING, resubmit with category MARKETING and ensure customers explicitly opted in to follow-ups.",
+    "opt_out": "The 'Reply STOP' line is a defensive opt-out. Sunny should treat any inbound 'STOP' / 'UNSUBSCRIBE' / 'OPT OUT' as a flag to never auto-follow-up that contact again. This is NOT yet implemented in code; will need a contacts.do_not_follow_up flag in the schema.",
+    "variables": {
+      "{{1}}": "customer's first name from contacts.name, fallback to 'there' if null"
+    },
+    "trigger_logic": "NOT YET IMPLEMENTED. Future work: a daily cron that finds contacts whose last_active is between 24h and 72h ago, who have not received a follow_up_24h_en template in the past 7 days, and who do not have do_not_follow_up=true. Send the template, log a follow_up_sent event."
+  }
+}
