@@ -59,14 +59,14 @@ if (require.main === module) {
     logger.info('server.listen', { port: PORT });
   });
 
-  cron.schedule('0 * * * *', async () => {
+  cron.schedule('0 */2 * * *', async () => {
     try {
-      logger.info('cron.hourly.start');
+      logger.info('cron.period.start');
       const report = generateHourlyReport();
       await sendOwnerReport(report);
-      logger.info('cron.hourly.done', { reportId: report.id });
+      logger.info('cron.period.done', { reportId: report.id });
     } catch (err) {
-      logger.error('cron.hourly.error', { message: err.message });
+      logger.error('cron.period.error', { message: err.message });
     }
   });
 
