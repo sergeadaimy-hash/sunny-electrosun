@@ -4,33 +4,44 @@ This file is the working memory for Sunny. Read it before making any change. It 
 
 ## Current launch status (paused 2026-05-03 mid-morning Beirut)
 
-We are partway through the 27-task launch sequence (see `~/.claude/projects/-Users-sergeadaimy-Desktop-Claude-Projects-Sunny-Whatsapp-Account-Manager/memory/launch_sequence.md` for the full list). Phase 1 (Setup) and Phase 2 (Local end-to-end test) are fully closed. Resume from Task #13.
+We are partway through the 27-task launch sequence (see `~/.claude/projects/-Users-sergeadaimy-Desktop-Claude-Projects-Sunny-Whatsapp-Account-Manager/memory/launch_sequence.md` for the full list). Phase 1 (Setup) and Phase 2 (Local end-to-end test) are fully closed; Task #18 (permanent System User token) is also closed out of order. Resume from Task #13.
 
-**Done (12 of 27, plus #16 came free):**
+**Phase 5 was rewritten cloud-first on 2026-05-03.** Production target is now Railway or Fly.io (push-to-deploy from the GitHub repo), NOT the Mac Mini. Reason: Nigerian office power and ISP can be flaky, cloud PaaS gives 99.9%+ uptime SLA. Mac Mini stays as a future on-prem option but is NOT the launch target. PM2 (was Task #23) and named Cloudflare Tunnel (was Task #21) are no longer in the production path. See `memory/project_cloud_first_decision.md`.
+
+**GitHub repo (source of truth):** https://github.com/sergeadaimy-hash/sunny-electrosun (private, owned by `sergeadaimy-hash`). 23 files, no secrets. See `memory/reference_github_repo.md` for clone recipe.
+
+**Done (13 of 27, plus #16 came free):**
 1. Meta Developer app `ElectroSun_Whtspp` created. App ID `2440193806402796`.
 2. Meta credentials captured. Test number `+1 555 172 6906`. Phone Number ID `1111486288711551`. WABA ID `1713234916358524`. Owner whitelisted as a test recipient (Saudi number `+966502392650`).
 3. Anthropic API key created in Default workspace (`Sunny-dev`). Org ID `7e197f14-a3e1-4b93-9836-cd54cd831e1f`. Tier 2 reached.
 4. Meta business verification confirmed already verified for ELECTROSUN since 2026-06-27. (Also closes Task #16.)
 5. `.env` filled with all 7 required keys, sanity check passed.
-6. `cloudflared` 2026.3.0 installed via Homebrew.
-7. Sunny + quick tunnel booted, both healthy, last URL `https://states-national-entitled-lynn.trycloudflare.com` resolved through to `/health`. Quick-tunnel URLs rotate per launch, so this will need redoing on resume.
-8. Meta webhook configured, `webhook.verify.ok` twice, `messages` field subscribed.
-9. First live WhatsApp test passed end-to-end. Anthropic API unblocked (the 2026-05-02 `credit_balance_too_low` block resolved on its own by 2026-05-03 morning, no support intervention needed). Classifier ran clean, three `whatsapp.send.ok` outbound, owner phone confirmed receipt.
+6. `cloudflared` 2026.3.0 installed via Homebrew (dev-only now; cloud deploy will not use it).
+7. Sunny + quick tunnel booted on laptop, both healthy. Quick-tunnel URLs rotate per launch.
+8. Meta webhook configured, `webhook.verify.ok`, `messages` field subscribed. Will be repointed at the cloud platform URL during Phase 5.
+9. First live WhatsApp test passed end-to-end. Anthropic API unblocked. Classifier ran clean, three `whatsapp.send.ok` outbound, owner phone confirmed receipt.
 10. Five-language coverage marked done by code review (not formally tested live). Classifier prompt has the language field, `HOLDING_REPLIES` map has all 5 languages, paths are identical regardless of language.
-11. Force-escalation test passed. Complaint+warranty message moved category `explorer → returning_customer`, owner alert + customer holding reply both sent and received.
+11. Force-escalation test passed. Complaint+warranty message moved category `explorer` to `returning_customer`, owner alert + customer holding reply both sent and received.
 12. Hourly report verified. Cron `0 * * * *` UTC fired at `08:00:00` on 2026-05-03, owner WhatsApp received the report.
+18. Permanent System User access token issued. System User name "Sunny-Server", ID `615889422441392`, Admin access, Full control on App `ElectroSun_Whtspp` + both WhatsApp accounts (Test WABA + "Esther Electro-Sun Admin" production WABA). Token does NOT expire after 24h. No more token rot.
 
-**Bonus shipped this session:** Voice-note / image / document / sticker / location messages no longer drop silently. New `handleUnsupported()` path in `src/handler.js` sends a polite "I can only read text" reply in the contact's stored language (English fallback) and logs an `unsupported_received` event. Verified live with a voice note. Idempotent on `whatsapp_message_id`. Zero new dependencies.
+**Bonus shipped this session (not on the formal task list):**
+- Voice-note / image / document / sticker / location messages no longer drop silently. New `handleUnsupported()` path in `src/handler.js` sends a polite "I can only read text" reply in the contact's stored language (English fallback) and logs an `unsupported_received` event. Verified live with a voice note. Idempotent on `whatsapp_message_id`. Zero new dependencies.
+- Classifier escalation rule tightened in `src/prompts/classifier.md`. Removed the "confidence < 90 auto-escalate" trigger that was pinging the owner on every borderline message. Now escalates only on explicit triggers (specific quote, complaint, warranty, custom design with concrete loads, hostility, B2B/wholesale).
+- System prompt punctuation rule added in `src/prompts/system.md`. Sunny's replies must contain no em-dashes, en-dashes, or double hyphens (hard rule #1 enforced for customer output). Verified live: post-fix replies use commas, colons, parentheses cleanly.
+- GitHub repo created and pushed (initial commit `c6332cf`).
 
 **Resume plan:**
 1. Check whether intake answers from Serge's brother have come in (the 12 ElectroSun facts + 4 escalation policy questions). If not, ask Serge.
-2. Re-boot Sunny and `cloudflared tunnel --url http://localhost:3000`. Capture new URL, paste into Meta App > WhatsApp > Configuration > Webhook, Verify and Save, re-tick `messages` if dropped.
-3. Verify Meta access token has not expired (24h temp token regenerated ~10:37 Beirut on 2026-05-03; valid until ~2026-05-04 morning). Regenerate from API Setup if expired, update `.env`, restart Sunny.
-4. Once intake is back, rewrite `src/prompts/system.md` against the answers. Fix the placeholder bug on line 66 (`[X] hours` is literal text that will leak to customers). Update `src/prompts/classifier.md` with any new escalation triggers.
-5. Run a 5-message smoke test (greeting, technical question, pricing question, complaint, returning customer) to verify the new voice + escalation rules.
-6. Then move to Task #15 (48-hour soak with 3-5 testers).
+2. If Sunny is not running, restart with `npm start` from project root. Restart cloudflared quick tunnel for dev, capture new URL, repaste into Meta webhook (still pointed at the test number).
+3. Once intake is back, rewrite `src/prompts/system.md` against the answers. Fix the placeholder bug on line 66 (`[X] hours` is literal text that will leak to customers). Update `src/prompts/classifier.md` with any new escalation triggers. Commit and push to GitHub.
+4. Run a 5-message smoke test (greeting, technical question, pricing question, complaint, returning customer) to verify the new voice + escalation rules.
+5. Move to Task #15 (48-hour soak with 3-5 testers on test number), then Tasks #17 (real ElectroSun number), #19 (templates), #20 (template approval wait).
+6. Phase 5 cloud deploy (Railway or Fly.io) is the FINAL step before launch, not in parallel with anything else.
 
-**Hard rule reminder:** before recommending or relying on a remembered fact (file path, function, key, URL), verify it still holds. The tunnel URL above is stale-by-design; the Meta webhook config will need redoing next session.
+**Open decision parked by Serge:** tiered escalation notifications (hot vs warm). Whether complaints + warranty + hostility should ping the owner immediately while specific-quote / custom-design / B2B should be batched into the hourly report. Not blocking; revisit when Serge brings it up.
+
+**Hard rule reminder:** before recommending or relying on a remembered fact (file path, function, key, URL), verify it still holds. Quick-tunnel URLs are stale-by-design; the Meta webhook config will need redoing next session if cloudflared was restarted.
 
 ## Mission
 
