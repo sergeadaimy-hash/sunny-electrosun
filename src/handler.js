@@ -19,6 +19,7 @@ const { generateReply } = require('./claude');
 const { sendMessage, downloadMedia } = require('./whatsapp');
 const { DB_PATH } = require('../db/init');
 const { extractKnowledge, addKnowledgeEntry } = require('./knowledge');
+const { answerOwnerQuestion } = require('./owner_qa');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
 
@@ -194,33 +195,26 @@ async function handleOwnerReply(msg, pending) {
   });
 }
 
-const OWNER_NON_REPLY_MESSAGE = [
-  "Hi. I am keeping owner-mode replies minimal for now while we tune the teaching workflow.",
-  "",
-  "To manage facts, prices, or the catalog, use the admin dashboard:",
-  "https://sunny-electrosun-production.up.railway.app/admin",
-  "",
-  "To reply to a specific customer, long-press the alert message I sent you for that conversation and reply there. Your reply will be relayed to the customer automatically."
-].join('\n');
-
 async function handleOwnerNonQueryMessage(msg) {
   const ownerContact = getOrCreateContact(msg.from, msg.profileName);
   const ownerConv = getActiveConversation(ownerContact.id);
 
   appendMessage(ownerConv.id, 'inbound', msg.body, {
     whatsapp_message_id: msg.id,
-    intent: 'owner_message_no_action'
+    intent: 'owner_question'
   });
 
-  logger.info('handler.owner_non_query.received', {
+  logger.info('handler.owner_qa.received', {
     ownerPhone: msg.from,
     preview: (msg.body || '').slice(0, 120)
   });
 
-  const sendRes = await sendMessage(msg.from, OWNER_NON_REPLY_MESSAGE);
-  appendMessage(ownerConv.id, 'outbound', OWNER_NON_REPLY_MESSAGE, {
+  const reply = await answerOwnerQuestion(ownerContact.id, msg.body);
+
+  const sendRes = await sendMessage(msg.from, reply);
+  appendMessage(ownerConv.id, 'outbound', reply, {
     whatsapp_message_id: sendRes.messageId,
-    intent: 'owner_redirect_ack'
+    intent: 'owner_qa_reply'
   });
 }
 
