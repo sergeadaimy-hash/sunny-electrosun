@@ -67,6 +67,13 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 - After-hours auto-reply text.
 - Pricing data: Deye 12kW, Sungrow 50kW, JA 550W, etc. Until provided, every C2 inquiry triggers silent_query escalation to the brother.
 
+**Phase 5 cloud-deploy code prep DONE 2026-05-04:**
+- `db/init.js`: `DB_PATH` now reads from env (default `db/sunny.db`). Parent dir is auto-created on first boot, so Railway's `/data` mount works zero-config.
+- `railway.json`: tells Railway to use Nixpacks builder, run `npm start`, healthcheck `/health` with 30s timeout, restart on failure up to 5 times.
+- `.env.example`: added `DB_PATH=` with cloud guidance comment.
+- `DEPLOY.md`: full step-by-step Railway deploy guide. Covers volume creation, env-var paste block, webhook cutover, rollback, troubleshooting.
+- Local sanity test passed: `node db/init.js` works at default path AND with `DB_PATH=/tmp/.../test.db` (verifies dir auto-create).
+
 **Resume plan:**
 1. Once brother provides pricing data and Section 11 decisions, update prompts with concrete prices and policies. Until then, silent_query escalations to him are the right behavior.
 2. Task #15: 48-hour soak with 3-5 testers on the test number. Captures real conversation patterns to feed the daily learning loop.
@@ -199,6 +206,8 @@ All listed in `.env.example`. Required at runtime:
 | `PORT` | Express port. Defaults to 3000. | Server |
 | `API_KEY` | Required by `/api/*`. If unset, every API call returns 503. | Dashboard API |
 | `DAILY_LLM_BUDGET_USD` | Soft daily cap. Currently a placeholder, NOT YET enforced. | Future cost guardrail |
+| `DB_PATH` | Optional override of the SQLite file location. Defaults to `db/sunny.db` inside the repo. Set to `/data/sunny.db` on Railway (volume mount). | Cloud deploy |
+| `META_WABA_ID` | WhatsApp Business Account ID for template management. Default `1713234916358524`. | Template submissions |
 
 `server.js > startupSanityChecks()` logs warnings for missing critical keys at boot.
 
