@@ -86,6 +86,23 @@ CREATE TABLE IF NOT EXISTS daily_costs (
   last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_message TEXT NOT NULL,
+  source_message_id TEXT,
+  extracted_fact TEXT NOT NULL,
+  category TEXT,
+  confidence INTEGER,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  approved_at TIMESTAMP,
+  rejected_at TIMESTAMP,
+  notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge_entries(status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_entries(category);
+
 CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);

@@ -13,6 +13,13 @@ const {
 } = require('../src/memory');
 const { sendMessage } = require('../src/whatsapp');
 const { getTodayStats, getBudgetCents } = require('../src/cost_tracker');
+const {
+  listKnowledge,
+  setKnowledgeStatus,
+  updateKnowledgeText,
+  deleteKnowledge,
+  addKnowledgeEntry
+} = require('../src/knowledge');
 
 const router = express.Router();
 
@@ -238,6 +245,53 @@ router.get('/budget/today', (req, res) => {
     reply_calls: stats.reply_calls,
     over_budget: budgetCents !== null && stats.total_cents >= budgetCents
   });
+});
+
+router.get('/knowledge', (req, res) => {
+  const filter = {};
+  if (req.query.status) filter.status = req.query.status;
+  if (req.query.category) filter.category = req.query.category;
+  const rows = listKnowledge(filter);
+  res.json({ count: rows.length, entries: rows });
+});
+
+router.post('/knowledge', (req, res) => {
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'text required' });
+  const category = String(req.body?.category || 'other').trim();
+  const id = addKnowledgeEntry({
+    sourceMessage: '(added manually via admin)',
+    extractedFact: text,
+    category,
+    confidence: 100,
+    status: 'active'
+  });
+  res.json({ ok: true, id });
+});
+
+router.post('/knowledge/:id/status', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  const status = String(req.body?.status || '').trim();
+  if (!['active', 'pending', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: 'status must be active|pending|rejected' });
+  }
+  setKnowledgeStatus(id, status);
+  res.json({ ok: true, id, status });
+});
+
+router.post('/knowledge/:id/edit', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'text required' });
+  const category = req.body?.category ? String(req.body.category).trim() : null;
+  updateKnowledgeText(id, text, category);
+  res.json({ ok: true, id });
+});
+
+router.delete('/knowledge/:id', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  deleteKnowledge(id);
+  res.json({ ok: true, id });
 });
 
 module.exports = router;

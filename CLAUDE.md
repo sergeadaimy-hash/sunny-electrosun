@@ -68,6 +68,16 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 - After-hours auto-reply text.
 - Pricing data: Deye 12kW, Sungrow 50kW, JA 550W, etc. Until provided, every C2 inquiry triggers silent_query escalation to the brother.
 
+**Owner teaching loop shipped 2026-05-04:**
+- New table `knowledge_entries` (id, source_message, extracted_fact, category, confidence, status, created_at, approved_at, rejected_at).
+- New file `src/knowledge.js`: `extractKnowledge()` calls Haiku with `src/prompts/teacher.md`, returns `{facts:[{category, text, confidence}], reply_to_owner}`. Helpers for add/list/setStatus/edit/delete/formatForPrompt.
+- New prompt `src/prompts/teacher.md`: turns owner DMs into structured facts. Categories: pricing, policy, product, sales, operations, warranty, customer, correction, other. Confidence < 60 triggers a clarifying question instead of save.
+- `src/handler.js`: any text message from `OWNER_WHATSAPP` that is NOT a reply to a `[QID:N]` alert is now routed to `handleOwnerTeaching()`. Sunny extracts facts (auto-status `active`, only saved if confidence >= 60), persists them, and WhatsApps the owner a confirmation. If no facts (greeting, casual chat), still replies appropriately.
+- `src/claude.js > generateReply` now injects a fourth `cache_control: ephemeral` block with all active knowledge facts, grouped by category. Sonnet treats them as authoritative and overrides earlier general guidance if they conflict.
+- Admin UI: new **Knowledge** tab with status/category filters, manual fact entry, and per-card buttons (Edit / Approve / Reject / Delete). Each card shows the extracted fact, confidence pill, category pill, status pill, original source message (truncated), and the timestamp.
+- API endpoints: `GET /api/knowledge`, `POST /api/knowledge`, `POST /api/knowledge/:id/status`, `POST /api/knowledge/:id/edit`, `DELETE /api/knowledge/:id`.
+- Workflow: owner WhatsApps Sunny "Working hours are 9 to 6 Mon-Sat" → Haiku extracts {category: policy, text: "Working hours are 9am to 6pm Mon-Sat, closed Sundays.", confidence: 95} → saves as active → Sunny replies "Got it: working hours 9am to 6pm Mon-Sat. Logged. Anything else?" → next customer asking about hours gets the answer.
+
 **Image support shipped 2026-05-04:**
 - WhatsApp images now flow through the full pipeline (download from Meta media API → save to volume → classifier sees text hint → Sonnet sees the actual image as a vision input → reply).
 - `src/whatsapp.js > downloadMedia(mediaId)` does the two-step Meta download (metadata GET → signed URL GET with auth, 25MB cap, 30s timeout).

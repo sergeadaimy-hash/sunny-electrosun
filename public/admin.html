@@ -121,6 +121,7 @@
     .view.active { display: flex; }
     #view-inbox.active { display: grid; grid-template-columns: 360px 1fr; }
     #view-contacts.active { display: flex; flex-direction: column; }
+    #view-knowledge.active { display: flex; flex-direction: column; }
     @media (max-width: 800px) {
       #view-inbox.active { grid-template-columns: 1fr; }
       .conversation-list { border-right: none; border-bottom: 1px solid var(--border); }
@@ -223,6 +224,116 @@
       text-align: center;
       color: var(--text-faint);
     }
+
+    /* KNOWLEDGE VIEW */
+    .know-toolbar {
+      padding: 12px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .know-toolbar select, .know-toolbar input, .know-toolbar textarea {
+      padding: 6px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .know-toolbar .stats {
+      margin-left: auto;
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+    .know-add-row {
+      padding: 12px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .know-add-row textarea {
+      flex: 1;
+      min-height: 38px;
+      max-height: 120px;
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+    }
+    .know-list {
+      flex: 1;
+      overflow: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .know-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .know-card.rejected { opacity: 0.55; }
+    .know-card .head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .know-card .body {
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .know-card .source {
+      font-size: 12px;
+      color: var(--text-faint);
+      font-style: italic;
+      border-left: 2px solid var(--border);
+      padding-left: 10px;
+      margin-top: 4px;
+    }
+    .know-card .actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .know-card .actions .btn { font-size: 11px; padding: 4px 10px; }
+    .know-card textarea.edit {
+      width: 100%;
+      min-height: 60px;
+      padding: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+    }
+    .know-empty {
+      padding: 60px 20px;
+      text-align: center;
+      color: var(--text-faint);
+    }
+    .pill.active { background: var(--accent); color: #fff; }
+    .pill.rejected { background: var(--muted); color: #fff; }
+    .pill.pending { background: var(--warm); color: #000; }
+    .pill.cat { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); }
 
     /* CONVERSATION LIST */
     .conversation-list {
@@ -431,6 +542,7 @@
     <nav class="nav-tabs" id="nav-tabs">
       <button class="active" data-view="view-inbox">Inbox</button>
       <button data-view="view-contacts">Contacts</button>
+      <button data-view="view-knowledge">Knowledge</button>
     </nav>
     <div class="header-stats">
       <span class="badge" id="pending-badge">0 pending</span>
@@ -461,6 +573,51 @@
       <section class="conv-view-pane" id="conv-view">
         <div class="conv-empty" id="conv-empty">Select a conversation on the left.</div>
       </section>
+    </section>
+
+    <section id="view-knowledge" class="view">
+      <div class="know-toolbar">
+        <label>Status:
+          <select id="know-status">
+            <option value="active">active</option>
+            <option value="all">all</option>
+            <option value="rejected">rejected</option>
+          </select>
+        </label>
+        <label>Category:
+          <select id="know-category">
+            <option value="">all</option>
+            <option value="pricing">pricing</option>
+            <option value="policy">policy</option>
+            <option value="product">product</option>
+            <option value="sales">sales</option>
+            <option value="operations">operations</option>
+            <option value="warranty">warranty</option>
+            <option value="customer">customer</option>
+            <option value="correction">correction</option>
+            <option value="other">other</option>
+          </select>
+        </label>
+        <span class="stats" id="know-stats">0 facts</span>
+      </div>
+      <div class="know-add-row">
+        <textarea id="know-new-text" placeholder="Add a fact manually... e.g. 'Working hours: Mon-Sat 9am to 6pm, closed Sunday'"></textarea>
+        <select id="know-new-cat">
+          <option value="other">other</option>
+          <option value="pricing">pricing</option>
+          <option value="policy">policy</option>
+          <option value="product">product</option>
+          <option value="sales">sales</option>
+          <option value="operations">operations</option>
+          <option value="warranty">warranty</option>
+          <option value="customer">customer</option>
+          <option value="correction">correction</option>
+        </select>
+        <button class="btn primary" id="know-add-btn">Add fact</button>
+      </div>
+      <div class="know-list" id="know-list">
+        <div class="know-empty">Loading.</div>
+      </div>
     </section>
 
     <section id="view-contacts" class="view">
@@ -537,6 +694,7 @@ let inFlight = false;
 let currentView = 'view-inbox';
 let allContacts = [];
 let contactsLoaded = false;
+let knowledgeLoaded = false;
 
 // API HELPERS
 
@@ -627,6 +785,9 @@ function switchView(viewId) {
   });
   if (viewId === 'view-contacts' && !contactsLoaded) {
     loadContacts();
+  }
+  if (viewId === 'view-knowledge' && !knowledgeLoaded) {
+    loadKnowledge();
   }
 }
 
@@ -734,6 +895,127 @@ async function openContactConversation(contactId) {
   }
 }
 
+// KNOWLEDGE
+
+async function loadKnowledge() {
+  const list = document.getElementById('know-list');
+  list.innerHTML = '<div class="know-empty">Loading.</div>';
+  try {
+    const status = document.getElementById('know-status').value;
+    const category = document.getElementById('know-category').value;
+    const params = new URLSearchParams();
+    if (status && status !== 'all') params.set('status', status);
+    if (category) params.set('category', category);
+    const data = await apiFetch('/knowledge?' + params.toString());
+    knowledgeLoaded = true;
+    renderKnowledge(data.entries || []);
+  } catch (err) {
+    list.innerHTML = '<div class="know-empty">Error: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+['know-status', 'know-category'].forEach(id => {
+  document.getElementById(id).addEventListener('change', loadKnowledge);
+});
+
+document.getElementById('know-add-btn').addEventListener('click', addFact);
+
+async function addFact() {
+  const textEl = document.getElementById('know-new-text');
+  const catEl = document.getElementById('know-new-cat');
+  const text = textEl.value.trim();
+  if (!text) return;
+  try {
+    await apiFetch('/knowledge', {
+      method: 'POST',
+      body: JSON.stringify({ text, category: catEl.value })
+    });
+    textEl.value = '';
+    await loadKnowledge();
+  } catch (err) {
+    alert('Add failed: ' + err.message);
+  }
+}
+
+function renderKnowledge(entries) {
+  document.getElementById('know-stats').textContent = entries.length + ' fact' + (entries.length === 1 ? '' : 's');
+  const list = document.getElementById('know-list');
+  if (!entries.length) {
+    list.innerHTML = '<div class="know-empty">No facts in this view yet. Send Sunny a WhatsApp message to teach him, or add one manually above.</div>';
+    return;
+  }
+  list.innerHTML = entries.map(knowCardHtml).join('');
+  list.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = parseInt(btn.closest('.know-card').dataset.id, 10);
+      const action = btn.dataset.action;
+      handleKnowAction(id, action, btn.closest('.know-card'));
+    });
+  });
+}
+
+function knowCardHtml(e) {
+  const statusPill = e.status === 'active'
+    ? '<span class="pill active">ACTIVE</span>'
+    : (e.status === 'rejected' ? '<span class="pill rejected">REJECTED</span>' : '<span class="pill pending">PENDING</span>');
+  const catPill = e.category ? '<span class="pill cat">' + escapeHtml(e.category) + '</span>' : '';
+  const conf = (typeof e.confidence === 'number') ? '<span class="pill cat">conf ' + e.confidence + '</span>' : '';
+  const created = e.created_at ? '<span class="pill cat">' + shortTime(e.created_at) + '</span>' : '';
+  const isRejected = e.status === 'rejected';
+
+  const buttons = [];
+  buttons.push('<button class="btn" data-action="edit">Edit</button>');
+  if (e.status !== 'active') buttons.push('<button class="btn primary" data-action="activate">Approve</button>');
+  if (e.status !== 'rejected') buttons.push('<button class="btn danger" data-action="reject">Reject</button>');
+  buttons.push('<button class="btn" data-action="delete">Delete</button>');
+
+  const sourceBlock = e.source_message && e.source_message !== '(added manually via admin)'
+    ? '<div class="source">' + escapeHtml(e.source_message.slice(0, 240)) + (e.source_message.length > 240 ? '...' : '') + '</div>'
+    : '';
+
+  return [
+    '<div class="know-card' + (isRejected ? ' rejected' : '') + '" data-id="' + e.id + '">',
+    '<div class="head">' + statusPill + catPill + conf + created + '</div>',
+    '<div class="body" data-body>' + escapeHtml(e.extracted_fact) + '</div>',
+    sourceBlock,
+    '<div class="actions">' + buttons.join('') + '</div>',
+    '</div>'
+  ].join('');
+}
+
+async function handleKnowAction(id, action, card) {
+  try {
+    if (action === 'activate') {
+      await apiFetch('/knowledge/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: 'active' }) });
+      await loadKnowledge();
+    } else if (action === 'reject') {
+      await apiFetch('/knowledge/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: 'rejected' }) });
+      await loadKnowledge();
+    } else if (action === 'delete') {
+      if (!confirm('Delete this fact permanently?')) return;
+      await apiFetch('/knowledge/' + id, { method: 'DELETE' });
+      await loadKnowledge();
+    } else if (action === 'edit') {
+      const bodyEl = card.querySelector('[data-body]');
+      const original = bodyEl.textContent;
+      const ta = document.createElement('textarea');
+      ta.className = 'edit';
+      ta.value = original;
+      bodyEl.replaceWith(ta);
+      ta.focus();
+      const actions = card.querySelector('.actions');
+      actions.innerHTML = '<button class="btn primary" data-action="save-edit">Save</button><button class="btn" data-action="cancel-edit">Cancel</button>';
+      actions.querySelector('[data-action="save-edit"]').addEventListener('click', async () => {
+        await apiFetch('/knowledge/' + id + '/edit', { method: 'POST', body: JSON.stringify({ text: ta.value.trim() }) });
+        await loadKnowledge();
+      });
+      actions.querySelector('[data-action="cancel-edit"]').addEventListener('click', () => loadKnowledge());
+    }
+  } catch (err) {
+    alert(action + ' failed: ' + err.message);
+  }
+}
+
 // REFRESH
 
 async function refreshAll() {
@@ -754,6 +1036,9 @@ async function refreshAll() {
     }
     if (currentView === 'view-contacts' && contactsLoaded) {
       loadContacts();
+    }
+    if (currentView === 'view-knowledge' && knowledgeLoaded) {
+      loadKnowledge();
     }
   } catch (err) {
     console.error('refresh failed', err);

@@ -18,6 +18,7 @@ const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
 const { sendMessage, downloadMedia } = require('./whatsapp');
 const { DB_PATH } = require('../db/init');
+const { extractKnowledge, addKnowledgeEntry } = require('./knowledge');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
 
@@ -193,6 +194,51 @@ async function handleOwnerReply(msg, pending) {
   });
 }
 
+async function handleOwnerTeaching(msg) {
+  const ownerPhone = process.env.OWNER_WHATSAPP;
+  const ownerContact = getOrCreateContact(msg.from, msg.profileName);
+  const ownerConv = getActiveConversation(ownerContact.id);
+
+  appendMessage(ownerConv.id, 'inbound', msg.body, {
+    whatsapp_message_id: msg.id,
+    intent: 'owner_teaching'
+  });
+
+  const result = await extractKnowledge(msg.body);
+  let savedCount = 0;
+  for (const f of result.facts || []) {
+    if (!f || !f.text || typeof f.text !== 'string') continue;
+    if (typeof f.confidence === 'number' && f.confidence < 60) continue;
+    addKnowledgeEntry({
+      sourceMessage: msg.body,
+      sourceMessageId: msg.id,
+      extractedFact: f.text.trim(),
+      category: f.category || 'other',
+      confidence: f.confidence ?? null,
+      status: 'active'
+    });
+    savedCount++;
+  }
+
+  logEvent(ownerContact.id, 'owner_teaching_processed', {
+    facts_extracted: (result.facts || []).length,
+    facts_saved: savedCount,
+    message_preview: (msg.body || '').slice(0, 200)
+  });
+  logger.info('handler.owner_teaching.processed', {
+    ownerPhone,
+    factsExtracted: (result.facts || []).length,
+    factsSaved: savedCount
+  });
+
+  const replyText = result.reply_to_owner || (savedCount ? `Logged ${savedCount} fact${savedCount === 1 ? '' : 's'}.` : 'Got it.');
+  const sendRes = await sendMessage(msg.from, replyText);
+  appendMessage(ownerConv.id, 'outbound', replyText, {
+    whatsapp_message_id: sendRes.messageId,
+    intent: 'owner_teaching_ack'
+  });
+}
+
 async function handleUnsupported(msg) {
   const contact = getOrCreateContact(msg.from, msg.profileName);
   const conversation = getActiveConversation(contact.id);
@@ -234,10 +280,16 @@ async function handleInbound(payload) {
       }
 
       const ownerPhone = process.env.OWNER_WHATSAPP;
-      if (ownerPhone && msg.from === ownerPhone && msg.replyToId) {
-        const pending = findPendingByAlertId(msg.replyToId);
-        if (pending) {
-          await handleOwnerReply(msg, pending);
+      if (ownerPhone && msg.from === ownerPhone) {
+        if (msg.replyToId) {
+          const pending = findPendingByAlertId(msg.replyToId);
+          if (pending) {
+            await handleOwnerReply(msg, pending);
+            continue;
+          }
+        }
+        if (msg.kind === 'text') {
+          await handleOwnerTeaching(msg);
           continue;
         }
       }

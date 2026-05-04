@@ -3,6 +3,7 @@ const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
+const { formatKnowledgeForPrompt } = require('./knowledge');
 
 const MODEL_CLASSIFIER = 'claude-haiku-4-5';
 const MODEL_REPLY = 'claude-sonnet-4-6';
@@ -209,6 +210,13 @@ async function generateReply(history, message, contact, attachments = []) {
   ];
   if (CATALOG_BLOCK) {
     systemBlocks.push({ type: 'text', text: CATALOG_BLOCK, cache_control: { type: 'ephemeral' } });
+  }
+  let knowledgeBlock = '';
+  try { knowledgeBlock = formatKnowledgeForPrompt(); } catch (err) {
+    logger.warn('claude.reply.knowledge_load_fail', { message: err.message });
+  }
+  if (knowledgeBlock) {
+    systemBlocks.push({ type: 'text', text: knowledgeBlock, cache_control: { type: 'ephemeral' } });
   }
   if (contextBlock) systemBlocks.push({ type: 'text', text: contextBlock });
 
