@@ -46,6 +46,7 @@ app.get('/version', (req, res) => {
     git_commit_message: (process.env.RAILWAY_GIT_COMMIT_MESSAGE || '').slice(0, 200) || null,
     deploy_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
     escalations_disabled: String(process.env.DISABLE_ESCALATIONS || '').toLowerCase() === 'true',
+    notifications_disabled: String(process.env.DISABLE_NOTIFICATIONS || '').toLowerCase() === 'true',
     owner_whatsapp_tail: process.env.OWNER_WHATSAPP ? String(process.env.OWNER_WHATSAPP).slice(-4) : null,
     node_uptime_seconds: Math.floor(process.uptime()),
     server_time: new Date().toISOString()
@@ -81,13 +82,21 @@ function startupSanityChecks() {
   }
 }
 
+function notificationsDisabled() {
+  return String(process.env.DISABLE_NOTIFICATIONS || '').toLowerCase() === 'true';
+}
+
 if (require.main === module) {
   startupSanityChecks();
   const server = app.listen(PORT, () => {
-    logger.info('server.listen', { port: PORT });
+    logger.info('server.listen', { port: PORT, notifications_disabled: notificationsDisabled() });
   });
 
   cron.schedule('0 */2 * * *', async () => {
+    if (notificationsDisabled()) {
+      logger.info('cron.period.skipped', { reason: 'DISABLE_NOTIFICATIONS=true' });
+      return;
+    }
     try {
       logger.info('cron.period.start');
       const report = generateHourlyReport();
@@ -99,6 +108,10 @@ if (require.main === module) {
   });
 
   cron.schedule('0 21 * * *', async () => {
+    if (notificationsDisabled()) {
+      logger.info('cron.daily.skipped', { reason: 'DISABLE_NOTIFICATIONS=true' });
+      return;
+    }
     try {
       logger.info('cron.daily.start');
       const report = generateDailyReport();
@@ -111,6 +124,10 @@ if (require.main === module) {
   }, { timezone: 'Africa/Lagos' });
 
   cron.schedule('30 21 * * *', async () => {
+    if (notificationsDisabled()) {
+      logger.info('cron.daily_learning.skipped', { reason: 'DISABLE_NOTIFICATIONS=true' });
+      return;
+    }
     try {
       logger.info('cron.daily_learning.start');
       const report = generateDailyLearningReport();
@@ -122,6 +139,9 @@ if (require.main === module) {
   }, { timezone: 'Africa/Lagos' });
 
   cron.schedule('*/30 * * * *', async () => {
+    if (notificationsDisabled()) {
+      return;
+    }
     try {
       const res = await runWindowScan();
       if (res.warned || res.expired) {
