@@ -16,8 +16,65 @@ function initDb() {
   db.exec(schema);
 
   applyMigrations(db);
+  seedCatalogIfEmpty(db);
 
   return db;
+}
+
+function seedCatalogIfEmpty(db) {
+  try {
+    const itemCount = db.prepare('SELECT COUNT(*) AS n FROM catalog_items').get().n;
+    const noteCount = db.prepare('SELECT COUNT(*) AS n FROM catalog_notes').get().n;
+    if (itemCount > 0 && noteCount > 0) return;
+
+    const seedPath = path.join(__dirname, '..', 'src', 'knowledge', 'products.json');
+    if (!fs.existsSync(seedPath)) return;
+    const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+
+    let itemsSeeded = 0;
+    if (itemCount === 0 && seed.categories) {
+      const insertItem = db.prepare(
+        `INSERT INTO catalog_items (section, brand, model, size_kw, capacity_kwh, phase, type, price_ngn, in_stock, notes, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      const tx = db.transaction(() => {
+        for (const [section, items] of Object.entries(seed.categories)) {
+          if (!Array.isArray(items)) continue;
+          for (const it of items) {
+            insertItem.run(
+              section,
+              it.brand || '',
+              it.model || '',
+              typeof it.size_kw === 'number' ? it.size_kw : null,
+              typeof it.capacity_kwh === 'number' ? it.capacity_kwh : null,
+              it.phase || null,
+              it.type || null,
+              typeof it.price_ngn === 'number' ? it.price_ngn : null,
+              it.in_stock === false ? 0 : 1,
+              it.notes || null,
+              itemsSeeded++
+            );
+          }
+        }
+      });
+      tx();
+      console.log('catalog: seeded', itemsSeeded, 'items from products.json');
+    }
+
+    let notesSeeded = 0;
+    if (noteCount === 0 && Array.isArray(seed.notes)) {
+      const insertNote = db.prepare('INSERT INTO catalog_notes (text, sort_order) VALUES (?, ?)');
+      const tx = db.transaction(() => {
+        for (const n of seed.notes) {
+          if (typeof n === 'string' && n.trim()) insertNote.run(n.trim(), notesSeeded++);
+        }
+      });
+      tx();
+      console.log('catalog: seeded', notesSeeded, 'notes from products.json');
+    }
+  } catch (err) {
+    console.error('catalog seed error:', err.message);
+  }
 }
 
 function applyMigrations(db) {

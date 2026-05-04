@@ -434,6 +434,85 @@
     .catalog-table td.price { font-family: ui-monospace, monospace; font-size: 12px; }
     .catalog-table .stock-yes { color: var(--accent); }
     .catalog-table .stock-no { color: var(--text-faint); }
+    .catalog-table input, .catalog-table select {
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    .catalog-table input.price-input {
+      font-family: ui-monospace, monospace;
+      text-align: right;
+    }
+    .catalog-table .row-actions {
+      display: flex;
+      gap: 4px;
+    }
+    .catalog-table .row-actions .btn {
+      padding: 4px 10px;
+      font-size: 11px;
+    }
+    .catalog-add-row {
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 2fr 1fr 1fr 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .catalog-add-row input, .catalog-add-row select {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    @media (max-width: 1100px) {
+      .catalog-add-row { grid-template-columns: 1fr 1fr; }
+    }
+    .catalog-section {
+      margin-bottom: 28px;
+    }
+    .notes-list { list-style: none; padding: 0; }
+    .notes-list li {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .notes-list li .text { flex: 1; font-size: 13px; }
+    .notes-list .btn { padding: 4px 10px; font-size: 11px; }
+    .notes-add {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .notes-add textarea {
+      flex: 1;
+      min-height: 38px;
+      max-height: 120px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+    }
 
     /* CONVERSATION LIST */
     .conversation-list {
@@ -1128,14 +1207,23 @@ document.querySelectorAll('#know-subnav button').forEach(btn => {
 
 async function loadBrain() {
   try {
-    const data = await apiFetch('/brain');
+    const [brain, catalog] = await Promise.all([apiFetch('/brain'), apiFetch('/catalog')]);
     brainLoaded = true;
-    renderRules(data.rules || {});
-    renderCatalog(data.catalog || {});
-    renderConfig(data.config || {}, data.models || {});
+    renderRules(brain.rules || {});
+    renderCatalog(catalog || { items: [], notes: [] });
+    renderConfig(brain.config || {}, brain.models || {});
   } catch (err) {
     document.getElementById('rules-body').innerHTML =
       '<p class="brain-readonly-hint">Error loading brain: ' + escapeHtml(err.message) + '</p>';
+  }
+}
+
+async function reloadCatalog() {
+  try {
+    const catalog = await apiFetch('/catalog');
+    renderCatalog(catalog);
+  } catch (err) {
+    alert('Failed to reload catalog: ' + err.message);
   }
 }
 
@@ -1152,46 +1240,185 @@ function renderRules(rules) {
 
 function renderCatalog(catalog) {
   const root = document.getElementById('catalog-body');
-  if (!catalog || catalog.error) {
-    root.innerHTML = '<p class="brain-readonly-hint">' + escapeHtml(catalog && catalog.error ? catalog.error : 'No catalog loaded.') + '</p>';
-    return;
+  const items = (catalog && catalog.items) || [];
+  const notes = (catalog && catalog.notes) || [];
+
+  const bySection = {};
+  for (const it of items) {
+    if (!bySection[it.section]) bySection[it.section] = [];
+    bySection[it.section].push(it);
   }
+  const sections = Object.keys(bySection).sort();
+
   const blocks = [];
   blocks.push('<h2>Product catalog</h2>');
-  const meta = [];
-  if (catalog.last_updated) meta.push('Last updated: ' + catalog.last_updated);
-  if (catalog.currency) meta.push('Currency: ' + catalog.currency);
-  if (meta.length) blocks.push('<p class="brain-readonly-hint">' + escapeHtml(meta.join(' · ')) + '</p>');
-  blocks.push('<p class="brain-readonly-hint">Read-only. Edit src/knowledge/products.json and push a commit to update prices.</p>');
+  blocks.push('<p class="brain-readonly-hint">Edits save instantly and take effect on the next customer reply.</p>');
 
-  const cats = catalog.categories || {};
-  for (const [section, items] of Object.entries(cats)) {
-    if (!items || !items.length) continue;
+  blocks.push('<div class="catalog-section">');
+  blocks.push('<h3>Add a new item</h3>');
+  blocks.push('<div class="catalog-add-row">');
+  blocks.push('<input id="cat-new-section" placeholder="section (e.g. inverters)">');
+  blocks.push('<input id="cat-new-brand" placeholder="brand">');
+  blocks.push('<input id="cat-new-model" placeholder="model">');
+  blocks.push('<input id="cat-new-price" type="number" placeholder="price NGN">');
+  blocks.push('<select id="cat-new-stock"><option value="1">in stock</option><option value="0">check team</option></select>');
+  blocks.push('<input id="cat-new-notes" placeholder="notes (optional)">');
+  blocks.push('<button class="btn primary" id="cat-new-btn">Add</button>');
+  blocks.push('</div>');
+  blocks.push('</div>');
+
+  if (!sections.length) {
+    blocks.push('<p class="brain-readonly-hint">No items yet. Use the form above to add the first one.</p>');
+  }
+
+  for (const section of sections) {
+    const list = bySection[section];
+    blocks.push('<div class="catalog-section">');
     blocks.push('<h3>' + escapeHtml(section.toUpperCase()) + '</h3>');
-    blocks.push('<table class="catalog-table"><thead><tr><th>Brand</th><th>Model</th><th>Price</th><th>Stock</th><th>Notes</th></tr></thead><tbody>');
-    for (const it of items) {
-      const price = it.price_ngn ? formatNgn(it.price_ngn) : '<span class="empty">on request</span>';
-      const stock = it.in_stock
-        ? '<span class="stock-yes">in stock</span>'
-        : '<span class="stock-no">check team</span>';
-      blocks.push('<tr>'
-        + '<td>' + escapeHtml(it.brand || '') + '</td>'
-        + '<td>' + escapeHtml(it.model || '') + '</td>'
-        + '<td class="price">' + price + '</td>'
-        + '<td>' + stock + '</td>'
-        + '<td>' + escapeHtml(it.notes || '') + '</td>'
+    blocks.push('<table class="catalog-table"><thead><tr>'
+      + '<th>Brand</th>'
+      + '<th>Model</th>'
+      + '<th>Price NGN</th>'
+      + '<th>Stock</th>'
+      + '<th>Notes</th>'
+      + '<th></th>'
+      + '</tr></thead><tbody>');
+    for (const it of list) {
+      blocks.push('<tr data-cat-row="' + it.id + '">'
+        + '<td><input data-field="brand" value="' + escapeHtml(it.brand || '') + '"></td>'
+        + '<td><input data-field="model" value="' + escapeHtml(it.model || '') + '"></td>'
+        + '<td><input class="price-input" data-field="price_ngn" type="number" value="' + (it.price_ngn ?? '') + '"></td>'
+        + '<td><select data-field="in_stock"><option value="1"' + (it.in_stock ? ' selected' : '') + '>in stock</option><option value="0"' + (!it.in_stock ? ' selected' : '') + '>check team</option></select></td>'
+        + '<td><input data-field="notes" value="' + escapeHtml(it.notes || '') + '"></td>'
+        + '<td class="row-actions"><button class="btn primary" data-cat-action="save">Save</button><button class="btn danger" data-cat-action="delete">Delete</button></td>'
         + '</tr>');
     }
     blocks.push('</tbody></table>');
+    blocks.push('</div>');
   }
 
-  if (catalog.notes && catalog.notes.length) {
-    blocks.push('<h3>Catalog notes</h3><ul>');
-    for (const n of catalog.notes) blocks.push('<li>' + escapeHtml(n) + '</li>');
-    blocks.push('</ul>');
+  blocks.push('<div class="catalog-section">');
+  blocks.push('<h3>Catalog notes</h3>');
+  blocks.push('<p class="brain-readonly-hint">These appear at the bottom of the catalog block in Sunny\'s system prompt.</p>');
+  blocks.push('<ul class="notes-list" id="catalog-notes-list">');
+  for (const n of notes) {
+    blocks.push('<li data-note-id="' + n.id + '">'
+      + '<div class="text">' + escapeHtml(n.text) + '</div>'
+      + '<button class="btn danger" data-note-action="delete">Delete</button>'
+      + '</li>');
   }
+  blocks.push('</ul>');
+  blocks.push('<div class="notes-add">');
+  blocks.push('<textarea id="cat-new-note" placeholder="Add a catalog note..."></textarea>');
+  blocks.push('<button class="btn primary" id="cat-new-note-btn">Add note</button>');
+  blocks.push('</div>');
+  blocks.push('</div>');
 
   root.innerHTML = blocks.join('');
+  bindCatalogHandlers(root);
+}
+
+function bindCatalogHandlers(root) {
+  const addBtn = root.querySelector('#cat-new-btn');
+  if (addBtn) addBtn.addEventListener('click', addCatalogItem);
+
+  root.querySelectorAll('[data-cat-row]').forEach(row => {
+    row.querySelectorAll('[data-cat-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(row.dataset.catRow, 10);
+        const action = btn.dataset.catAction;
+        if (action === 'save') saveCatalogRow(id, row);
+        if (action === 'delete') deleteCatalogRow(id);
+      });
+    });
+  });
+
+  root.querySelectorAll('[data-note-id]').forEach(li => {
+    li.querySelector('[data-note-action="delete"]').addEventListener('click', () => {
+      const id = parseInt(li.dataset.noteId, 10);
+      deleteCatalogNote(id);
+    });
+  });
+
+  const addNoteBtn = root.querySelector('#cat-new-note-btn');
+  if (addNoteBtn) addNoteBtn.addEventListener('click', addCatalogNote);
+}
+
+async function addCatalogItem() {
+  const body = {
+    section: document.getElementById('cat-new-section').value.trim(),
+    brand: document.getElementById('cat-new-brand').value.trim(),
+    model: document.getElementById('cat-new-model').value.trim(),
+    price_ngn: document.getElementById('cat-new-price').value || null,
+    in_stock: document.getElementById('cat-new-stock').value === '1',
+    notes: document.getElementById('cat-new-notes').value.trim() || null
+  };
+  if (!body.section || !body.brand || !body.model) {
+    alert('Section, brand, and model are required.');
+    return;
+  }
+  try {
+    await apiFetch('/catalog/items', { method: 'POST', body: JSON.stringify(body) });
+    await reloadCatalog();
+  } catch (err) {
+    alert('Add failed: ' + err.message);
+  }
+}
+
+async function saveCatalogRow(id, row) {
+  const body = {};
+  row.querySelectorAll('[data-field]').forEach(el => {
+    const field = el.dataset.field;
+    let v = el.value;
+    if (field === 'price_ngn') v = v === '' ? null : Number(v);
+    if (field === 'in_stock') v = v === '1';
+    body[field] = v;
+  });
+  try {
+    await apiFetch('/catalog/items/' + id, { method: 'POST', body: JSON.stringify(body) });
+    flashRow(row);
+  } catch (err) {
+    alert('Save failed: ' + err.message);
+  }
+}
+
+function flashRow(row) {
+  const original = row.style.backgroundColor;
+  row.style.backgroundColor = 'rgba(16, 185, 129, 0.2)';
+  setTimeout(() => { row.style.backgroundColor = original; }, 600);
+}
+
+async function deleteCatalogRow(id) {
+  if (!confirm('Delete this item permanently?')) return;
+  try {
+    await apiFetch('/catalog/items/' + id, { method: 'DELETE' });
+    await reloadCatalog();
+  } catch (err) {
+    alert('Delete failed: ' + err.message);
+  }
+}
+
+async function addCatalogNote() {
+  const ta = document.getElementById('cat-new-note');
+  const text = ta.value.trim();
+  if (!text) return;
+  try {
+    await apiFetch('/catalog/notes', { method: 'POST', body: JSON.stringify({ text }) });
+    ta.value = '';
+    await reloadCatalog();
+  } catch (err) {
+    alert('Add failed: ' + err.message);
+  }
+}
+
+async function deleteCatalogNote(id) {
+  if (!confirm('Delete this note?')) return;
+  try {
+    await apiFetch('/catalog/notes/' + id, { method: 'DELETE' });
+    await reloadCatalog();
+  } catch (err) {
+    alert('Delete failed: ' + err.message);
+  }
 }
 
 function formatNgn(n) {

@@ -4,6 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { formatKnowledgeForPrompt } = require('./knowledge');
+const { formatCatalogForPrompt } = require('./catalog');
 
 const MODEL_CLASSIFIER = 'claude-haiku-4-5';
 const MODEL_REPLY = 'claude-sonnet-4-6';
@@ -11,49 +12,6 @@ const MODEL_REPLY = 'claude-sonnet-4-6';
 const SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'system.md'), 'utf8');
 const CLASSIFIER_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'classifier.md'), 'utf8');
 
-function loadProductCatalog() {
-  try {
-    const raw = fs.readFileSync(path.join(__dirname, 'knowledge', 'products.json'), 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    return null;
-  }
-}
-
-function formatCatalogForPrompt(catalog) {
-  if (!catalog) return '';
-  const lines = [];
-  lines.push('# Current Electro-Sun catalog (last updated ' + (catalog.last_updated || 'unknown') + ')');
-  lines.push('All prices in ' + (catalog.currency || 'NGN') + '. These are confirmed Electro-Sun prices, quote them directly to customers when asked.');
-  lines.push('');
-
-  for (const [section, items] of Object.entries(catalog.categories || {})) {
-    if (!items || !items.length) continue;
-    lines.push('## ' + section.toUpperCase());
-    for (const item of items) {
-      const stock = item.in_stock ? 'in stock' : 'check with team';
-      const price = item.price_ngn ? formatNgn(item.price_ngn) : 'price on request';
-      lines.push('- ' + item.brand + ' ' + item.model + ': ' + price + ' (' + stock + ')');
-    }
-    lines.push('');
-  }
-
-  if (catalog.notes && catalog.notes.length) {
-    lines.push('## Catalog notes');
-    for (const n of catalog.notes) lines.push('- ' + n);
-  }
-
-  return lines.join('\n');
-}
-
-function formatNgn(n) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M NGN';
-  if (n >= 1_000) return Math.round(n / 1_000) + 'k NGN';
-  return n + ' NGN';
-}
-
-const PRODUCT_CATALOG = loadProductCatalog();
-const CATALOG_BLOCK = formatCatalogForPrompt(PRODUCT_CATALOG);
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;
 
@@ -208,8 +166,12 @@ async function generateReply(history, message, contact, attachments = []) {
   const systemBlocks = [
     { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }
   ];
-  if (CATALOG_BLOCK) {
-    systemBlocks.push({ type: 'text', text: CATALOG_BLOCK, cache_control: { type: 'ephemeral' } });
+  let catalogBlock = '';
+  try { catalogBlock = formatCatalogForPrompt(); } catch (err) {
+    logger.warn('claude.reply.catalog_load_fail', { message: err.message });
+  }
+  if (catalogBlock) {
+    systemBlocks.push({ type: 'text', text: catalogBlock, cache_control: { type: 'ephemeral' } });
   }
   let knowledgeBlock = '';
   try { knowledgeBlock = formatKnowledgeForPrompt(); } catch (err) {

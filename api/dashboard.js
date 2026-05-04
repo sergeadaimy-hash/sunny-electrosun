@@ -22,6 +22,15 @@ const {
   deleteKnowledge,
   addKnowledgeEntry
 } = require('../src/knowledge');
+const {
+  getCatalog,
+  addItem: addCatalogItem,
+  updateItem: updateCatalogItem,
+  deleteItem: deleteCatalogItem,
+  addNote: addCatalogNote,
+  updateNote: updateCatalogNote,
+  deleteNote: deleteCatalogNote
+} = require('../src/catalog');
 
 const router = express.Router();
 
@@ -296,6 +305,56 @@ router.delete('/knowledge/:id', (req, res) => {
   res.json({ ok: true, id });
 });
 
+router.get('/catalog', (req, res) => {
+  res.json(getCatalog());
+});
+
+router.post('/catalog/items', (req, res) => {
+  try {
+    const id = addCatalogItem(req.body || {});
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/catalog/items/:id', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    updateCatalogItem(id, req.body || {});
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/catalog/items/:id', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  deleteCatalogItem(id);
+  res.json({ ok: true, id });
+});
+
+router.post('/catalog/notes', (req, res) => {
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'text required' });
+  const id = addCatalogNote(text);
+  res.json({ ok: true, id });
+});
+
+router.post('/catalog/notes/:id', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'text required' });
+  updateCatalogNote(id, text);
+  res.json({ ok: true, id });
+});
+
+router.delete('/catalog/notes/:id', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  deleteCatalogNote(id);
+  res.json({ ok: true, id });
+});
+
 router.get('/brain', (req, res) => {
   const root = path.join(__dirname, '..');
   const safeRead = (p) => {
@@ -306,12 +365,6 @@ router.get('/brain', (req, res) => {
     classifier: safeRead(path.join(root, 'src', 'prompts', 'classifier.md')),
     teacher: safeRead(path.join(root, 'src', 'prompts', 'teacher.md'))
   };
-  let catalog = null;
-  try {
-    catalog = JSON.parse(safeRead(path.join(root, 'src', 'knowledge', 'products.json')) || '{}');
-  } catch (err) {
-    catalog = { error: 'failed to parse products.json: ' + err.message };
-  }
   const models = {
     classifier: 'claude-haiku-4-5',
     teacher: 'claude-haiku-4-5',
@@ -327,7 +380,7 @@ router.get('/brain', (req, res) => {
     waba_id: process.env.META_WABA_ID || null,
     graph_version: 'v21.0'
   };
-  res.json({ rules, catalog, models, config });
+  res.json({ rules, models, config });
 });
 
 module.exports = router;

@@ -103,6 +103,32 @@ CREATE TABLE IF NOT EXISTS knowledge_entries (
 CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge_entries(status);
 CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_entries(category);
 
+CREATE TABLE IF NOT EXISTS catalog_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  section TEXT NOT NULL,
+  brand TEXT NOT NULL,
+  model TEXT NOT NULL,
+  size_kw REAL,
+  capacity_kwh REAL,
+  phase TEXT,
+  type TEXT,
+  price_ngn INTEGER,
+  in_stock INTEGER NOT NULL DEFAULT 1,
+  notes TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS catalog_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_catalog_section ON catalog_items(section);
+
 CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
