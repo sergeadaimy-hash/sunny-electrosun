@@ -182,7 +182,7 @@ function ensureAlternating(messages) {
   return out;
 }
 
-async function generateReply(history, message, contact) {
+async function generateReply(history, message, contact, attachments = []) {
   if (isOverBudget()) {
     logger.warn('claude.reply.budget_exceeded');
     return { ok: false, text: null, error: 'budget_exceeded' };
@@ -216,6 +216,23 @@ async function generateReply(history, message, contact) {
     ...history,
     { role: 'user', content: message }
   ]);
+
+  if (attachments && attachments.length && messages.length) {
+    const last = messages[messages.length - 1];
+    if (last.role === 'user') {
+      const blocks = [];
+      for (const a of attachments) {
+        if (a.type === 'image' && a.base64 && a.mimeType) {
+          blocks.push({
+            type: 'image',
+            source: { type: 'base64', media_type: a.mimeType, data: a.base64 }
+          });
+        }
+      }
+      blocks.push({ type: 'text', text: typeof last.content === 'string' ? last.content : message });
+      last.content = blocks;
+    }
+  }
 
   try {
     const resp = await withRetry(() => client().messages.create({

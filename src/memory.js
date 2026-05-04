@@ -64,7 +64,13 @@ function getActiveConversation(contactId) {
 
 function appendMessage(conversationId, direction, body, meta = {}) {
   const db = getDb();
-  const { intent = null, language = null, whatsapp_message_id = null } = meta;
+  const {
+    intent = null,
+    language = null,
+    whatsapp_message_id = null,
+    media_path = null,
+    media_mime = null
+  } = meta;
 
   if (whatsapp_message_id) {
     const existing = db.prepare(
@@ -75,8 +81,8 @@ function appendMessage(conversationId, direction, body, meta = {}) {
 
   const ts = nowIso();
   const info = db.prepare(
-    'INSERT INTO messages (conversation_id, direction, body, intent, language, whatsapp_message_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(conversationId, direction, body, intent, language, whatsapp_message_id, ts);
+    'INSERT INTO messages (conversation_id, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(conversationId, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, ts);
 
   db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').run(ts, conversationId);
 
@@ -241,7 +247,7 @@ function getRecentConversationsForInbox(limit = 50, offset = 0) {
 function getMessagesForConversation(conversationId) {
   const db = getDb();
   return db.prepare(`
-    SELECT id, direction, body, intent, language, whatsapp_message_id, timestamp
+    SELECT id, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, timestamp
     FROM messages
     WHERE conversation_id = ?
     ORDER BY id ASC

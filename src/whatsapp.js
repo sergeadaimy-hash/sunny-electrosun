@@ -66,8 +66,32 @@ async function sendTemplate(to, templateName, languageCode = 'en', components = 
   }
 }
 
+async function downloadMedia(mediaId) {
+  const token = process.env.META_ACCESS_TOKEN;
+  if (!token) throw new Error('META_ACCESS_TOKEN is not set');
+  const auth = { Authorization: `Bearer ${token}` };
+
+  const metaUrl = `https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`;
+  const metaRes = await axios.get(metaUrl, { headers: auth, timeout: 15000 });
+  const url = metaRes.data && metaRes.data.url;
+  const mimeType = metaRes.data && metaRes.data.mime_type;
+  const sizeBytes = metaRes.data && metaRes.data.file_size;
+  if (!url) throw new Error('media metadata missing url');
+
+  const fileRes = await axios.get(url, {
+    headers: auth,
+    responseType: 'arraybuffer',
+    timeout: 30000,
+    maxContentLength: 25 * 1024 * 1024,
+    maxBodyLength: 25 * 1024 * 1024
+  });
+
+  logger.info('whatsapp.media.downloaded', { mediaId, mimeType, sizeBytes });
+  return { buffer: Buffer.from(fileRes.data), mimeType, sizeBytes };
+}
+
 function safe(obj) {
   try { return JSON.parse(JSON.stringify(obj)); } catch { return String(obj); }
 }
 
-module.exports = { sendMessage, sendTemplate };
+module.exports = { sendMessage, sendTemplate, downloadMedia };

@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const logger = require('./utils/logger');
 const {
   getOrCreateContact,
@@ -14,7 +16,25 @@ const {
 } = require('./memory');
 const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
-const { sendMessage } = require('./whatsapp');
+const { sendMessage, downloadMedia } = require('./whatsapp');
+const { DB_PATH } = require('../db/init');
+
+const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
+
+function ensureMediaDir() {
+  if (!fs.existsSync(MEDIA_DIR)) {
+    fs.mkdirSync(MEDIA_DIR, { recursive: true });
+  }
+}
+
+function extForMime(mime) {
+  if (!mime) return 'bin';
+  if (mime.includes('jpeg')) return 'jpg';
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webp')) return 'webp';
+  if (mime.includes('gif')) return 'gif';
+  return 'bin';
+}
 
 const HOT_LEAD_REPLY = "Great. One of our specialists will reach out to you shortly to finalise the details and send the formal documents.";
 const SILENT_QUERY_REPLY = "Our specialist will confirm the exact figure for you shortly.";
@@ -66,6 +86,17 @@ function extractMessages(payload) {
         };
         if (msg.type === 'text' && msg.text?.body) {
           out.push({ ...base, kind: 'text', body: msg.text.body });
+        } else if (msg.type === 'image' && msg.image?.id) {
+          out.push({
+            ...base,
+            kind: 'image',
+            body: msg.image.caption || '',
+            media: {
+              id: msg.image.id,
+              mimeType: msg.image.mime_type || 'image/jpeg',
+              sha256: msg.image.sha256 || null
+            }
+          });
         } else {
           logger.info('webhook.message.unsupported_type', { type: msg.type, id: msg.id });
           out.push({ ...base, kind: 'unsupported' });
@@ -211,12 +242,39 @@ async function handleInbound(payload) {
         }
       }
 
+      let imageAttachment = null;
+      let imageStorage = null;
+      if (msg.kind === 'image') {
+        try {
+          ensureMediaDir();
+          const dl = await downloadMedia(msg.media.id);
+          const ext = extForMime(dl.mimeType);
+          const savePath = path.join(MEDIA_DIR, `${msg.media.id}.${ext}`);
+          fs.writeFileSync(savePath, dl.buffer);
+          imageStorage = { path: savePath, mime: dl.mimeType };
+          imageAttachment = {
+            type: 'image',
+            mimeType: dl.mimeType,
+            base64: dl.buffer.toString('base64')
+          };
+          logger.info('handler.image.saved', { mediaId: msg.media.id, path: savePath, sizeBytes: dl.buffer.length });
+        } catch (err) {
+          logger.error('handler.image.download_fail', { mediaId: msg.media.id, message: err.message });
+        }
+      }
+
       const contact = getOrCreateContact(msg.from, msg.profileName);
       const conversation = getActiveConversation(contact.id);
       const priorHistory = getRecentHistory(contact.id, 50);
 
-      appendMessage(conversation.id, 'inbound', msg.body, {
-        whatsapp_message_id: msg.id
+      const persistedBody = msg.kind === 'image'
+        ? (msg.body ? `[image] ${msg.body}` : '[image]')
+        : msg.body;
+
+      appendMessage(conversation.id, 'inbound', persistedBody, {
+        whatsapp_message_id: msg.id,
+        media_path: imageStorage?.path || null,
+        media_mime: imageStorage?.mime || null
       });
 
       if (conversation.human_handled) {
@@ -227,7 +285,13 @@ async function handleInbound(payload) {
         continue;
       }
 
-      const classification = await runClassification(contact, priorHistory, msg.body);
+      const classifierMessage = msg.kind === 'image'
+        ? (msg.body
+            ? `[Customer sent an image with caption]: ${msg.body}`
+            : `[Customer sent an image with no caption]`)
+        : msg.body;
+
+      const classification = await runClassification(contact, priorHistory, classifierMessage);
 
       const refreshedContact = { ...contact, ...readBackContact(contact.id) };
 
@@ -244,12 +308,12 @@ async function handleInbound(payload) {
           pendingQueryId = createPendingQuery({
             contactId: contact.id,
             customerMessageId: msg.id,
-            customerMessageText: msg.body,
+            customerMessageText: persistedBody,
             classifierIntent: classification.intent
           });
         }
 
-        const alertSendRes = await notifyOwnerEscalation(refreshedContact, msg.body, classification, pendingQueryId);
+        const alertSendRes = await notifyOwnerEscalation(refreshedContact, persistedBody, classification, pendingQueryId);
         if (pendingQueryId && alertSendRes?.messageId) {
           setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
           logger.info('handler.silent_query.created', {
@@ -269,7 +333,11 @@ async function handleInbound(payload) {
         continue;
       }
 
-      const reply = await generateReply(priorHistory, msg.body, refreshedContact);
+      const replyMessage = msg.kind === 'image' && !msg.body
+        ? '(customer sent an image without a caption, see image attached)'
+        : msg.body;
+      const replyAttachments = imageAttachment ? [imageAttachment] : [];
+      const reply = await generateReply(priorHistory, replyMessage, refreshedContact, replyAttachments);
       if (!reply.ok || !reply.text) {
         const fallback = pickHoldingReply('silent_query', msg.body);
         const sendRes = await sendMessage(msg.from, fallback);

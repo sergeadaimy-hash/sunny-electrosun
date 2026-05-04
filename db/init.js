@@ -35,6 +35,10 @@ function applyMigrations(db) {
     conversations: [
       { name: 'human_handled', type: 'INTEGER NOT NULL DEFAULT 0' },
       { name: 'human_handled_at', type: 'TIMESTAMP' }
+    ],
+    messages: [
+      { name: 'media_path', type: 'TEXT' },
+      { name: 'media_mime', type: 'TEXT' }
     ]
   };
 
