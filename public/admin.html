@@ -335,6 +335,106 @@
     .pill.pending { background: var(--warm); color: #000; }
     .pill.cat { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); }
 
+    /* KNOWLEDGE SUB-TABS + BRAIN PANELS */
+    .know-subnav {
+      display: flex;
+      gap: 4px;
+      padding: 12px 20px 0 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .know-subnav button {
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid transparent;
+      border-bottom: none;
+      padding: 8px 16px;
+      border-top-left-radius: 6px;
+      border-top-right-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: -1px;
+    }
+    .know-subnav button:hover { color: var(--text); }
+    .know-subnav button.active {
+      color: var(--text);
+      background: var(--bg);
+      border-color: var(--border);
+    }
+    .know-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+    .know-panel.active { display: flex; }
+
+    .brain-section {
+      padding: 16px 20px;
+      overflow: auto;
+    }
+    .brain-section h2 {
+      font-size: 14px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 8px;
+    }
+    .brain-section h3 {
+      font-size: 13px;
+      color: var(--text);
+      margin: 16px 0 6px 0;
+      font-weight: 600;
+    }
+    .brain-section pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 65vh;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    .brain-meta {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 16px;
+      font-size: 13px;
+    }
+    .brain-meta .k { color: var(--text-dim); }
+    .brain-meta .v { color: var(--text); font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+    .brain-readonly-hint {
+      font-size: 12px;
+      color: var(--text-faint);
+      padding: 4px 0;
+    }
+    .catalog-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .catalog-table th, .catalog-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-soft);
+      text-align: left;
+    }
+    .catalog-table th {
+      background: var(--surface);
+      color: var(--text-dim);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .catalog-table td.price { font-family: ui-monospace, monospace; font-size: 12px; }
+    .catalog-table .stock-yes { color: var(--accent); }
+    .catalog-table .stock-no { color: var(--text-faint); }
+
     /* CONVERSATION LIST */
     .conversation-list {
       border-right: 1px solid var(--border);
@@ -576,17 +676,42 @@
     </section>
 
     <section id="view-knowledge" class="view">
-      <div class="know-toolbar">
-        <label>Status:
-          <select id="know-status">
-            <option value="active">active</option>
-            <option value="all">all</option>
-            <option value="rejected">rejected</option>
-          </select>
-        </label>
-        <label>Category:
-          <select id="know-category">
-            <option value="">all</option>
+      <nav class="know-subnav" id="know-subnav">
+        <button class="active" data-know-panel="panel-facts">Live facts</button>
+        <button data-know-panel="panel-rules">Rules</button>
+        <button data-know-panel="panel-catalog">Catalog</button>
+        <button data-know-panel="panel-config">Models &amp; config</button>
+      </nav>
+
+      <section id="panel-facts" class="know-panel active">
+        <div class="know-toolbar">
+          <label>Status:
+            <select id="know-status">
+              <option value="active">active</option>
+              <option value="all">all</option>
+              <option value="rejected">rejected</option>
+            </select>
+          </label>
+          <label>Category:
+            <select id="know-category">
+              <option value="">all</option>
+              <option value="pricing">pricing</option>
+              <option value="policy">policy</option>
+              <option value="product">product</option>
+              <option value="sales">sales</option>
+              <option value="operations">operations</option>
+              <option value="warranty">warranty</option>
+              <option value="customer">customer</option>
+              <option value="correction">correction</option>
+              <option value="other">other</option>
+            </select>
+          </label>
+          <span class="stats" id="know-stats">0 facts</span>
+        </div>
+        <div class="know-add-row">
+          <textarea id="know-new-text" placeholder="Add a fact manually... e.g. 'Working hours: Mon-Sat 9am to 6pm, closed Sunday'"></textarea>
+          <select id="know-new-cat">
+            <option value="other">other</option>
             <option value="pricing">pricing</option>
             <option value="policy">policy</option>
             <option value="product">product</option>
@@ -595,29 +720,31 @@
             <option value="warranty">warranty</option>
             <option value="customer">customer</option>
             <option value="correction">correction</option>
-            <option value="other">other</option>
           </select>
-        </label>
-        <span class="stats" id="know-stats">0 facts</span>
-      </div>
-      <div class="know-add-row">
-        <textarea id="know-new-text" placeholder="Add a fact manually... e.g. 'Working hours: Mon-Sat 9am to 6pm, closed Sunday'"></textarea>
-        <select id="know-new-cat">
-          <option value="other">other</option>
-          <option value="pricing">pricing</option>
-          <option value="policy">policy</option>
-          <option value="product">product</option>
-          <option value="sales">sales</option>
-          <option value="operations">operations</option>
-          <option value="warranty">warranty</option>
-          <option value="customer">customer</option>
-          <option value="correction">correction</option>
-        </select>
-        <button class="btn primary" id="know-add-btn">Add fact</button>
-      </div>
-      <div class="know-list" id="know-list">
-        <div class="know-empty">Loading.</div>
-      </div>
+          <button class="btn primary" id="know-add-btn">Add fact</button>
+        </div>
+        <div class="know-list" id="know-list">
+          <div class="know-empty">Loading.</div>
+        </div>
+      </section>
+
+      <section id="panel-rules" class="know-panel">
+        <div class="brain-section" id="rules-body">
+          <p class="brain-readonly-hint">Loading.</p>
+        </div>
+      </section>
+
+      <section id="panel-catalog" class="know-panel">
+        <div class="brain-section" id="catalog-body">
+          <p class="brain-readonly-hint">Loading.</p>
+        </div>
+      </section>
+
+      <section id="panel-config" class="know-panel">
+        <div class="brain-section" id="config-body">
+          <p class="brain-readonly-hint">Loading.</p>
+        </div>
+      </section>
     </section>
 
     <section id="view-contacts" class="view">
@@ -695,6 +822,7 @@ let currentView = 'view-inbox';
 let allContacts = [];
 let contactsLoaded = false;
 let knowledgeLoaded = false;
+let brainLoaded = false;
 
 // API HELPERS
 
@@ -981,6 +1109,125 @@ function knowCardHtml(e) {
     '<div class="actions">' + buttons.join('') + '</div>',
     '</div>'
   ].join('');
+}
+
+// KNOWLEDGE SUB-NAV
+
+document.querySelectorAll('#know-subnav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.knowPanel;
+    document.querySelectorAll('#know-subnav button').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('#view-knowledge .know-panel').forEach(p => {
+      p.classList.toggle('active', p.id === target);
+    });
+    if (target !== 'panel-facts' && !brainLoaded) {
+      loadBrain();
+    }
+  });
+});
+
+async function loadBrain() {
+  try {
+    const data = await apiFetch('/brain');
+    brainLoaded = true;
+    renderRules(data.rules || {});
+    renderCatalog(data.catalog || {});
+    renderConfig(data.config || {}, data.models || {});
+  } catch (err) {
+    document.getElementById('rules-body').innerHTML =
+      '<p class="brain-readonly-hint">Error loading brain: ' + escapeHtml(err.message) + '</p>';
+  }
+}
+
+function renderRules(rules) {
+  const root = document.getElementById('rules-body');
+  const blocks = [];
+  blocks.push('<h2>System prompts</h2>');
+  blocks.push('<p class="brain-readonly-hint">These prompts are injected into the LLM at every turn. Read-only here. To change, edit the matching file in src/prompts/ and push a commit.</p>');
+  blocks.push('<h3>Reply agent (system.md)</h3><pre>' + escapeHtml(rules.system || '(missing)') + '</pre>');
+  blocks.push('<h3>Classifier (classifier.md)</h3><pre>' + escapeHtml(rules.classifier || '(missing)') + '</pre>');
+  blocks.push('<h3>Owner teaching (teacher.md)</h3><pre>' + escapeHtml(rules.teacher || '(missing)') + '</pre>');
+  root.innerHTML = blocks.join('');
+}
+
+function renderCatalog(catalog) {
+  const root = document.getElementById('catalog-body');
+  if (!catalog || catalog.error) {
+    root.innerHTML = '<p class="brain-readonly-hint">' + escapeHtml(catalog && catalog.error ? catalog.error : 'No catalog loaded.') + '</p>';
+    return;
+  }
+  const blocks = [];
+  blocks.push('<h2>Product catalog</h2>');
+  const meta = [];
+  if (catalog.last_updated) meta.push('Last updated: ' + catalog.last_updated);
+  if (catalog.currency) meta.push('Currency: ' + catalog.currency);
+  if (meta.length) blocks.push('<p class="brain-readonly-hint">' + escapeHtml(meta.join(' · ')) + '</p>');
+  blocks.push('<p class="brain-readonly-hint">Read-only. Edit src/knowledge/products.json and push a commit to update prices.</p>');
+
+  const cats = catalog.categories || {};
+  for (const [section, items] of Object.entries(cats)) {
+    if (!items || !items.length) continue;
+    blocks.push('<h3>' + escapeHtml(section.toUpperCase()) + '</h3>');
+    blocks.push('<table class="catalog-table"><thead><tr><th>Brand</th><th>Model</th><th>Price</th><th>Stock</th><th>Notes</th></tr></thead><tbody>');
+    for (const it of items) {
+      const price = it.price_ngn ? formatNgn(it.price_ngn) : '<span class="empty">on request</span>';
+      const stock = it.in_stock
+        ? '<span class="stock-yes">in stock</span>'
+        : '<span class="stock-no">check team</span>';
+      blocks.push('<tr>'
+        + '<td>' + escapeHtml(it.brand || '') + '</td>'
+        + '<td>' + escapeHtml(it.model || '') + '</td>'
+        + '<td class="price">' + price + '</td>'
+        + '<td>' + stock + '</td>'
+        + '<td>' + escapeHtml(it.notes || '') + '</td>'
+        + '</tr>');
+    }
+    blocks.push('</tbody></table>');
+  }
+
+  if (catalog.notes && catalog.notes.length) {
+    blocks.push('<h3>Catalog notes</h3><ul>');
+    for (const n of catalog.notes) blocks.push('<li>' + escapeHtml(n) + '</li>');
+    blocks.push('</ul>');
+  }
+
+  root.innerHTML = blocks.join('');
+}
+
+function formatNgn(n) {
+  if (!n && n !== 0) return '';
+  if (n >= 1_000_000) {
+    const m = (n / 1_000_000).toFixed(2).replace(/\.?0+$/, '');
+    return m + 'M NGN';
+  }
+  if (n >= 1_000) return Math.round(n / 1_000) + 'k NGN';
+  return n + ' NGN';
+}
+
+function renderConfig(config, models) {
+  const root = document.getElementById('config-body');
+  const rows = [];
+  rows.push(['<strong>Models</strong>', '']);
+  rows.push(['Reply (Sonnet)', models.reply || 'unset']);
+  rows.push(['Classifier (Haiku)', models.classifier || 'unset']);
+  rows.push(['Owner teaching (Haiku)', models.teacher || 'unset']);
+  rows.push(['<strong>Runtime</strong>', '']);
+  rows.push(['DB path', config.db_path || '']);
+  rows.push(['Media dir', config.media_dir || '']);
+  rows.push(['Log to file', config.log_to_file]);
+  rows.push(['Daily LLM budget (USD)', config.daily_budget_usd || '(not set)']);
+  rows.push(['<strong>WhatsApp</strong>', '']);
+  rows.push(['WABA ID', config.waba_id || '(not set)']);
+  rows.push(['Graph API version', config.graph_version]);
+  rows.push(['OWNER_WHATSAPP set', config.owner_whatsapp_set ? 'yes' : 'no']);
+  rows.push(['SPECIALIST_DIRECT_LINK set', config.specialist_link_set ? 'yes' : 'no']);
+
+  const html = '<h2>Models &amp; config</h2>'
+    + '<p class="brain-readonly-hint">Read-only. Models are pinned in src/claude.js and src/knowledge.js. Runtime values come from Railway environment variables.</p>'
+    + '<div class="brain-meta">'
+    + rows.map(r => '<div class="k">' + r[0] + '</div><div class="v">' + escapeHtml(String(r[1] == null ? '' : r[1])) + '</div>').join('')
+    + '</div>';
+  root.innerHTML = html;
 }
 
 async function handleKnowAction(id, action, card) {

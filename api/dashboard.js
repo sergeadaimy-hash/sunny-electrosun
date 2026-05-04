@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { getDb } = require('../db/init');
 const logger = require('../src/utils/logger');
 const {
@@ -292,6 +294,40 @@ router.delete('/knowledge/:id', (req, res) => {
   const id = parseInt32(req.params.id, 0);
   deleteKnowledge(id);
   res.json({ ok: true, id });
+});
+
+router.get('/brain', (req, res) => {
+  const root = path.join(__dirname, '..');
+  const safeRead = (p) => {
+    try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
+  };
+  const rules = {
+    system: safeRead(path.join(root, 'src', 'prompts', 'system.md')),
+    classifier: safeRead(path.join(root, 'src', 'prompts', 'classifier.md')),
+    teacher: safeRead(path.join(root, 'src', 'prompts', 'teacher.md'))
+  };
+  let catalog = null;
+  try {
+    catalog = JSON.parse(safeRead(path.join(root, 'src', 'knowledge', 'products.json')) || '{}');
+  } catch (err) {
+    catalog = { error: 'failed to parse products.json: ' + err.message };
+  }
+  const models = {
+    classifier: 'claude-haiku-4-5',
+    teacher: 'claude-haiku-4-5',
+    reply: 'claude-sonnet-4-6'
+  };
+  const config = {
+    daily_budget_usd: process.env.DAILY_LLM_BUDGET_USD || null,
+    db_path: process.env.DB_PATH || '(default db/sunny.db)',
+    media_dir: process.env.MEDIA_DIR || '(default <db dir>/media)',
+    log_to_file: process.env.LOG_TO_FILE || 'true',
+    owner_whatsapp_set: !!process.env.OWNER_WHATSAPP,
+    specialist_link_set: !!process.env.SPECIALIST_DIRECT_LINK,
+    waba_id: process.env.META_WABA_ID || null,
+    graph_version: 'v21.0'
+  };
+  res.json({ rules, catalog, models, config });
 });
 
 module.exports = router;
