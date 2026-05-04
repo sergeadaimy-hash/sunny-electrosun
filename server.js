@@ -37,6 +37,21 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.get('/version', (req, res) => {
+  const sha = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_SHA || null;
+  res.json({
+    git_sha: sha,
+    git_sha_short: sha ? sha.slice(0, 7) : null,
+    git_branch: process.env.RAILWAY_GIT_BRANCH || null,
+    git_commit_message: (process.env.RAILWAY_GIT_COMMIT_MESSAGE || '').slice(0, 200) || null,
+    deploy_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
+    escalations_disabled: String(process.env.DISABLE_ESCALATIONS || '').toLowerCase() === 'true',
+    owner_whatsapp_tail: process.env.OWNER_WHATSAPP ? String(process.env.OWNER_WHATSAPP).slice(-4) : null,
+    node_uptime_seconds: Math.floor(process.uptime()),
+    server_time: new Date().toISOString()
+  });
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(webhookRouter);
