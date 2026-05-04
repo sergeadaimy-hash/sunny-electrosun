@@ -379,10 +379,23 @@ router.get('/brain', (req, res) => {
     owner_whatsapp_set: !!process.env.OWNER_WHATSAPP,
     owner_whatsapp_tail: process.env.OWNER_WHATSAPP ? String(process.env.OWNER_WHATSAPP).slice(-4) : null,
     specialist_link_set: !!process.env.SPECIALIST_DIRECT_LINK,
+    escalations_disabled: String(process.env.DISABLE_ESCALATIONS || '').toLowerCase() === 'true',
     waba_id: process.env.META_WABA_ID || null,
     graph_version: 'v21.0'
   };
   res.json({ rules, models, config });
+});
+
+router.get('/version', (req, res) => {
+  res.json({
+    git_sha: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_SHA || null,
+    git_sha_short: (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_SHA || '').slice(0, 7) || null,
+    git_branch: process.env.RAILWAY_GIT_BRANCH || null,
+    git_commit_message: (process.env.RAILWAY_GIT_COMMIT_MESSAGE || '').slice(0, 200) || null,
+    deploy_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
+    node_uptime_seconds: Math.floor(process.uptime()),
+    server_time: new Date().toISOString()
+  });
 });
 
 module.exports = router;

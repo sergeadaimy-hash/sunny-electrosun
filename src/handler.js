@@ -42,6 +42,15 @@ const HOT_LEAD_REPLY = "Noted. A specialist will follow up with you shortly with
 const SILENT_QUERY_REPLY = "A specialist will confirm the exact figure for you shortly.";
 const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
 
+const HANDLER_GREETING_RE = /^(hi+|hello+|hey+|hola|bonjour|salam|asalam|good\s+(morning|afternoon|evening|day)|gm|ga|ge|how\s+far|wetin\s+dey|sup|yo|howdy|greetings|hii?|test|testing)\b[\s!.?]*$/i;
+function handlerIsGreeting(text) {
+  const t = String(text || '').trim();
+  return t.length > 0 && t.length <= 30 && HANDLER_GREETING_RE.test(t);
+}
+function escalationsDisabled() {
+  return String(process.env.DISABLE_ESCALATIONS || '').toLowerCase() === 'true';
+}
+
 function buildSpecialistLink(customerMessage) {
   const num = (process.env.SPECIALIST_DIRECT_LINK || '').replace(/\D/g, '');
   if (!num) return null;
@@ -324,6 +333,25 @@ async function handleInbound(payload) {
       const classification = await runClassification(contact, priorHistory, classifierMessage);
 
       const refreshedContact = { ...contact, ...readBackContact(contact.id) };
+
+      if (handlerIsGreeting(msg.body)) {
+        logger.info('handler.greeting_force_no_escalation', {
+          contactId: contact.id,
+          msg_body: msg.body
+        });
+        classification.needs_escalation = false;
+        classification.escalation_type = null;
+        if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
+      }
+
+      if (escalationsDisabled() && classification.needs_escalation) {
+        logger.warn('handler.escalations_disabled_kill_switch_engaged', {
+          contactId: contact.id,
+          original_escalation_type: classification.escalation_type
+        });
+        classification.needs_escalation = false;
+        classification.escalation_type = null;
+      }
 
       if (classification.needs_escalation) {
         const escalationType = classification.escalation_type || 'silent_query';
