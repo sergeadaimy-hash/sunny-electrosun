@@ -240,8 +240,12 @@ async function generateReply(history, message, contact, attachments = []) {
   }
   if (contextBlock) systemBlocks.push({ type: 'text', text: contextBlock });
 
+  const effectiveHistory = isCasualGreeting ? [] : history;
+  if (isCasualGreeting) {
+    logger.info('claude.reply.greeting_clean_history', { contactId: contact?.id });
+  }
   const messages = ensureAlternating([
-    ...history,
+    ...effectiveHistory,
     { role: 'user', content: message }
   ]);
 
