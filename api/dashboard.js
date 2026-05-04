@@ -376,6 +376,7 @@ router.get('/brain', (req, res) => {
     media_dir: process.env.MEDIA_DIR || '(default <db dir>/media)',
     log_to_file: process.env.LOG_TO_FILE || 'true',
     owner_whatsapp_set: !!process.env.OWNER_WHATSAPP,
+    owner_whatsapp_tail: process.env.OWNER_WHATSAPP ? String(process.env.OWNER_WHATSAPP).slice(-4) : null,
     specialist_link_set: !!process.env.SPECIALIST_DIRECT_LINK,
     waba_id: process.env.META_WABA_ID || null,
     graph_version: 'v21.0'

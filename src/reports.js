@@ -207,6 +207,7 @@ async function sendDailyLearningReport(report) {
     logger.warn('learning_report.no_owner_phone');
     return;
   }
+  logger.info('learning_report.target', { owner_tail: String(ownerPhone).slice(-4) });
   const res = await sendMessage(ownerPhone, text);
   if (!res.ok) {
     logger.warn('learning_report.whatsapp.fail', { status: res.status });
@@ -318,6 +319,7 @@ async function sendOwnerReport(report) {
   let whatsappOk = false;
 
   if (ownerPhone) {
+    logger.info('report.target', { type: report.type, owner_tail: String(ownerPhone).slice(-4) });
     const res = await sendMessage(ownerPhone, text);
     whatsappOk = res.ok;
     if (!whatsappOk) logger.warn('report.whatsapp.fail', { status: res.status });
