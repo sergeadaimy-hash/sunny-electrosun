@@ -10,7 +10,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
-**Done (16 of 27, plus #16 came free):**
+**Done (17 of 27, plus #16 came free):**
 1. Meta Developer app `ElectroSun_Whtspp` created. App ID `2440193806402796`.
 2. Meta credentials captured. Test number `+1 555 172 6906`. Phone Number ID `1111486288711551`. WABA ID `1713234916358524`. Owner whitelisted (Saudi `+966502392650`).
 3. Anthropic API key, Org `7e197f14-a3e1-4b93-9836-cd54cd831e1f`, Tier 2.
@@ -27,6 +27,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 14. **Task #14 classifier prompt deployed and hardened.** Outputs C1-C5, lead_temperature, client_type, escalation_type. HOT triggers force escalation regardless of prior context. Code-level safety net: if classifier sets HOT temperature without escalation, handler forces it. Live tested: 5 categories all classified correctly, hot lead handoff fires both customer reply and owner RED alert.
 18. Permanent System User token issued. System User "Sunny-Server", ID `615889422441392`. No expiry.
 19. **Task #19 templates submitted to Meta** 2026-05-04. Both PENDING. Approval clock running.
+20. **Phase 5 cloud deploy DONE 2026-05-04.** Sunny live on Railway at https://sunny-electrosun-production.up.railway.app, /health returning 200, volume mounted, env vars set. Meta webhook cutover pending (next step: point webhook config at the new URL).
 
 **Bonus shipped today (not on the formal task list):**
 - `handleUnsupported()` in `src/handler.js`: voice notes / images / documents / stickers / locations no longer drop silently, customer gets a polite "text only" reply.
@@ -67,12 +68,18 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 - After-hours auto-reply text.
 - Pricing data: Deye 12kW, Sungrow 50kW, JA 550W, etc. Until provided, every C2 inquiry triggers silent_query escalation to the brother.
 
-**Phase 5 cloud-deploy code prep DONE 2026-05-04:**
-- `db/init.js`: `DB_PATH` now reads from env (default `db/sunny.db`). Parent dir is auto-created on first boot, so Railway's `/data` mount works zero-config.
-- `railway.json`: tells Railway to use Nixpacks builder, run `npm start`, healthcheck `/health` with 30s timeout, restart on failure up to 5 times.
-- `.env.example`: added `DB_PATH=` with cloud guidance comment.
-- `DEPLOY.md`: full step-by-step Railway deploy guide. Covers volume creation, env-var paste block, webhook cutover, rollback, troubleshooting.
-- Local sanity test passed: `node db/init.js` works at default path AND with `DB_PATH=/tmp/.../test.db` (verifies dir auto-create).
+**Phase 5 cloud deploy DONE 2026-05-04 (Railway):**
+- `db/init.js`: `DB_PATH` env-overridable, auto-creates parent dir.
+- `railway.json`: Nixpacks, `npm start`, /health check with 30s timeout, restart on failure up to 5.
+- `.env.example`: documents `DB_PATH`.
+- `DEPLOY.md`: full Railway guide.
+- `scripts/print_railway_env.js`: produces the Railway env-var block from `.env` with cloud overrides (`DB_PATH=/data/sunny.db`, `LOG_TO_FILE=false`, `META_WABA_ID=1713234916358524`). Pipes cleanly to `pbcopy` so secrets never hit the chat transcript.
+- **Live URL:** https://sunny-electrosun-production.up.railway.app
+- **Volume:** `sunny-electrosun-volume` mounted at `/data`, holds the SQLite DB at `/data/sunny.db`. Persists across redeploys, restarts, and 7 days after detach. Railway also auto-backs up volumes.
+- **`/health` verified:** HTTP 200, JSON `{status:"ok",uptime_seconds:N,timestamp:...}`.
+- **Project on Railway:** project name "ample-laughter" (auto-generated), service "sunny-electrosun", environment "production", region us-west2, 1 replica.
+- **Trial vs. Hobby:** Railway showed "30 days or $1.00 left | Limited Trial" banner during setup. Serge said he subscribed to Hobby; verify the subscription is actually active in Settings → Billing or the service will pause in 30 days.
+- **PM2 + cloudflared retired** for production. Local dev still uses cloudflared if needed for testing webhooks against local code, but production traffic now runs through Railway's stable HTTPS URL.
 
 **Resume plan:**
 1. Once brother provides pricing data and Section 11 decisions, update prompts with concrete prices and policies. Until then, silent_query escalations to him are the right behavior.
