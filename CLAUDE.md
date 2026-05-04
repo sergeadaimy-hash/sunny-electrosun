@@ -10,7 +10,87 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
-**Done (17 of 27, plus #16 came free):**
+## 2026-05-04 afternoon-evening session (Beirut) — full snapshot
+
+Today's focus: production hardening, owner cutover, owner Q&A, knowledge ingestion at scale, admin UI redesign in two passes (brand-dark, then WhatsApp-light).
+
+**Owner cutover (Task #17 partial):**
+- Brother's number `2347041328055` is now `OWNER_WHATSAPP` on Railway. Brother is whitelisted on Meta. Serge stays as a customer-tester from `+966 50 239 2650`. Serge's messages now flow through the normal customer pipeline.
+- Specialist link kept pointing at brother's number too (`SPECIALIST_DIRECT_LINK=2347041328055`).
+- Note: a 4 PM Beirut 2-hour cron report still landed on Serge's phone the day of the env change, attributed to a stale container; next cron should land on brother's. **Verify each cron firing for the next 24h**.
+
+**Image vision (commit `ad39a4e`):**
+- WhatsApp images now flow through full pipeline: download from Meta media API, save to `MEDIA_DIR` on the Railway volume (default `/data/media/`), pass as base64 to Sonnet 4.6 vision.
+- `src/whatsapp.js > downloadMedia(mediaId)` does the two-step Meta download (metadata GET → signed URL GET with auth, 25MB cap).
+- `src/handler.js`: `extractMessages()` picks up `msg.type === 'image'`, `handleInbound()` downloads + base64s + threads into `generateReply(history, message, contact, attachments)`.
+- `src/claude.js > generateReply` accepts attachments; rewrites the last user message into a multi-block content array with image blocks before the text.
+- `src/memory.js`: new `media_path` and `media_mime` columns on messages; idempotent migration in `db/init.js`.
+- Classifier still text-only by design; sees `[Customer sent an image with caption]: ...` marker.
+- Use cases unlocked: roof photos, inverter labels, meter readings, payment screenshots (HOT escalation), warranty damage photos.
+
+**Owner teaching → owner Q&A (commits `bb2b540` then `543440b`):**
+- First version was teaching mode: brother WhatsApps Sunny → Haiku-teacher (`src/prompts/teacher.md`) extracts facts → saved to `knowledge_entries` (status=active) → Sunny WhatsApps confirmation back. New table + CRUD + admin Knowledge tab shipped with this.
+- Then the brother's first real conversations made it clear that teaching-mode + casual chat were getting confused. Replaced with **owner Q&A mode** (`src/owner_qa.js`, `src/prompts/owner_qa.md`). Brother now asks Sunny questions about his data ("how many leads today", "any HOT leads", "did Patrick reply") and Sunny answers from a live snapshot (today's stats + last 24h hot leads + pending queries + recent contacts + brother's own chat history + active facts count). For teaching, brother uses the admin Knowledge tab.
+- `src/handler.js > handleOwnerNonQueryMessage` calls `answerOwnerQuestion(ownerContactId, msg.body)`. Persists owner inbound/outbound with intents `owner_question` / `owner_qa_reply`.
+- Owner replies to alerts (`msg.replyToId` matching a pending QID) still route via `handleOwnerReply` and relay to the customer.
+
+**Catalog moved to DB and made editable from admin (commit `e771021`):**
+- `db/schema.sql`: new `catalog_items` and `catalog_notes` tables.
+- `db/init.js`: idempotent seed-from-`products.json` on first boot. `products.json` stays in repo as the seed source; subsequent boots leave the DB alone.
+- `src/catalog.js`: CRUD + `formatCatalogForPrompt()` produces the same Markdown block `claude.js` used to bake at module init.
+- `src/claude.js`: drops file-based loader, calls `formatCatalogForPrompt()` inside `generateReply()` so each customer reply sees the latest prices (no restart needed after an edit).
+- `api/dashboard.js`: `GET /api/catalog`, `POST /api/catalog/items`, `POST /api/catalog/items/:id`, `DELETE /api/catalog/items/:id`, plus notes CRUD.
+- Admin UI Catalog sub-tab is fully editable: per-row inputs for brand/model/price/stock/notes with Save/Delete; "Add a new item" form; editable note list; flash-green confirmation on save. Owner can change prices any time without a developer push.
+
+**Knowledge tab expanded** (commit `38f26cd`): Knowledge tab has four sub-panels now:
+- **Live facts**: existing owner-taught facts (filterable, editable).
+- **Rules**: read-only render of `system.md`, `classifier.md`, `teacher.md` so the owner can see what's in Sunny's system prompt.
+- **Catalog**: fully editable (above).
+- **Models & config**: model IDs (Sonnet 4.6 reply, Haiku 4.5 classifier, Haiku 4.5 teacher), runtime config (DB path, media dir, daily budget, WABA ID, graph version), and which env vars are set as booleans only (never the actual values).
+- New endpoint `GET /api/brain` returns rules + models + config from disk and env. No secrets returned.
+
+**HV catalog seeded (commit `99a91fd`):**
+- New script `scripts/seed_hv_products.js`. Posts 12 catalog items + 4 product facts:
+  - Inverters: Deye 30/50/80kW HV 3-phase (4.1M / 5.9M / 8.8M NGN).
+  - Batteries: BOS-G 5.12kWh (1.15M), BOS-A 7.68kWh (1.65M), BOS-B Pro 16kWh (2.75M).
+  - Battery accessories (new section in catalog): BOS-G PDU + rack, BOS-A PDU + rack 11/14, BOS-B PDU+accessories.
+  - Compatibility facts about PDU stacking limits per inverter size.
+
+**Legacy data import (commit `44bf23d`):**
+- `scripts/import_legacy.js` parses the brother's old MariaDB dump from `/Users/sergeadaimy/Downloads/localhost.sql` (whatsapp_n8n_database_v2 schema). 11k+ message rows, 258 INSERT statements, plus `ai_memory` and `contact_list`.
+- Five stages, all post to `/api/knowledge`:
+  1. `ai_memory` direct (10 already-extracted Q&A facts saved as `customer`).
+  2. `fact_summary` per substantive conversation, deduped by leading 80 chars to avoid near-identical "client inquired about X" repeats. Cap 150 most recent.
+  3. Pricing references via regex over team replies (`Nx.xM`, `xxxk`). Limited to 80 unique. Marked as historical "Past quote ({date})" entries. **Later REJECTED** because they were polluting Sunny's prompt with stale prices (commit `4eb07fe`).
+  4. Writing-style examples: 25 sampled team replies bundled into one fact in `sales` category as a tone reference.
+  5. (Optional, `--llm`) Haiku pass over top 80 substantive conversations. Extracts up to 4 facts each, confidence ≥ 60. Costs ~$0.05 in API spend.
+- Bound runaway memory: `src/knowledge.js > formatKnowledgeForPrompt` now caps active facts at most recent 500 entries and 30KB total characters (env-overridable: `KNOWLEDGE_PROMPT_MAX_FACTS`, `KNOWLEDGE_PROMPT_BUDGET_CHARS`).
+
+**Critical bug fix (commit `5c64aa8`):**
+- `src/memory.js > updateContactFields` was crashing with `RangeError: Too many parameter values were provided` when Haiku returned `products_asked_about` as an array (better-sqlite3 spreads arrays into bind params). Now coerces arrays to comma-joined strings, plain objects to JSON, primitives to String(). Live impact: Patrick's "12kVA / 18kVA inverter" question silently failed before this fix.
+
+**Behaviour fixes after the brother used Sunny in production (commit `4eb07fe`):**
+- Sunny was dumping phone numbers and addresses on routine queries; doctrine facts weren't strong enough.
+- `src/prompts/system.md` now opens with three top-priority rules:
+  1. **Source of truth for prices is the catalog.** NEVER quote a price from owner-taught knowledge or "Past quote" entries. Past quotes are historical only.
+  2. **Do NOT proactively share phone numbers or addresses.** Phone numbers (Patrick `07041328055`, Charbel `09068859213`, Lagos `0911 188 0000`) and office addresses NEVER appear in a reply unless the customer explicitly asks for contact/location/pickup OR the lead is HOT.
+  3. **Think and answer from catalog + general knowledge before escalating.** Sizing questions are answered with concrete options, not silent_query'd.
+- `src/prompts/classifier.md` updated: "I'm using 50kW inverter and want 200kWh backup" type sizing questions are explicitly NOT escalations now.
+- `src/knowledge.js > addKnowledgeEntry` now dedups at insert time. If a new fact's normalised leading 120 chars (lowercase, alphanumeric+spaces only) match an existing active fact in the same category, returns the existing id without inserting. `skipDedup: true` escapes if needed.
+- `scripts/cleanup_past_quotes.js`: one-shot to mark all "Past quote" pricing facts as rejected. Stays in audit trail; no longer feeds the prompt. **Run this after the next push.**
+
+**Admin UI: full Electro-Sun brand refresh (commit `49a7baf`, then refreshed `3a2ca80`):**
+- Pass 1 was a brand-dark theme with deep leaf-green surfaces, gold accents, Manrope/Fraunces typography. Brother didn't like it.
+- Pass 2 (`3a2ca80`) is the WhatsApp-style light redesign. White surfaces, charcoal text, brand green only as a sparing accent. Inbox redesigned to look like WhatsApp Web: gradient-green avatar circles with per-contact initials (commit `55166a2`), white incoming bubbles with bottom-left tail, pastel green (`#DCF8C6`) outgoing bubbles with bottom-right tail, pastel violet for human-typed outgoing. Compose pill with circular green send button (paper-plane glyph). Typography: Inter throughout, system mono for phones/code. WhatsApp-style inline-bottom-right timestamps via float trick (commit `55166a2`).
+- All four sub-tabs (Live facts / Rules / Catalog / Models & config) and all three top tabs (Inbox / Contacts / Knowledge) reskinned to the same palette.
+
+**HV products + locations + sales doctrine seeded as Live facts:**
+- `scripts/seed_locations.js`: 7 facts about Abuja office (Wuse 2), Abuja warehouse (Idu Industrial Area), Abuja contacts (Charbel/Patrick), Lagos office (Rutam House), Lagos line, DEYE Platinum credential.
+- `scripts/seed_doctrine.js`: 3 facts enforcing the no-proactive-numbers/addresses doctrine and the credentials line ("DEYE Platinum authorised distributor").
+- `scripts/seed_hv_products.js`: 12 catalog items + 4 product facts (above).
+- All run-once, idempotent against the dedup at insert time.
+
+**Done (20 of 27, plus #16 came free):**
 1. Meta Developer app `ElectroSun_Whtspp` created. App ID `2440193806402796`.
 2. Meta credentials captured. Test number `+1 555 172 6906`. Phone Number ID `1111486288711551`. WABA ID `1713234916358524`. Owner whitelisted (Saudi `+966502392650`).
 3. Anthropic API key, Org `7e197f14-a3e1-4b93-9836-cd54cd831e1f`, Tier 2.
@@ -27,7 +107,8 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 14. **Task #14 classifier prompt deployed and hardened.** Outputs C1-C5, lead_temperature, client_type, escalation_type. HOT triggers force escalation regardless of prior context. Code-level safety net: if classifier sets HOT temperature without escalation, handler forces it. Live tested: 5 categories all classified correctly, hot lead handoff fires both customer reply and owner RED alert.
 18. Permanent System User token issued. System User "Sunny-Server", ID `615889422441392`. No expiry.
 19. **Task #19 templates submitted to Meta** 2026-05-04. Both PENDING. Approval clock running.
-20. **Phase 5 cloud deploy DONE 2026-05-04.** Sunny live on Railway at https://sunny-electrosun-production.up.railway.app, /health returning 200, volume mounted, env vars set, Meta webhook updated to the Railway URL, `messages` field subscribed. **First live cloud conversation passed end-to-end** at 12:42 PM Beirut: customer message → Meta webhook → Railway → classifier (Haiku) → reply generator (Sonnet) → Meta send → WhatsApp delivery, ~10s round trip. Reply quality on-spec: recognized customer by name, offered multi-option product list (Jinko/JA Solar/Longi), no hedging, focused clarifying question, no repetition on second turn.
+20. **Phase 5 cloud deploy DONE 2026-05-04.** Sunny live on Railway at https://sunny-electrosun-production.up.railway.app, /health returning 200, volume mounted, env vars set, Meta webhook updated to the Railway URL, `messages` field subscribed. **First live cloud conversation passed end-to-end** at 12:42 PM Beirut.
+21. **Task #17 partial DONE 2026-05-04 evening.** `OWNER_WHATSAPP` swapped from Serge `966502392650` to brother `2347041328055` on Railway. Brother whitelisted on Meta. Serge stays as customer-tester. Real production WhatsApp business number (Task #17 full) still pending the brother providing one.
 
 **Bonus shipped today (not on the formal task list):**
 - `handleUnsupported()` in `src/handler.js`: voice notes / images / documents / stickers / locations no longer drop silently, customer gets a polite "text only" reply.
@@ -104,19 +185,41 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 - **Trial vs. Hobby:** Railway showed "30 days or $1.00 left | Limited Trial" banner during setup. Serge said he subscribed to Hobby; verify the subscription is actually active in Settings → Billing or the service will pause in 30 days.
 - **PM2 + cloudflared retired** for production. Local dev still uses cloudflared if needed for testing webhooks against local code, but production traffic now runs through Railway's stable HTTPS URL.
 
-**Resume plan:**
-1. Once brother provides pricing data and Section 11 decisions, update prompts with concrete prices and policies. Until then, silent_query escalations to him are the right behavior.
-2. Task #15: 48-hour soak with 3-5 testers on the test number. Captures real conversation patterns to feed the daily learning loop.
-3. Task #17: Add ElectroSun's real WhatsApp number to the WABA, swap `META_PHONE_NUMBER_ID` and `OWNER_WHATSAPP` in `.env`.
-4. Task #19: DONE 2026-05-04. Both templates submitted via `scripts/submit_templates.js`, status PENDING with Meta. Re-check in 24-48h. If rejected, read `rejected_reason` and re-submit.
-5. Phase B code work (separate from launch tasks). DONE 2026-05-03. Plus admin UI shipped same day. Only nice-to-haves remain:
-   - **Approve-to-permanent learning loop.** Brother sees daily learning suggestions in the 21:30 report, but there's no UI button to "Approve and turn into permanent rule." Currently he updates `system.md` or `products.json` manually and pushes. v2 feature: an admin UI page for learning items with approve/edit/skip buttons that auto-update prompts.
-   - **v2 daily learning sections.** "New patterns with draft replies" requires an LLM pass over the day's conversations. "Internal questions I have" requires self-generated learning items. Both are placeholders today.
-   - **Hot-lead alert with conversation summary.** Brother's foundation doc shows "Project: ..., Ready to: ..., full conversation summary attached." Currently we send classifier metadata + last message. A small Haiku synthesis call could enrich this. Not urgent; brother can scroll history in admin UI.
-   - **Knowledge file expansion.** Brother to send remaining 14 categories beyond product catalog: installation pricing, service area, warranty, payment terms, sales doctrine, common objections, past projects, real conversation samples, working hours, holidays, compliance constraints. Each goes into `src/knowledge/*.json` or directly into `system.md`.
-   - 23-hour window flagging.
-   - Cleanup `scripts/seed.js` (still has old category names).
-6. Phase 5 cloud deploy as the final cutover.
+**Resume plan (current as of 2026-05-04 evening Beirut):**
+
+PUSHED but PENDING USER ACTION:
+1. **Push the latest commits.** `git push` from Serge's Terminal. Last local commits: `4eb07fe` (behavior fixes + dedup + cleanup script), `3a2ca80` (admin WhatsApp redesign), `55166a2` (avatar initials + inline timestamps). Railway redeploys automatically.
+2. **Run `node scripts/cleanup_past_quotes.js`** AFTER push to retire ~50 noisy "Past quote" pricing facts from the legacy import. They stay in audit but no longer feed Sunny's prompt. Costs are now sourced from the catalog only.
+3. **Hard refresh `/admin`** (Cmd+Shift+R) to bypass cached old CSS for the new WhatsApp-style UI.
+
+WAITING ON BROTHER:
+4. **Brother's pricing data** for Sungrow, JA panels, Longi, etc. (whatever isn't in the catalog yet). Add via admin Catalog tab or by feeding a spec to a new seed script.
+5. **Brother's Section 11 decisions** still blank from foundation doc:
+   - Working hours (24/7 or specific hours)
+   - Greeting opener variations (one fixed or 2-3 to rotate)
+   - Location-specific tags (Lagos, Abuja, Port Harcourt, Kano, Ibadan)
+   - Currency: NGN only or also USD for installers / regional
+   - Default delivery and installation policy lines
+   - Default warranty messaging
+   - Competitor pricing doctrine (beat / match / justify / walk)
+   - After-hours auto-reply text
+6. **Brother's real WhatsApp business number** (Task #17 full). Right now the test number `+1 555 172 6906` is in use; once brother provides ElectroSun's actual line, swap `META_PHONE_NUMBER_ID` on Railway and re-verify the webhook.
+
+USER-DRIVEN:
+7. **Task #15: 48-hour soak** with 3-5 testers on the current test number. Captures real conversation patterns to feed the daily learning loop and surface gaps.
+8. **Task #19 templates**: re-check Meta approval status in 24-48h via `node scripts/check_templates.js`. If rejected, read `rejected_reason` and re-submit.
+9. **Verify the next 2-hour cron** (every even hour Beirut) lands on brother's phone, not Serge's. The 4 PM Beirut cron landed on Serge — likely stale container; needs verification.
+
+CODE NICE-TO-HAVES (not blocking launch):
+10. **Hot-lead alert with conversation summary** (a small Haiku synthesis call to enrich the brother's RED alert; Section 9.1 of foundation doc).
+11. **Approve-to-permanent learning loop** (admin UI button on daily learning items to convert into permanent fact).
+12. **v2 daily learning sections** ("New patterns with draft replies", "Internal questions I have").
+13. **Knowledge file expansion**: brother to send remaining 14 categories (installation pricing, service area, warranty, payment terms, common objections, past projects, real conversation samples, working hours, holidays, compliance). Each new fact via admin Knowledge tab or via a new seed script.
+14. **Cleanup `scripts/seed.js`** (still has old category names).
+15. **Re-enable owner teaching from WhatsApp** with a cleaner intent disambiguation (today brother's WhatsApp messages always go to Q&A mode; teaching is admin-only).
+16. **RAG-style fact retrieval** instead of always injecting all active facts. With ~500 facts cap today, fine; if knowledge base grows, switch to per-message semantic search.
+17. **Avatars: per-contact color hashing** so different contacts get visually distinct avatar discs (currently all green).
+18. **Image inline rendering in admin** (`media_path` is stored; admin doesn't yet render the image inline).
 
 **Hard rule reminder:** before recommending or relying on a remembered fact (file path, function, key, URL), verify it still holds. Quick-tunnel URLs are stale-by-design; the Meta webhook config will need redoing next session if cloudflared was restarted.
 
