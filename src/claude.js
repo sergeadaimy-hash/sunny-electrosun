@@ -6,8 +6,8 @@ const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { formatKnowledgeForPrompt } = require('./knowledge');
 const { formatCatalogForPrompt } = require('./catalog');
 
-const MODEL_CLASSIFIER = 'claude-haiku-4-5';
-const MODEL_REPLY = 'claude-sonnet-4-6';
+const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-opus-4-7';
+const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-opus-4-7';
 
 const SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'system.md'), 'utf8');
 const CLASSIFIER_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'classifier.md'), 'utf8');

@@ -10,6 +10,21 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
+## 2026-05-04 8pm Beirut — Opus everywhere
+
+Serge directive: every model call uses `claude-opus-4-7`. Classifier, reply, teacher, owner-Q&A, all on Opus. Reasoning: he's frustrated with Haiku-classifier mistakes (greetings escalating, addresses turning into phone numbers in replies) and wants a single high-capability brain handling everything.
+
+**Implemented:**
+- `src/claude.js`: `MODEL_CLASSIFIER` and `MODEL_REPLY` default to `claude-opus-4-7`, env-overridable via `MODEL_CLASSIFIER` / `MODEL_REPLY`.
+- `src/knowledge.js`: `MODEL_TEACHER` defaults to `claude-opus-4-7`, env-overridable via `MODEL_TEACHER`.
+- `src/owner_qa.js`: `MODEL` defaults to `claude-opus-4-7`, env-overridable via `MODEL_OWNER_QA`.
+- `src/cost_tracker.js`: added Opus pricing (1500 cents/M input, 7500 output, 150 cache_read, 1875 cache_write). `DAILY_LLM_BUDGET_USD` guardrail still enforces, just trips faster.
+- `api/dashboard.js`: `/api/brain` now reports the live model env values so the admin Models & config tab shows what's actually running, not the hardcoded constants.
+
+**Cost reality:** ~$0.025-0.05 per message vs ~$0.005 before. Roughly 5-10x. At 500 messages/day that's $15-25/day or $450-750/month. Brother needs to confirm appetite. Use the env overrides to step back to Sonnet/Haiku selectively if budget tightens (`MODEL_REPLY=claude-sonnet-4-6` for example).
+
+**Important caveat documented in CLAUDE.md:** the recent visible bugs ("hello" escalating, link spam on every escalation, phone-vs-address confusion) were all CODE bugs in classifier.js, handler.js, and system.md. They are NOT model-quality issues. Opus does NOT fix bad code; it only improves judgement on borderline cases the prompt actually handles correctly. Greeting fast-path bypass + address-vs-phone split + greeting-guard string-typing fix shipped in commits 2a94d8b, a6d2a7a, 065653a, d3992ab.
+
 ## 2026-05-04 evening tail (Beirut) — voice rule + diag
 
 **Voice rule, set permanently 2026-05-04 (Serge):**

@@ -2,8 +2,9 @@ const { getDb } = require('../db/init');
 const logger = require('./utils/logger');
 
 const PRICING_CENTS_PER_MTOK = {
-  'claude-haiku-4-5':   { input: 80,  output: 400,  cache_read: 8,   cache_write: 100 },
-  'claude-sonnet-4-6':  { input: 300, output: 1500, cache_read: 30,  cache_write: 375 }
+  'claude-haiku-4-5':   { input: 80,   output: 400,  cache_read: 8,    cache_write: 100 },
+  'claude-sonnet-4-6':  { input: 300,  output: 1500, cache_read: 30,   cache_write: 375 },
+  'claude-opus-4-7':    { input: 1500, output: 7500, cache_read: 150,  cache_write: 1875 }
 };
 
 function modelKey(model) {

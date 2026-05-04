@@ -5,7 +5,7 @@ const { getDb } = require('../db/init');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 
-const MODEL_TEACHER = 'claude-haiku-4-5';
+const MODEL_TEACHER = process.env.MODEL_TEACHER || 'claude-opus-4-7';
 const TEACHER_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'teacher.md'), 'utf8');
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;

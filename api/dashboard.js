@@ -366,9 +366,10 @@ router.get('/brain', (req, res) => {
     teacher: safeRead(path.join(root, 'src', 'prompts', 'teacher.md'))
   };
   const models = {
-    classifier: 'claude-haiku-4-5',
-    teacher: 'claude-haiku-4-5',
-    reply: 'claude-sonnet-4-6'
+    classifier: process.env.MODEL_CLASSIFIER || 'claude-opus-4-7',
+    teacher: process.env.MODEL_TEACHER || 'claude-opus-4-7',
+    owner_qa: process.env.MODEL_OWNER_QA || 'claude-opus-4-7',
+    reply: process.env.MODEL_REPLY || 'claude-opus-4-7'
   };
   const config = {
     daily_budget_usd: process.env.DAILY_LLM_BUDGET_USD || null,
