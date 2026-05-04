@@ -116,12 +116,112 @@
     }
     .icon-btn:hover { color: var(--text); border-color: var(--text-dim); }
 
-    main { display: grid; grid-template-columns: 360px 1fr; overflow: hidden; }
+    main { display: flex; flex-direction: column; overflow: hidden; }
+    .view { display: none; flex: 1; overflow: hidden; }
+    .view.active { display: flex; }
+    #view-inbox.active { display: grid; grid-template-columns: 360px 1fr; }
+    #view-contacts.active { display: flex; flex-direction: column; }
     @media (max-width: 800px) {
-      main { grid-template-columns: 1fr; }
+      #view-inbox.active { grid-template-columns: 1fr; }
       .conversation-list { border-right: none; border-bottom: 1px solid var(--border); }
       .conv-view-pane { display: none; }
       .conv-view-pane.show-mobile { display: flex; }
+    }
+
+    /* TOP NAV TABS */
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+      margin-left: 24px;
+    }
+    .nav-tabs button {
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid transparent;
+      padding: 6px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .nav-tabs button:hover { color: var(--text); }
+    .nav-tabs button.active {
+      color: var(--text);
+      background: var(--bg);
+      border-color: var(--border);
+    }
+
+    /* CONTACTS VIEW */
+    .contacts-toolbar {
+      padding: 12px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .contacts-toolbar select, .contacts-toolbar input {
+      padding: 6px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .contacts-toolbar select:focus, .contacts-toolbar input:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: -1px;
+    }
+    .contacts-toolbar input[type="search"] { min-width: 220px; }
+    .contacts-toolbar label {
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .contacts-toolbar .stats {
+      margin-left: auto;
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+    .contacts-table-wrap {
+      flex: 1;
+      overflow: auto;
+      background: var(--bg);
+    }
+    .contacts-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .contacts-table th, .contacts-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-soft);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .contacts-table th {
+      background: var(--surface);
+      color: var(--text-dim);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .contacts-table tr { cursor: pointer; }
+    .contacts-table tr:hover td { background: rgba(255,255,255,0.04); }
+    .contacts-table .phone-cell { font-family: monospace; font-size: 12px; color: var(--text-dim); }
+    .contacts-table td.empty { color: var(--text-faint); font-style: italic; }
+    .contacts-empty {
+      padding: 60px 20px;
+      text-align: center;
+      color: var(--text-faint);
     }
 
     /* CONVERSATION LIST */
@@ -327,7 +427,11 @@
 <!-- APP -->
 <div id="app" class="app hidden">
   <header>
-    <h1>Electro-Sun inbox</h1>
+    <h1>Electro-Sun</h1>
+    <nav class="nav-tabs" id="nav-tabs">
+      <button class="active" data-view="view-inbox">Inbox</button>
+      <button data-view="view-contacts">Contacts</button>
+    </nav>
     <div class="header-stats">
       <span class="badge" id="pending-badge">0 pending</span>
       <span class="badge" id="budget-badge">$0.00</span>
@@ -337,24 +441,86 @@
   </header>
 
   <main>
-    <aside class="conversation-list">
-      <div class="filter-tabs">
-        <button class="active" data-filter="all">All</button>
-        <button data-filter="pending">Pending</button>
-        <button data-filter="hot">HOT</button>
-        <button data-filter="warm">WARM</button>
-        <button data-filter="human">Human</button>
-        <button data-filter="C2">C2</button>
-        <button data-filter="C3">C3</button>
-        <button data-filter="C5">C5</button>
-      </div>
-      <div class="conv-scroll" id="conversations">
-        <div class="empty-list">Loading.</div>
-      </div>
-    </aside>
+    <section id="view-inbox" class="view active">
+      <aside class="conversation-list">
+        <div class="filter-tabs">
+          <button class="active" data-filter="all">All</button>
+          <button data-filter="pending">Pending</button>
+          <button data-filter="hot">HOT</button>
+          <button data-filter="warm">WARM</button>
+          <button data-filter="human">Human</button>
+          <button data-filter="C2">C2</button>
+          <button data-filter="C3">C3</button>
+          <button data-filter="C5">C5</button>
+        </div>
+        <div class="conv-scroll" id="conversations">
+          <div class="empty-list">Loading.</div>
+        </div>
+      </aside>
 
-    <section class="conv-view-pane" id="conv-view">
-      <div class="conv-empty" id="conv-empty">Select a conversation on the left.</div>
+      <section class="conv-view-pane" id="conv-view">
+        <div class="conv-empty" id="conv-empty">Select a conversation on the left.</div>
+      </section>
+    </section>
+
+    <section id="view-contacts" class="view">
+      <div class="contacts-toolbar">
+        <input type="search" id="contacts-search" placeholder="Search name or phone...">
+        <label>Category:
+          <select id="contacts-category">
+            <option value="">all</option>
+            <option value="C1">C1</option>
+            <option value="C2">C2</option>
+            <option value="C3">C3</option>
+            <option value="C4">C4</option>
+            <option value="C5">C5</option>
+            <option value="unsorted">unsorted</option>
+          </select>
+        </label>
+        <label>Temperature:
+          <select id="contacts-temperature">
+            <option value="">all</option>
+            <option value="HOT">HOT</option>
+            <option value="WARM">WARM</option>
+            <option value="COLD">COLD</option>
+            <option value="DISQUALIFIED">DISQUALIFIED</option>
+            <option value="CLOSED">CLOSED</option>
+            <option value="LOST">LOST</option>
+          </select>
+        </label>
+        <label>Active since:
+          <select id="contacts-period">
+            <option value="all">all time</option>
+            <option value="today">today</option>
+            <option value="7d">7 days</option>
+            <option value="30d">30 days</option>
+          </select>
+        </label>
+        <span class="stats" id="contacts-stats">0 contacts</span>
+      </div>
+      <div class="contacts-table-wrap">
+        <table class="contacts-table" id="contacts-table">
+          <thead>
+            <tr>
+              <th>Phone</th>
+              <th>Name</th>
+              <th>Category</th>
+              <th>Temperature</th>
+              <th>Client type</th>
+              <th>Language</th>
+              <th>Location</th>
+              <th>Products</th>
+              <th>Brand pref</th>
+              <th>Budget</th>
+              <th>First seen</th>
+              <th>Last active</th>
+            </tr>
+          </thead>
+          <tbody id="contacts-tbody">
+            <tr><td colspan="12" class="contacts-empty">Loading.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 </div>
@@ -368,6 +534,9 @@ let currentConversationId = null;
 let activeFilter = 'all';
 let refreshTimer = null;
 let inFlight = false;
+let currentView = 'view-inbox';
+let allContacts = [];
+let contactsLoaded = false;
 
 // API HELPERS
 
@@ -442,6 +611,129 @@ document.querySelectorAll('.filter-tabs button').forEach(btn => {
   });
 });
 
+// VIEW SWITCHING
+
+document.querySelectorAll('#nav-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => switchView(btn.dataset.view));
+});
+
+function switchView(viewId) {
+  currentView = viewId;
+  document.querySelectorAll('#nav-tabs button').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === viewId);
+  });
+  document.querySelectorAll('.view').forEach(v => {
+    v.classList.toggle('active', v.id === viewId);
+  });
+  if (viewId === 'view-contacts' && !contactsLoaded) {
+    loadContacts();
+  }
+}
+
+// CONTACTS
+
+async function loadContacts() {
+  const tbody = document.getElementById('contacts-tbody');
+  tbody.innerHTML = '<tr><td colspan="12" class="contacts-empty">Loading.</td></tr>';
+  try {
+    const data = await apiFetch('/contacts?limit=200');
+    allContacts = data.contacts || [];
+    contactsLoaded = true;
+    renderContacts();
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="12" class="contacts-empty">Error: ' + escapeHtml(err.message) + '</td></tr>';
+  }
+}
+
+['contacts-search', 'contacts-category', 'contacts-temperature', 'contacts-period'].forEach(id => {
+  document.getElementById(id).addEventListener('input', renderContacts);
+  document.getElementById(id).addEventListener('change', renderContacts);
+});
+
+function periodCutoff(period) {
+  if (period === 'all') return null;
+  const now = Date.now();
+  if (period === 'today') {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString();
+  }
+  if (period === '7d') return new Date(now - 7 * 86400000).toISOString();
+  if (period === '30d') return new Date(now - 30 * 86400000).toISOString();
+  return null;
+}
+
+function passesContactFilter(c, search, category, temperature, cutoffIso) {
+  if (search) {
+    const hay = ((c.name || '') + ' ' + (c.phone || '')).toLowerCase();
+    if (!hay.includes(search)) return false;
+  }
+  if (category && (c.category || 'unsorted') !== category) return false;
+  if (temperature && c.lead_temperature !== temperature) return false;
+  if (cutoffIso) {
+    const lastActive = c.last_active || c.first_seen;
+    if (!lastActive || lastActive < cutoffIso) return false;
+  }
+  return true;
+}
+
+function renderContacts() {
+  const search = document.getElementById('contacts-search').value.trim().toLowerCase();
+  const category = document.getElementById('contacts-category').value;
+  const temperature = document.getElementById('contacts-temperature').value;
+  const period = document.getElementById('contacts-period').value;
+  const cutoffIso = periodCutoff(period);
+
+  const filtered = allContacts.filter(c => passesContactFilter(c, search, category, temperature, cutoffIso));
+  document.getElementById('contacts-stats').textContent = filtered.length + ' of ' + allContacts.length + ' contacts';
+
+  const tbody = document.getElementById('contacts-tbody');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="12" class="contacts-empty">No matches.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(contactRowHtml).join('');
+  tbody.querySelectorAll('tr[data-contact-id]').forEach(row => {
+    row.addEventListener('click', () => openContactConversation(parseInt(row.dataset.contactId, 10)));
+  });
+}
+
+function contactRowHtml(c) {
+  const tempPill = c.lead_temperature
+    ? '<span class="pill ' + c.lead_temperature.toLowerCase() + '">' + c.lead_temperature + '</span>'
+    : '<span class="empty">—</span>';
+  const catPill = c.category ? '<span class="pill">' + c.category + '</span>' : '<span class="empty">—</span>';
+  const cell = (v) => v ? escapeHtml(v) : '<span class="empty">—</span>';
+  return [
+    '<tr data-contact-id="' + c.id + '">',
+    '  <td class="phone-cell">' + escapeHtml(c.phone || '') + '</td>',
+    '  <td>' + cell(c.name) + '</td>',
+    '  <td>' + catPill + '</td>',
+    '  <td>' + tempPill + '</td>',
+    '  <td>' + cell(c.client_type) + '</td>',
+    '  <td>' + cell(c.language) + '</td>',
+    '  <td>' + cell(c.location) + '</td>',
+    '  <td>' + cell(c.products_asked_about) + '</td>',
+    '  <td>' + cell(c.brand_preference) + '</td>',
+    '  <td>' + cell(c.budget_mentioned) + '</td>',
+    '  <td>' + (c.first_seen ? shortTime(c.first_seen) : '<span class="empty">—</span>') + '</td>',
+    '  <td>' + (c.last_active ? shortTime(c.last_active) : '<span class="empty">—</span>') + '</td>',
+    '</tr>'
+  ].join('');
+}
+
+async function openContactConversation(contactId) {
+  try {
+    const data = await apiFetch('/contacts/' + contactId);
+    const conv = (data.conversations || [])[0];
+    if (!conv) return;
+    switchView('view-inbox');
+    await selectConversation(conv.id);
+  } catch (err) {
+    console.error('open contact failed', err);
+  }
+}
+
 // REFRESH
 
 async function refreshAll() {
@@ -459,6 +751,9 @@ async function refreshAll() {
     renderConversations();
     if (currentConversationId) {
       await loadConversationDetail(currentConversationId, false);
+    }
+    if (currentView === 'view-contacts' && contactsLoaded) {
+      loadContacts();
     }
   } catch (err) {
     console.error('refresh failed', err);
