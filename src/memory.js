@@ -30,10 +30,13 @@ function updateContactFields(contactId, fields) {
   const values = [];
 
   for (const key of allowed) {
-    if (fields[key] !== undefined && fields[key] !== null) {
-      updates.push(`${key} = ?`);
-      values.push(fields[key]);
-    }
+    let v = fields[key];
+    if (v === undefined || v === null) continue;
+    if (Array.isArray(v)) v = v.filter(x => x != null).map(String).join(', ');
+    else if (typeof v === 'object') v = JSON.stringify(v);
+    else v = String(v);
+    updates.push(`${key} = ?`);
+    values.push(v);
   }
   if (!updates.length) return;
   values.push(contactId);
