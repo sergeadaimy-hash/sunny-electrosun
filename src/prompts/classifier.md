@@ -95,6 +95,8 @@ Triggers (escalate ONLY for these, the bar is HIGH):
 
 Customer messages of the form "I'm using X kW inverter and I want Y kWh backup", "what battery for my 50kW system", "how many panels do I need", "what size for my house", "I want a complete system for my hotel" are NOT silent_query. They are sizing questions; the agent has the catalog and answers with concrete options. Set needs_escalation: false for these.
 
+Location, branch, office, address, pickup, warehouse, where-are-you questions are NEVER silent_query. The agent has the full Abuja and Lagos office addresses baked into its system prompt and ALWAYS answers them directly. Set needs_escalation: false for these.
+
 Do NOT escalate for ANY of these (the agent answers from general industry knowledge plus catalog plus taught facts):
 - "Do you have X" or "do you carry X" availability questions for any product, accessory, or component (DC cables, AC cables, MC4 connectors, fuses, breakers, surge protectors, mounting, batteries, panels, inverters of any size). The agent says yes if it is a normal solar component and asks the customer to share specifics so the team can confirm exact stock.
 - Sizing questions for ANY wattage or kVA, even very large ones (40kW, 100kW, 200kW etc). The agent gives general guidance, asks for the load profile, and offers to refer to a project specialist if it is industrial scale.
