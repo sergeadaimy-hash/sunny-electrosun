@@ -42,8 +42,23 @@ const HOT_LEAD_REPLY = "Noted. A specialist will follow up with you shortly with
 const SILENT_QUERY_REPLY = "A specialist will confirm the exact figure for you shortly.";
 const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
 
-function pickHoldingReply(escalationType /*, customerMessage */) {
-  return escalationType === 'hot_lead' ? HOT_LEAD_REPLY : SILENT_QUERY_REPLY;
+function buildSpecialistLink(customerMessage) {
+  const num = (process.env.SPECIALIST_DIRECT_LINK || '').replace(/\D/g, '');
+  if (!num) return null;
+  const topic = (customerMessage || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const prefilled = topic
+    ? `Hi, I was speaking with Electro-Sun and want to proceed: "${topic}"`
+    : 'Hi, I was speaking with Electro-Sun and want to proceed.';
+  return `https://wa.me/${num}?text=${encodeURIComponent(prefilled)}`;
+}
+
+function pickHoldingReply(escalationType, customerMessage) {
+  if (escalationType === 'hot_lead') {
+    const link = buildSpecialistLink(customerMessage);
+    if (link) return HOT_LEAD_REPLY + `\n\nDirect line to the specialist: ${link}`;
+    return HOT_LEAD_REPLY;
+  }
+  return SILENT_QUERY_REPLY;
 }
 
 function pickUnsupportedReply() {
