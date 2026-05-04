@@ -139,8 +139,11 @@ function deleteKnowledge(id) {
   db.prepare(`DELETE FROM knowledge_entries WHERE id = ?`).run(id);
 }
 
+const PROMPT_CHAR_BUDGET = parseInt(process.env.KNOWLEDGE_PROMPT_BUDGET_CHARS || '30000', 10);
+const PROMPT_FACT_CAP = parseInt(process.env.KNOWLEDGE_PROMPT_MAX_FACTS || '500', 10);
+
 function formatKnowledgeForPrompt() {
-  const rows = getActiveKnowledge(200);
+  const rows = getActiveKnowledge(PROMPT_FACT_CAP);
   if (!rows.length) return '';
   const byCategory = {};
   for (const r of rows) {
@@ -150,7 +153,7 @@ function formatKnowledgeForPrompt() {
   }
   const lines = [];
   lines.push('# Owner-taught knowledge (treat as authoritative)');
-  lines.push('These facts were taught to you by the Electro-Sun owner. Quote them directly when relevant. They override earlier general guidance if they conflict.');
+  lines.push('These facts were taught to you by the Electro-Sun team or imported from past conversations. Quote them directly when relevant. They override earlier general guidance if they conflict.');
   lines.push('');
   const order = ['pricing', 'policy', 'product', 'sales', 'operations', 'warranty', 'customer', 'correction', 'other'];
   const seen = new Set();
@@ -167,7 +170,11 @@ function formatKnowledgeForPrompt() {
     for (const f of byCategory[cat]) lines.push(`- ${f}`);
     lines.push('');
   }
-  return lines.join('\n').trim();
+  let block = lines.join('\n').trim();
+  if (block.length > PROMPT_CHAR_BUDGET) {
+    block = block.slice(0, PROMPT_CHAR_BUDGET) + '\n\n[memory truncated to budget; see admin Knowledge tab for the full list]';
+  }
+  return block;
 }
 
 module.exports = {
