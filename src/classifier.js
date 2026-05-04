@@ -6,12 +6,33 @@ async function runClassification(contact, history, message) {
   const result = await classify(history, message);
 
   if (result.lead_temperature === 'HOT' && !result.needs_escalation) {
-    logger.warn('classifier.hot_temperature_without_escalation_fixed', {
+    logger.warn('classifier.hot_without_escalation_demoted_to_warm', {
       contactId: contact.id,
-      original_escalation_type: result.escalation_type
+      original_escalation_type: result.escalation_type,
+      message_preview: String(message?.body || '').slice(0, 80)
     });
-    result.needs_escalation = true;
-    result.escalation_type = 'hot_lead';
+    result.lead_temperature = 'WARM';
+  }
+
+  if (result.needs_escalation && !result.escalation_type) {
+    logger.warn('classifier.escalation_without_type_skipped', {
+      contactId: contact.id,
+      message_preview: String(message?.body || '').slice(0, 80)
+    });
+    result.needs_escalation = false;
+  }
+
+  const body = String(message?.body || '').trim();
+  const looksLikeGreeting = body.length <= 20 && /^(hi|hello|hey|hola|bonjour|salam|asalam|good\s+(morning|afternoon|evening|day)|gm|ga|ge|how\s+far|wetin\s+dey|sup|yo)\b/i.test(body);
+  if (result.needs_escalation && looksLikeGreeting) {
+    logger.warn('classifier.greeting_escalation_blocked', {
+      contactId: contact.id,
+      escalation_type: result.escalation_type,
+      message_preview: body
+    });
+    result.needs_escalation = false;
+    result.escalation_type = null;
+    if (result.lead_temperature === 'HOT') result.lead_temperature = 'COLD';
   }
 
   const updates = {};
