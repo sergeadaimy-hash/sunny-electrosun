@@ -861,12 +861,13 @@
 
     .conv-scroll { overflow-y: auto; flex: 1; }
     .conv-row {
-      padding: 11px 14px 11px 68px;
+      padding: 11px 14px;
       border-bottom: 1px solid var(--border-soft);
       cursor: pointer;
       display: flex;
-      flex-direction: column;
-      gap: 3px;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
       position: relative;
       transition: background 0.1s;
     }
@@ -876,31 +877,32 @@
       box-shadow: inset 3px 0 0 var(--green);
     }
 
-    /* Avatar circle (gradient brand-green disc with a user glyph drawn via CSS mask).
-       A per-initial avatar would require JS changes, which are out of scope. */
-    .conv-row::before {
-      content: "";
-      position: absolute;
-      left: 14px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 40px; height: 40px;
+    .conv-avatar {
+      flex-shrink: 0;
+      width: 42px; height: 42px;
       border-radius: 50%;
       background: linear-gradient(135deg, #2A9359 0%, #1F7A47 100%);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      user-select: none;
     }
-    .conv-row::after {
-      content: "";
-      position: absolute;
-      left: 24px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 20px;
-      height: 20px;
-      background: rgba(255,255,255,0.95);
-      -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>") center / contain no-repeat;
-              mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>") center / contain no-repeat;
-      pointer-events: none;
+    .conv-avatar .initials {
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .conv-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
     }
 
     .conv-row .row1 {
@@ -956,35 +958,31 @@
       gap: 14px;
       background: var(--white);
     }
+    .conv-header-avatar {
+      flex-shrink: 0;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2A9359 0%, #1F7A47 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+    .conv-header-avatar .initials {
+      line-height: 1;
+      text-transform: uppercase;
+    }
     .conv-header .who {
       display: flex;
       flex-direction: column;
       gap: 2px;
       flex: 1;
       min-width: 0;
-      padding-left: 54px;
-      position: relative;
-    }
-    .conv-header .who::before {
-      content: "";
-      position: absolute;
-      left: 0; top: 50%;
-      transform: translateY(-50%);
-      width: 42px; height: 42px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #2A9359 0%, #1F7A47 100%);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
-    }
-    .conv-header .who::after {
-      content: "";
-      position: absolute;
-      left: 11px; top: 50%;
-      transform: translateY(-50%);
-      width: 20px; height: 20px;
-      background: rgba(255,255,255,0.95);
-      -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>") center / contain no-repeat;
-              mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>") center / contain no-repeat;
-      pointer-events: none;
     }
     .conv-header .who .name {
       font-weight: 600;
@@ -1055,14 +1053,26 @@
       display: flex;
       flex-direction: column;
     }
+    .msg .bubble-body {
+      display: block;
+      word-wrap: break-word;
+    }
+    .msg .bubble-body::after {
+      content: "";
+      display: inline-block;
+      width: 0;
+    }
+    .msg .bubble-text {
+      display: inline;
+    }
     .msg .meta-line {
+      float: right;
+      margin: 6px 0 -2px 8px;
       font-size: 10.5px;
       color: var(--muted);
-      align-self: flex-end;
-      margin-top: 2px;
-      margin-left: 8px;
       font-variant-numeric: tabular-nums;
       line-height: 1;
+      white-space: nowrap;
     }
     .msg.in {
       background: var(--wa-in);
@@ -2121,6 +2131,21 @@ function renderConversations() {
   });
 }
 
+function getInitials(name, phone) {
+  const src = (name || '').trim();
+  if (src) {
+    const parts = src.replace(/[#@]/g, '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts.length === 1) {
+      const p = parts[0];
+      return (p[0] + (p[1] || '')).toUpperCase();
+    }
+  }
+  const ph = String(phone || '').replace(/\D/g, '');
+  if (ph.length >= 2) return ph.slice(-2);
+  return '?';
+}
+
 function convRowHtml(c) {
   const tempPill = c.lead_temperature ? '<span class="pill ' + c.lead_temperature.toLowerCase() + '">' + c.lead_temperature + '</span>' : '';
   const catPill = c.category ? '<span class="pill">' + c.category + '</span>' : '';
@@ -2131,14 +2156,18 @@ function convRowHtml(c) {
   const time = c.last_message_at ? shortTime(c.last_message_at) : '';
   const active = c.conversation_id === currentConversationId ? ' active' : '';
   const name = escapeHtml(c.name || c.phone || 'unknown');
+  const initials = escapeHtml(getInitials(c.name, c.phone));
   return [
     '<div class="conv-row' + active + '" data-id="' + c.conversation_id + '">',
-    '  <div class="row1">',
-    '    <span class="name">' + name + '</span>',
-    '    <span class="time">' + time + '</span>',
+    '  <div class="conv-avatar"><span class="initials">' + initials + '</span></div>',
+    '  <div class="conv-body">',
+    '    <div class="row1">',
+    '      <span class="name">' + name + '</span>',
+    '      <span class="time">' + time + '</span>',
+    '    </div>',
+    '    <div class="preview">' + escapeHtml(direction + preview) + '</div>',
+    '    <div class="meta">' + tempPill + catPill + humanPill + pendingPill + '</div>',
     '  </div>',
-    '  <div class="preview">' + escapeHtml(direction + preview) + '</div>',
-    '  <div class="meta">' + tempPill + catPill + humanPill + pendingPill + '</div>',
     '</div>'
   ].join('');
 }
@@ -2194,8 +2223,10 @@ function renderConversationView(data, scrollToBottom) {
 
   const messagesHtml = msgs.map(m => msgHtml(m)).join('');
 
+  const headerInitials = escapeHtml(getInitials(contact?.name, contact?.phone));
   root.innerHTML = [
     '<div class="conv-header">',
+    '  <div class="conv-header-avatar"><span class="initials">' + headerInitials + '</span></div>',
     '  <div class="who">',
     '    <span class="name">' + escapeHtml(contact?.name || 'unknown') + '</span>',
     '    <span class="phone">' + escapeHtml(contact?.phone || '') + '</span>',
@@ -2238,8 +2269,10 @@ function msgHtml(m) {
   return [
     '<div class="' + cls + '">',
     intentTag,
-    '<div>' + escapeHtml(m.body) + '</div>',
-    '<div class="meta-line">' + shortTime(m.timestamp) + '</div>',
+    '<div class="bubble-body">',
+    '  <span class="bubble-text">' + escapeHtml(m.body) + '</span>',
+    '  <span class="meta-line">' + shortTime(m.timestamp) + '</span>',
+    '</div>',
     '</div>'
   ].join('');
 }
