@@ -10,6 +10,48 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
+## 2026-05-04 8:30pm-9pm Beirut — Railway CLI + bulletproof greeting + history scrub
+
+**Railway CLI installed.** Serge auth'd, Claude can now run `railway` commands directly from this repo:
+- Project linked: `ample-laughter` / environment `production` / service `sunny-electrosun`
+- `railway variables --set KEY=VALUE` updates Railway env vars without dashboard clicks
+- `railway up --detach --ci` triggers a fresh deploy from local files (does NOT use git SHA, so `RAILWAY_GIT_COMMIT_SHA` env will be null on these deploys)
+- `railway redeploy --yes` re-runs the latest deploy (only works when no build is in progress)
+- `railway logs` tails live logs
+- `railway status` confirms project/env/service binding
+- IMPORTANT: `railway variables` (no args) is BLOCKED in Claude's sandbox because it would dump every secret into the transcript. Use `--set` for writes; use `/version` and `/api/brain` endpoints to read non-secret config like `owner_whatsapp_tail` and the `MODEL_*` values.
+
+**OWNER_WHATSAPP routing fixed at 8:42pm Beirut.** Reports were going to Serge's Saudi number (`966502392650`) all evening because the Railway env var was still set to it despite the brother's number being intended. Set via CLI: `railway variables --set OWNER_WHATSAPP=2347041328055`. Verified live via `https://sunny-electrosun-production.up.railway.app/version` → `owner_whatsapp_tail: "8055"`.
+
+**Public `/version` endpoint shipped (commit `f469935`).** No API key required. Returns `git_sha_short`, `git_branch`, `git_commit_message`, `deploy_id`, `escalations_disabled`, `owner_whatsapp_tail`, `node_uptime_seconds`. One-tap diagnostic for what's running. Lives on the main app router (`server.js`), NOT under `/api`, so it bypasses the X-API-Key middleware.
+
+**Defense-in-depth greeting bypass (commit `d87c455`).**
+- `src/handler.js`: `handlerIsGreeting()` runs BEFORE the escalation branch and forces `needs_escalation=false` on any short greeting message even if the classifier somehow asked for hot_lead. Belt-and-suspenders against the `src/classifier.js` fast-path bug.
+- `src/handler.js`: `DISABLE_ESCALATIONS` env kill switch. Set `DISABLE_ESCALATIONS=true` on Railway and ALL escalations (hot_lead and silent_query) get demoted to normal Sonnet/Opus replies. Useful for testing without canned holding messages firing.
+
+**Critical bug fixed (commit `2a94d8b`).** The greeting guard in `src/classifier.js` was checking `message?.body` but the classifier receives the message body as a STRING, not an object. So `body` always evaluated to `"undefined"` and the regex never matched. That's why "hello" still hit hot_lead even after `065653a` deployed. Fix: new `bodyText()` helper handles both string and object inputs. Plus a fast-path that returns a synthetic `{C1, COLD, no escalation, intent=greeting}` result and SKIPS Haiku/Opus entirely for casual greetings, saving cost.
+
+**wa.me link ban + history scrub (commit `735d748`).** Live failure: greeting bypass worked, but Opus generated its own wa.me link in the reply text, mimicking patterns it saw in prior canned holding replies in the conversation history. Three fixes:
+- `src/prompts/system.md`: top-priority rule "NEVER write wa.me URLs, click-to-chat links, or phone-number tel-links". The system handles handoff via separate canned messages.
+- `src/prompts/system.md`: "Treat each new customer message as the live one. A greeting gets a greeting reply. Do NOT bring up prior products, categories, or temperatures."
+- `src/claude.js`: `scrubHistoryContent()` strips wa.me URLs and "Direct line to the specialist" sentences from prior assistant messages before sending history to Opus. Replaces canned holding-reply lines with `[earlier system holding message]` so Opus can't anchor on the pattern.
+- `src/claude.js`: when current message is a casual greeting, suppress the "Known about this customer" context block (except name) and append guidance: "Do NOT bring up prior products."
+
+**Empty history on greetings + extended AI-speak ban (commit `851faa8`).** Even with context-block suppression, Opus still anchored on prior turns ("12kW order and payment details") because the conversation HISTORY itself referenced those. Fix:
+- `src/claude.js`: when greeting detected, send Opus an EMPTY conversation history (clean slate). Just the system prompt + the greeting. Stops Opus from inheriting any anchor from prior turns.
+- `src/prompts/system.md`: extends the AI-speak ban list with "I can help you with", "Is there anything else I can help you with", "How can I assist you", "How may I assist". Adds explicit rule against carrying over prior context the customer did not bring up in the current message.
+
+**Architecture rule (Serge clarified):** On a greeting, history is empty so Opus can't anchor. On any other message, full history available so Opus CAN pull prior context if the customer references it ("what about that 12kW we discussed?"). Don't proactively reach into history; do reach in when asked.
+
+**Address-vs-phone split (commit `a6d2a7a`).** Live failure: customer asked "Where in Lagos" twice, Sunny replied with the Lagos PHONE number instead of the Lagos OFFICE ADDRESS. Three fixes:
+- `src/prompts/system.md`: split the conflated "do not proactively share phone OR address" rule. Addresses ARE shared whenever asked about location, branch, office, pickup, visit, warehouse. Phone numbers are still NEVER proactive (only on explicit "call me"/"your number" or HOT lead).
+- `src/prompts/system.md`: baked the actual office addresses into the prompt as a top-of-prompt "Electro-Sun locations" section. Always in scope, never pruned by the knowledge cap.
+- `src/prompts/classifier.md`: location/branch/address/pickup/warehouse questions are NEVER silent_query.
+
+**Specialist-link gating (commits `065653a`, `d3992ab`).** Specialist link was being attached to every escalation reply (silent_query AND hot_lead). Now: link only attached on `escalation_type === 'hot_lead'` AND `SPECIALIST_DIRECT_LINK` env set. Silent queries get just the holding sentence (team will handle via the alert pipeline).
+
+**Voice rule deepened.** All references to "Great." in worked examples and HOT_LEAD_REPLY constant scrubbed. New holding reply: "Noted. A specialist will follow up with you shortly with the formal documents and final figures."
+
 ## 2026-05-04 8pm Beirut — Opus everywhere
 
 Serge directive: every model call uses `claude-opus-4-7`. Classifier, reply, teacher, owner-Q&A, all on Opus. Reasoning: he's frustrated with Haiku-classifier mistakes (greetings escalating, addresses turning into phone numbers in replies) and wants a single high-capability brain handling everything.
