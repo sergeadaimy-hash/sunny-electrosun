@@ -2,14 +2,51 @@ const { classify } = require('./claude');
 const { updateContactFields, logEvent } = require('./memory');
 const logger = require('./utils/logger');
 
+function bodyText(message) {
+  if (typeof message === 'string') return message.trim();
+  if (message && typeof message === 'object' && typeof message.body === 'string') return message.body.trim();
+  return '';
+}
+
+const GREETING_RE = /^(hi+|hello+|hey+|hola|bonjour|salam|asalam|good\s+(morning|afternoon|evening|day)|gm|ga|ge|how\s+far|wetin\s+dey|sup|yo|howdy|greetings|hii?|test|testing)\b[\s!.?]*$/i;
+
+function isCasualGreeting(text) {
+  const t = (text || '').trim();
+  return t.length <= 30 && GREETING_RE.test(t);
+}
+
 async function runClassification(contact, history, message) {
+  const body = bodyText(message);
+
+  if (isCasualGreeting(body)) {
+    logger.info('classifier.greeting_fastpath', {
+      contactId: contact.id,
+      message_preview: body
+    });
+    return {
+      category: 'C1',
+      lead_temperature: 'COLD',
+      client_type: 'unknown',
+      intent: 'greeting',
+      language: 'english',
+      confidence: 95,
+      needs_escalation: false,
+      escalation_type: null,
+      lead_data: {
+        name: null, location: null, use_case: null, load_estimate: null,
+        timeline: null, products_asked_about: null, brand_preference: null,
+        budget_mentioned: null
+      }
+    };
+  }
+
   const result = await classify(history, message);
 
   if (result.lead_temperature === 'HOT' && !result.needs_escalation) {
     logger.warn('classifier.hot_without_escalation_demoted_to_warm', {
       contactId: contact.id,
       original_escalation_type: result.escalation_type,
-      message_preview: String(message?.body || '').slice(0, 80)
+      message_preview: body.slice(0, 80)
     });
     result.lead_temperature = 'WARM';
   }
@@ -17,14 +54,12 @@ async function runClassification(contact, history, message) {
   if (result.needs_escalation && !result.escalation_type) {
     logger.warn('classifier.escalation_without_type_skipped', {
       contactId: contact.id,
-      message_preview: String(message?.body || '').slice(0, 80)
+      message_preview: body.slice(0, 80)
     });
     result.needs_escalation = false;
   }
 
-  const body = String(message?.body || '').trim();
-  const looksLikeGreeting = body.length <= 20 && /^(hi|hello|hey|hola|bonjour|salam|asalam|good\s+(morning|afternoon|evening|day)|gm|ga|ge|how\s+far|wetin\s+dey|sup|yo)\b/i.test(body);
-  if (result.needs_escalation && looksLikeGreeting) {
+  if (result.needs_escalation && isCasualGreeting(body)) {
     logger.warn('classifier.greeting_escalation_blocked', {
       contactId: contact.id,
       escalation_type: result.escalation_type,
