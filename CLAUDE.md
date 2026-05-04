@@ -10,6 +10,16 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
+## 2026-05-05 12:15am Beirut — DISABLE_NOTIFICATIONS kill switch
+
+Owner reports + reminders silenced while Serge tests as a customer. Set `DISABLE_NOTIFICATIONS=true` on Railway via CLI. Cron handlers in `server.js` skip cleanly with one log line each:
+- 2-hour cron reports (`sendOwnerReport`)
+- Daily reports (21:00 Africa/Lagos)
+- Daily learning report (21:30 Africa/Lagos)
+- 30-min window scan (24h-window reminders, over-budget alerts)
+
+Inbound customer messages still work normally. Webhook handling, admin UI, DB tracking all unaffected. Verified live at `notifications_disabled=true` via `/version`. To re-enable: `railway variables --set "DISABLE_NOTIFICATIONS=false"` from the repo. Commit `9ddfd81`.
+
 ## 2026-05-04 8:30pm-9pm Beirut — Railway CLI + bulletproof greeting + history scrub
 
 **Railway CLI installed.** Serge auth'd, Claude can now run `railway` commands directly from this repo:
