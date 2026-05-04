@@ -8,9 +8,9 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Phase 5 is cloud-first** (Railway or Fly.io, NOT Mac Mini). PM2 + named tunnel are no longer in the production path. See `memory/project_cloud_first_decision.md`.
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Latest local commit: `ffcaac6`. NOTE: 14 commits queued locally past origin (push hangs in non-interactive shell on credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat). After the next `git push`, origin will be at `ffcaac6`.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
-**Done (15 of 27, plus #16 came free):**
+**Done (16 of 27, plus #16 came free):**
 1. Meta Developer app `ElectroSun_Whtspp` created. App ID `2440193806402796`.
 2. Meta credentials captured. Test number `+1 555 172 6906`. Phone Number ID `1111486288711551`. WABA ID `1713234916358524`. Owner whitelisted (Saudi `+966502392650`).
 3. Anthropic API key, Org `7e197f14-a3e1-4b93-9836-cd54cd831e1f`, Tier 2.
@@ -26,6 +26,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 13. **Task #13 system prompt deployed against brother's Electro-Sun foundation document.** Identity: "member of the Electro-Sun team", never reveals AI. Voice: fast, direct, confident, professional, English-only. New categorization C1-C5. New lead temperature HOT/WARM/COLD/DISQUALIFIED/CLOSED/LOST. New client_type taxonomy. Two escalation patterns: silent_query and hot_lead. Punctuation rule (no double dashes) preserved.
 14. **Task #14 classifier prompt deployed and hardened.** Outputs C1-C5, lead_temperature, client_type, escalation_type. HOT triggers force escalation regardless of prior context. Code-level safety net: if classifier sets HOT temperature without escalation, handler forces it. Live tested: 5 categories all classified correctly, hot lead handoff fires both customer reply and owner RED alert.
 18. Permanent System User token issued. System User "Sunny-Server", ID `615889422441392`. No expiry.
+19. **Task #19 templates submitted to Meta** 2026-05-04. Both PENDING. Approval clock running.
 
 **Bonus shipped today (not on the formal task list):**
 - `handleUnsupported()` in `src/handler.js`: voice notes / images / documents / stickers / locations no longer drop silently, customer gets a polite "text only" reply.
@@ -33,6 +34,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 - `notifyOwnerEscalation` differentiates hot lead vs silent query in alert text (RED vs YELLOW, includes lead_temperature and client_type).
 - Cloud-deploy readiness: `LOG_TO_FILE` env var (default true) opt-out for cloud PaaS. Disables `logs/sunny.log` writes and daily DB snapshot when set to `false`.
 - Templates `templates/owner_hourly_report_en.json` and `templates/follow_up_24h_en.json` drafted with Meta API schema, ready for one-click submission.
+- **Task #19 templates submitted to Meta 2026-05-04.** `scripts/submit_templates.js` posts both with `_notes` stripped. Owner hourly report id `3044946312362011`, follow-up 24h id `949981397673982`. Both PENDING. 24-48h Meta review clock running. Check status with `node -e "require('axios').get('https://graph.facebook.com/v21.0/1713234916358524/message_templates?fields=name,status,rejected_reason', {headers:{Authorization:'Bearer '+require('dotenv').config().parsed.META_ACCESS_TOKEN}}).then(r=>console.log(JSON.stringify(r.data,null,2)))"`.
 - Contact #5 (Serge's test number) wiped clean multiple times during testing.
 
 **Phase B code work shipped today (separate from launch sequence):**
@@ -69,7 +71,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 1. Once brother provides pricing data and Section 11 decisions, update prompts with concrete prices and policies. Until then, silent_query escalations to him are the right behavior.
 2. Task #15: 48-hour soak with 3-5 testers on the test number. Captures real conversation patterns to feed the daily learning loop.
 3. Task #17: Add ElectroSun's real WhatsApp number to the WABA, swap `META_PHONE_NUMBER_ID` and `OWNER_WHATSAPP` in `.env`.
-4. Task #19: submit the two drafted templates to Meta. 24-48h approval clock.
+4. Task #19: DONE 2026-05-04. Both templates submitted via `scripts/submit_templates.js`, status PENDING with Meta. Re-check in 24-48h. If rejected, read `rejected_reason` and re-submit.
 5. Phase B code work (separate from launch tasks). DONE 2026-05-03. Plus admin UI shipped same day. Only nice-to-haves remain:
    - **Approve-to-permanent learning loop.** Brother sees daily learning suggestions in the 21:30 report, but there's no UI button to "Approve and turn into permanent rule." Currently he updates `system.md` or `products.json` manually and pushes. v2 feature: an admin UI page for learning items with approve/edit/skip buttons that auto-update prompts.
    - **v2 daily learning sections.** "New patterns with draft replies" requires an LLM pass over the day's conversations. "Internal questions I have" requires self-generated learning items. Both are placeholders today.
