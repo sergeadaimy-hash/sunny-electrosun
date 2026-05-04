@@ -145,18 +145,52 @@ async function classify(history, message) {
   return out;
 }
 
+const HISTORY_HOLDING_PATTERNS = [
+  /^Noted\.?\s*A specialist will follow up.*$/i,
+  /^A specialist will confirm the exact figure.*$/i,
+  /^A specialist will be with you shortly.*$/i,
+  /^Great\.?\s*One of our specialists.*$/i,
+  /^Our specialist will confirm.*$/i
+];
+
+function scrubHistoryContent(text) {
+  if (typeof text !== 'string') return text;
+  let cleaned = text
+    .replace(/https?:\/\/wa\.me\/[^\s)]+/gi, '')
+    .replace(/Direct line to the specialist:?[^\n]*/gi, '')
+    .replace(/If you'd like to reach our specialist directly now:?[^\n]*/gi, '')
+    .replace(/For urgent matters,? direct line to the specialist:?[^\n]*/gi, '')
+    .replace(/If you'd prefer to reach them directly now:?[^\n]*/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  for (const re of HISTORY_HOLDING_PATTERNS) {
+    if (re.test(cleaned.split('\n')[0] || '')) {
+      cleaned = '[earlier system holding message]';
+      break;
+    }
+  }
+  return cleaned || '[empty]';
+}
+
 function ensureAlternating(messages) {
   const out = [];
   for (const m of messages) {
+    const content = m.role === 'assistant' ? scrubHistoryContent(m.content) : m.content;
     const last = out[out.length - 1];
     if (last && last.role === m.role) {
-      last.content += '\n' + m.content;
+      last.content += '\n' + content;
     } else {
-      out.push({ role: m.role, content: m.content });
+      out.push({ role: m.role, content });
     }
   }
   if (out.length && out[0].role !== 'user') out.shift();
   return out;
+}
+
+const REPLY_GREETING_RE = /^(hi+|hello+|hey+|hola|bonjour|salam|asalam|good\s+(morning|afternoon|evening|day)|gm|ga|ge|how\s+far|wetin\s+dey|sup|yo|howdy|greetings|hii?|test|testing)\b[\s!.?]*$/i;
+function isGreetingMsg(text) {
+  const t = String(text || '').trim();
+  return t.length > 0 && t.length <= 30 && REPLY_GREETING_RE.test(t);
 }
 
 async function generateReply(history, message, contact, attachments = []) {
@@ -165,20 +199,26 @@ async function generateReply(history, message, contact, attachments = []) {
     return { ok: false, text: null, error: 'budget_exceeded' };
   }
 
+  const isCasualGreeting = isGreetingMsg(message);
+
   const contextLines = [];
-  if (contact?.name) contextLines.push(`Customer name: ${contact.name}`);
-  if (contact?.location) contextLines.push(`Known location: ${contact.location}`);
-  if (contact?.use_case) contextLines.push(`Use case: ${contact.use_case}`);
-  if (contact?.client_type) contextLines.push(`Client type: ${contact.client_type}`);
-  if (contact?.load_estimate) contextLines.push(`Load: ${contact.load_estimate}`);
-  if (contact?.timeline) contextLines.push(`Timeline: ${contact.timeline}`);
-  if (contact?.category) contextLines.push(`Current category: ${contact.category}`);
-  if (contact?.lead_temperature) contextLines.push(`Current temperature: ${contact.lead_temperature}`);
-  if (contact?.products_asked_about) contextLines.push(`Products discussed: ${contact.products_asked_about}`);
-  if (contact?.brand_preference) contextLines.push(`Brand preference: ${contact.brand_preference}`);
-  if (contact?.budget_mentioned) contextLines.push(`Budget mentioned: ${contact.budget_mentioned}`);
+  if (!isCasualGreeting) {
+    if (contact?.name) contextLines.push(`Customer name: ${contact.name}`);
+    if (contact?.location) contextLines.push(`Known location: ${contact.location}`);
+    if (contact?.use_case) contextLines.push(`Use case: ${contact.use_case}`);
+    if (contact?.client_type) contextLines.push(`Client type: ${contact.client_type}`);
+    if (contact?.load_estimate) contextLines.push(`Load: ${contact.load_estimate}`);
+    if (contact?.timeline) contextLines.push(`Timeline: ${contact.timeline}`);
+    if (contact?.category) contextLines.push(`Current category: ${contact.category}`);
+    if (contact?.lead_temperature) contextLines.push(`Current temperature: ${contact.lead_temperature}`);
+    if (contact?.products_asked_about) contextLines.push(`Products discussed: ${contact.products_asked_about}`);
+    if (contact?.brand_preference) contextLines.push(`Brand preference: ${contact.brand_preference}`);
+    if (contact?.budget_mentioned) contextLines.push(`Budget mentioned: ${contact.budget_mentioned}`);
+  } else if (contact?.name) {
+    contextLines.push(`Customer name: ${contact.name}`);
+  }
   const contextBlock = contextLines.length
-    ? `\n\n# Known about this customer\n${contextLines.join('\n')}`
+    ? `\n\n# Known about this customer\n${contextLines.join('\n')}${isCasualGreeting ? '\n(Customer just sent a casual greeting. Reply with a short greeting and a fresh qualifying opener. Do NOT bring up any prior products, prior categories, or prior context unless the customer references them.)' : ''}`
     : '';
 
   const systemBlocks = [
