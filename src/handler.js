@@ -194,48 +194,33 @@ async function handleOwnerReply(msg, pending) {
   });
 }
 
-async function handleOwnerTeaching(msg) {
-  const ownerPhone = process.env.OWNER_WHATSAPP;
+const OWNER_NON_REPLY_MESSAGE = [
+  "Hi. I am keeping owner-mode replies minimal for now while we tune the teaching workflow.",
+  "",
+  "To manage facts, prices, or the catalog, use the admin dashboard:",
+  "https://sunny-electrosun-production.up.railway.app/admin",
+  "",
+  "To reply to a specific customer, long-press the alert message I sent you for that conversation and reply there. Your reply will be relayed to the customer automatically."
+].join('\n');
+
+async function handleOwnerNonQueryMessage(msg) {
   const ownerContact = getOrCreateContact(msg.from, msg.profileName);
   const ownerConv = getActiveConversation(ownerContact.id);
 
   appendMessage(ownerConv.id, 'inbound', msg.body, {
     whatsapp_message_id: msg.id,
-    intent: 'owner_teaching'
+    intent: 'owner_message_no_action'
   });
 
-  const result = await extractKnowledge(msg.body);
-  let savedCount = 0;
-  for (const f of result.facts || []) {
-    if (!f || !f.text || typeof f.text !== 'string') continue;
-    if (typeof f.confidence === 'number' && f.confidence < 60) continue;
-    addKnowledgeEntry({
-      sourceMessage: msg.body,
-      sourceMessageId: msg.id,
-      extractedFact: f.text.trim(),
-      category: f.category || 'other',
-      confidence: f.confidence ?? null,
-      status: 'active'
-    });
-    savedCount++;
-  }
-
-  logEvent(ownerContact.id, 'owner_teaching_processed', {
-    facts_extracted: (result.facts || []).length,
-    facts_saved: savedCount,
-    message_preview: (msg.body || '').slice(0, 200)
-  });
-  logger.info('handler.owner_teaching.processed', {
-    ownerPhone,
-    factsExtracted: (result.facts || []).length,
-    factsSaved: savedCount
+  logger.info('handler.owner_non_query.received', {
+    ownerPhone: msg.from,
+    preview: (msg.body || '').slice(0, 120)
   });
 
-  const replyText = result.reply_to_owner || (savedCount ? `Logged ${savedCount} fact${savedCount === 1 ? '' : 's'}.` : 'Got it.');
-  const sendRes = await sendMessage(msg.from, replyText);
-  appendMessage(ownerConv.id, 'outbound', replyText, {
+  const sendRes = await sendMessage(msg.from, OWNER_NON_REPLY_MESSAGE);
+  appendMessage(ownerConv.id, 'outbound', OWNER_NON_REPLY_MESSAGE, {
     whatsapp_message_id: sendRes.messageId,
-    intent: 'owner_teaching_ack'
+    intent: 'owner_redirect_ack'
   });
 }
 
@@ -289,7 +274,7 @@ async function handleInbound(payload) {
           }
         }
         if (msg.kind === 'text') {
-          await handleOwnerTeaching(msg);
+          await handleOwnerNonQueryMessage(msg);
           continue;
         }
       }
