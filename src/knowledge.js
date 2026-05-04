@@ -65,8 +65,41 @@ async function extractKnowledge(ownerMessage) {
   }
 }
 
-function addKnowledgeEntry({ sourceMessage, sourceMessageId, extractedFact, category, confidence, status = 'active' }) {
+function normaliseForDedup(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9 ]+/g, '')
+    .trim();
+}
+
+function findDuplicateActive(text, category) {
   const db = getDb();
+  const norm = normaliseForDedup(text).slice(0, 120);
+  if (!norm) return null;
+  const rows = db.prepare(
+    `SELECT id, extracted_fact, category FROM knowledge_entries WHERE status = 'active' AND category = ?`
+  ).all(category || 'other');
+  for (const r of rows) {
+    const rn = normaliseForDedup(r.extracted_fact).slice(0, 120);
+    if (!rn) continue;
+    if (rn === norm) return r;
+    if (rn.length > 30 && norm.length > 30) {
+      const minLen = Math.min(rn.length, norm.length);
+      const a = rn.slice(0, minLen);
+      const b = norm.slice(0, minLen);
+      if (a === b) return r;
+    }
+  }
+  return null;
+}
+
+function addKnowledgeEntry({ sourceMessage, sourceMessageId, extractedFact, category, confidence, status = 'active', skipDedup = false }) {
+  const db = getDb();
+  if (!skipDedup && status === 'active') {
+    const dup = findDuplicateActive(extractedFact, category);
+    if (dup) return dup.id;
+  }
   const ts = new Date().toISOString();
   const info = db.prepare(
     `INSERT INTO knowledge_entries

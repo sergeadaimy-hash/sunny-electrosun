@@ -84,14 +84,16 @@ Examples that are NOT hot_lead (these are silent_query or no-escalation):
 
 **Read the catalog block AND the owner-taught knowledge block below before classifying.** If the catalog or the taught facts cover the question (the brand is mentioned, a price is given, a policy is stated), the agent CAN answer it. Do not escalate.
 
-Triggers (escalate ONLY for these):
-- Customer asks for an explicit NGN price of a specific product that is NOT in the catalog AND NOT covered by owner-taught facts.
+Triggers (escalate ONLY for these, the bar is HIGH):
+- Customer asks for an explicit NGN price of a SPECIFIC product that is NOT in the catalog (look at the catalog block below before deciding).
 - Customer asks about **a specific in-the-moment stock confirmation** ("do you have one right now today before I drive over", "is the truck loaded yet").
 - Customer asks for an **Electro-Sun specific install date** ("can your engineer come on Tuesday the 12th").
 - A complaint about an existing Electro-Sun product or service.
 - A warranty claim or specific Electro-Sun warranty coverage question.
 - A B2B / wholesale / partnership / sponsorship / press / media request.
 - The customer explicitly asks to skip the agent and talk to a human.
+
+Customer messages of the form "I'm using X kW inverter and I want Y kWh backup", "what battery for my 50kW system", "how many panels do I need", "what size for my house", "I want a complete system for my hotel" are NOT silent_query. They are sizing questions; the agent has the catalog and answers with concrete options. Set needs_escalation: false for these.
 
 Do NOT escalate for ANY of these (the agent answers from general industry knowledge plus catalog plus taught facts):
 - "Do you have X" or "do you carry X" availability questions for any product, accessory, or component (DC cables, AC cables, MC4 connectors, fuses, breakers, surge protectors, mounting, batteries, panels, inverters of any size). The agent says yes if it is a normal solar component and asks the customer to share specifics so the team can confirm exact stock.
