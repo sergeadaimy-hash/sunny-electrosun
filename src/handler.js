@@ -38,9 +38,9 @@ function extForMime(mime) {
   return 'bin';
 }
 
-const HOT_LEAD_REPLY = "Great. One of our specialists will reach out to you shortly to finalise the details and send the formal documents.";
-const SILENT_QUERY_REPLY = "Our specialist will confirm the exact figure for you shortly.";
-const UNSUPPORTED_REPLY = "Hello, this number receives text messages only. Please type your question and I'll get back to you right away.";
+const HOT_LEAD_REPLY = "Noted. A specialist will follow up with you shortly with the formal documents and final figures.";
+const SILENT_QUERY_REPLY = "A specialist will confirm the exact figure for you shortly.";
+const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
 
 function buildSpecialistLink(customerMessage) {
   const num = (process.env.SPECIALIST_DIRECT_LINK || '').replace(/\D/g, '');
@@ -57,9 +57,9 @@ function pickHoldingReply(escalationType, customerMessage) {
   const link = buildSpecialistLink(customerMessage);
   if (!link) return base;
   if (escalationType === 'hot_lead') {
-    return base + `\n\nIf you'd like to reach our specialist directly now: ${link}`;
+    return base + `\n\nDirect line to the specialist: ${link}`;
   }
-  return base + `\n\nFor urgent matters you can also reach our specialist directly: ${link}`;
+  return base + `\n\nFor urgent matters, direct line to the specialist: ${link}`;
 }
 
 function pickUnsupportedReply() {

@@ -10,6 +10,27 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
+## 2026-05-04 evening tail (Beirut) — voice rule + diag
+
+**Voice rule, set permanently 2026-05-04 (Serge):**
+Sunny must NOT sound like an AI. No compliments, no subjective praise, no AI-speak fillers. Banned phrases include: "Great", "Great choice", "Great project", "Great question", "Excellent", "Awesome", "Amazing", "Perfect", "I'd be happy to help", "I love that", "Sounds wonderful", "I understand", "I see", "I hear you", "Let me help you with that", "Feel free to...", "Hope this helps", "Just to clarify", "Certainly", "indeed", "moreover", "delve". No unsolicited adjectives on the customer's project ("nice property", "good plan"). Tone target: Lagos sales floor, not customer-service chatbot. Information first, brevity always.
+
+Implemented in:
+- `src/prompts/system.md`, new section "No compliments, no AI-speak, no subjective phrases" added directly under "Voice".
+- All worked-example dialogues in `system.md` scrubbed of compliment openers (no more "Great." in HOT replies).
+- `src/handler.js > HOT_LEAD_REPLY` and `SILENT_QUERY_REPLY` rewritten without "Great" or "happy to help" tone.
+- `UNSUPPORTED_REPLY` shortened, no more "I'll get back to you right away".
+- Specialist-link copy ("If you'd like to reach our specialist directly now") replaced with neutral "Direct line to the specialist:".
+- Memory: `memory/feedback_sunny_voice_no_compliments.md`.
+
+**Number swap timing rule (Serge, 2026-05-04):**
+Replace the test number `+1 555 172 6906` with the real Electro-Sun production number ONLY when end-to-end testing is 100% done. Until then, keep the test number. Brother's number is already in use as `OWNER_WHATSAPP` for alerts and reports; that's separate from the customer-facing number.
+
+**Owner-target diagnostics (commit `7c348e3`):**
+- `/api/brain` now returns `owner_whatsapp_tail` (last 4 digits of `process.env.OWNER_WHATSAPP`) so the admin Knowledge tab can verify which number the live container is targeting without leaking the full number.
+- `src/reports.js`: every `sendOwnerReport` and `sendDailyLearningReport` call logs `report.target {owner_tail: "XXXX"}` at info-level. Lets you see in Railway logs where each cron actually fired.
+- Reason: 4 PM and 6 PM Beirut crons both landed on Serge's phone despite `OWNER_WHATSAPP` set to brother's number (`8055`) on Railway. Diagnostic is in place to catch whether the env or the code is at fault on the next cron firing.
+
 ## 2026-05-04 afternoon-evening session (Beirut) — full snapshot
 
 Today's focus: production hardening, owner cutover, owner Q&A, knowledge ingestion at scale, admin UI redesign in two passes (brand-dark, then WhatsApp-light).
