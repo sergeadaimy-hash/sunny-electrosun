@@ -90,10 +90,28 @@ async function classify(history, message) {
 
   const userBlock = `Conversation history:\n${formatHistoryAsText(history)}\n\nLatest customer message:\n${message}\n\nReturn JSON now.`;
 
+  const classifierSystem = [
+    { type: 'text', text: CLASSIFIER_PROMPT, cache_control: { type: 'ephemeral' } }
+  ];
+  let catalogSnap = '';
+  try { catalogSnap = formatCatalogForPrompt(); } catch (err) {
+    logger.warn('claude.classify.catalog_load_fail', { message: err.message });
+  }
+  if (catalogSnap) {
+    classifierSystem.push({ type: 'text', text: catalogSnap, cache_control: { type: 'ephemeral' } });
+  }
+  let knowSnap = '';
+  try { knowSnap = formatKnowledgeForPrompt(); } catch (err) {
+    logger.warn('claude.classify.knowledge_load_fail', { message: err.message });
+  }
+  if (knowSnap) {
+    classifierSystem.push({ type: 'text', text: knowSnap, cache_control: { type: 'ephemeral' } });
+  }
+
   const callOnce = () => withRetry(() => client().messages.create({
     model: MODEL_CLASSIFIER,
     max_tokens: 400,
-    system: [{ type: 'text', text: CLASSIFIER_PROMPT, cache_control: { type: 'ephemeral' } }],
+    system: classifierSystem,
     messages: [{ role: 'user', content: userBlock }]
   }), 'classify');
 

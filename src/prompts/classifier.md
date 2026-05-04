@@ -80,26 +80,28 @@ Examples that are NOT hot_lead (these are silent_query or no-escalation):
 - "I'm interested in solar for my hotel" (no escalation, capture as C3 WARM)
 - "How does the inverter work?" (no escalation, C4 COLD)
 
-**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent cannot reasonably know without checking with the team. The bar is HIGH: most messages should NOT escalate.
+**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent cannot reasonably know without checking with the team. The bar is HIGH: most messages should NOT escalate. The agent has access to general industry knowledge AND the live Electro-Sun catalog AND owner-taught facts (provided to you below in the system prompt). Use ALL of those before deciding to escalate.
 
-**The agent already has prices for these products and does NOT need to escalate when asked about them:** Deye inverters (6kW off-grid, 8kW single phase, 12kW single and three phase, 16kW single and three phase, 18kW single phase, 20kW three phase) and Deye batteries (5kWh, 16kWh). Pricing or availability questions about these specific Deye products do NOT escalate.
+**Read the catalog block AND the owner-taught knowledge block below before classifying.** If the catalog or the taught facts cover the question (the brand is mentioned, a price is given, a policy is stated), the agent CAN answer it. Do not escalate.
 
-Triggers:
-- Customer asks for the price of a product NOT in the catalog above (e.g. Sungrow, Jinko, JA, Longi, custom configurations, products by other brands).
-- Customer asks about **current stock or availability** ("do you have it in stock right now", "when can you deliver to me on Friday").
-- Customer asks for an **Electro-Sun specific install date** ("when can your engineer come on Tuesday").
+Triggers (escalate ONLY for these):
+- Customer asks for an explicit NGN price of a specific product that is NOT in the catalog AND NOT covered by owner-taught facts.
+- Customer asks about **a specific in-the-moment stock confirmation** ("do you have one right now today before I drive over", "is the truck loaded yet").
+- Customer asks for an **Electro-Sun specific install date** ("can your engineer come on Tuesday the 12th").
 - A complaint about an existing Electro-Sun product or service.
 - A warranty claim or specific Electro-Sun warranty coverage question.
-- A custom design request with concrete loads ("I need a system to run 3 ACs and a deep freezer simultaneously, what do you recommend").
-- A hostile customer.
-- A B2B / wholesale / partnership / sponsorship / press request.
+- A B2B / wholesale / partnership / sponsorship / press / media request.
 - The customer explicitly asks to skip the agent and talk to a human.
 
-Do NOT escalate for:
-- General questions about how solar works, what brands exist, what panel types are common, what an inverter does. The agent can answer from general industry knowledge.
-- General sizing questions ("what size for a 3 bedroom house", "what kVA do I need for an AC and a fridge"). The agent can give typical ranges.
-- Brand comparisons ("is Deye better than Sungrow"). The agent answers with general perspective.
-- Price RANGES or market context ("roughly how much does a 5kVA system cost in Nigeria"). The agent can share a general range, with the disclaimer that the exact Electro-Sun price needs the team to confirm.
+Do NOT escalate for ANY of these (the agent answers from general industry knowledge plus catalog plus taught facts):
+- "Do you have X" or "do you carry X" availability questions for any product, accessory, or component (DC cables, AC cables, MC4 connectors, fuses, breakers, surge protectors, mounting, batteries, panels, inverters of any size). The agent says yes if it is a normal solar component and asks the customer to share specifics so the team can confirm exact stock.
+- Sizing questions for ANY wattage or kVA, even very large ones (40kW, 100kW, 200kW etc). The agent gives general guidance, asks for the load profile, and offers to refer to a project specialist if it is industrial scale.
+- Brand questions for any brand even if not in the catalog. The agent shares general industry context (Deye is the most common in Nigeria, Sungrow tier 1, Huawei premium, Jinko panels are tier 1 etc). The agent says we may be able to source it on request.
+- Price RANGES or market context ("roughly how much does a 5kVA system cost in Nigeria"). General range with the caveat that the team confirms the exact figure for the customer's situation.
+- General questions about how solar works, what brands exist, what panel types are common, what an inverter does, the difference between hybrid and off-grid.
+- General sizing questions ("what size for a 3 bedroom house", "what kVA do I need for an AC and a fridge").
+- Brand comparisons.
+- Custom design requests where the customer has not given exact load figures yet.
 - Greetings, ad responses, off-topic small talk.
 - Questions about Electro-Sun's segment ("do you serve hotels"). The agent can confirm segment from her own context.
 
