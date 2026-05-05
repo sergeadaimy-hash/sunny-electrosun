@@ -588,8 +588,7 @@ async function recoverOrphanedInbound(maxAgeMinutes = 10) {
 
   const orphans = db.prepare(`
     SELECT m.id AS msg_id, m.conversation_id, m.body, m.timestamp, m.whatsapp_message_id,
-           c.contact_id, c.human_handled, ct.phone, ct.name AS contact_name,
-           ct.profile_name AS profile_name
+           c.contact_id, c.human_handled, ct.phone, ct.name AS contact_name
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
     JOIN contacts ct ON ct.id = c.contact_id
@@ -623,7 +622,7 @@ async function recoverOrphanedInbound(maxAgeMinutes = 10) {
     try {
       const synth = {
         from: o.phone,
-        profileName: o.profile_name || o.contact_name || null,
+        profileName: o.contact_name || null,
         kind: 'text',
         body: o.body || '',
         id: o.whatsapp_message_id || `recovered:${o.msg_id}`,
