@@ -20,6 +20,7 @@ const { sendMessage, downloadMedia } = require('./whatsapp');
 const { DB_PATH } = require('../db/init');
 const { extractKnowledge, addKnowledgeEntry } = require('./knowledge');
 const { answerOwnerQuestion } = require('./owner_qa');
+const { transcribeAudio } = require('./transcribe');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
 
@@ -74,6 +75,55 @@ function pickUnsupportedReply() {
   return UNSUPPORTED_REPLY;
 }
 
+function extractCallEvents(payload) {
+  const out = [];
+  const entries = payload?.entry || [];
+  for (const entry of entries) {
+    for (const change of entry.changes || []) {
+      if (change.field !== 'calls') continue;
+      const value = change.value || {};
+      for (const call of value.calls || []) {
+        out.push({
+          id: call.id,
+          from: call.from,
+          status: call.status || null,
+          event_type: call.event || null,
+          timestamp: call.timestamp || null
+        });
+      }
+    }
+  }
+  return out;
+}
+
+const CALL_AUTOREPLY = "Hello, this number isn't monitored for voice calls. Please send a text message and the Electro-Sun team will respond.";
+const CALL_AUTOREPLY_MIN_INTERVAL_MS = 60 * 60 * 1000;
+const CALL_AUTOREPLY_RECENT = new Map();
+
+async function handleCallEvent(call) {
+  if (!call.from) return;
+  const lastSent = CALL_AUTOREPLY_RECENT.get(call.from) || 0;
+  const now = Date.now();
+  if (now - lastSent < CALL_AUTOREPLY_MIN_INTERVAL_MS) {
+    logger.info('handler.call.autoreply_throttled', { from: call.from });
+    return;
+  }
+  CALL_AUTOREPLY_RECENT.set(call.from, now);
+  try {
+    const contact = getOrCreateContact(call.from, null);
+    const conversation = getActiveConversation(contact.id);
+    const sendRes = await sendMessage(call.from, CALL_AUTOREPLY);
+    appendMessage(conversation.id, 'outbound', CALL_AUTOREPLY, {
+      whatsapp_message_id: sendRes.messageId,
+      intent: 'call_autoreply'
+    });
+    logEvent(contact.id, 'call_received', { call_id: call.id, status: call.status });
+    logger.info('handler.call.autoreply_sent', { from: call.from, call_id: call.id });
+  } catch (err) {
+    logger.error('handler.call.fail', { from: call.from, message: err.message });
+  }
+}
+
 function extractMessages(payload) {
   const out = [];
   const entries = payload?.entry || [];
@@ -105,6 +155,18 @@ function extractMessages(payload) {
               id: msg.image.id,
               mimeType: msg.image.mime_type || 'image/jpeg',
               sha256: msg.image.sha256 || null
+            }
+          });
+        } else if ((msg.type === 'audio' && msg.audio?.id) || (msg.type === 'voice' && msg.voice?.id)) {
+          const a = msg.audio || msg.voice;
+          out.push({
+            ...base,
+            kind: 'audio',
+            body: '',
+            media: {
+              id: a.id,
+              mimeType: a.mime_type || 'audio/ogg',
+              sha256: a.sha256 || null
             }
           });
         } else {
@@ -389,6 +451,15 @@ async function processCustomerBatch(entry) {
 }
 
 async function handleInbound(payload) {
+  try {
+    const calls = extractCallEvents(payload);
+    for (const call of calls) {
+      await handleCallEvent(call);
+    }
+  } catch (err) {
+    logger.warn('handler.call_event.error', { message: err.message });
+  }
+
   const messages = extractMessages(payload);
   if (!messages.length) return;
 
@@ -443,17 +514,46 @@ async function handleInbound(payload) {
         }
       }
 
+      let audioStorage = null;
+      let audioTranscript = null;
+      if (msg.kind === 'audio') {
+        try {
+          ensureMediaDir();
+          const dl = await downloadMedia(msg.media.id);
+          const ext = (dl.mimeType?.split('/')[1] || 'ogg').split(';')[0];
+          const savePath = path.join(MEDIA_DIR, `${msg.media.id}.${ext}`);
+          fs.writeFileSync(savePath, dl.buffer);
+          audioStorage = { path: savePath, mime: dl.mimeType };
+          logger.info('handler.audio.saved', { mediaId: msg.media.id, path: savePath, sizeBytes: dl.buffer.length });
+          const trx = await transcribeAudio(dl.buffer, dl.mimeType);
+          if (trx.ok && trx.text) {
+            audioTranscript = trx.text;
+            logger.info('handler.audio.transcribed', { mediaId: msg.media.id, chars: trx.text.length });
+            msg.body = trx.text;
+            msg.kind = 'text';
+          } else {
+            logger.warn('handler.audio.transcribe_fail', { mediaId: msg.media.id, error: trx.error });
+            msg.body = '[Customer sent a voice note that could not be transcribed]';
+            msg.kind = 'text';
+          }
+        } catch (err) {
+          logger.error('handler.audio.download_fail', { mediaId: msg.media.id, message: err.message });
+          msg.body = '[Customer sent a voice note]';
+          msg.kind = 'text';
+        }
+      }
+
       const contact = getOrCreateContact(msg.from, msg.profileName);
       const conversation = getActiveConversation(contact.id);
 
       const persistedBody = msg.kind === 'image'
         ? (msg.body ? `[image] ${msg.body}` : '[image]')
-        : msg.body;
+        : (audioTranscript ? `[voice note transcribed]: ${audioTranscript}` : msg.body);
 
       appendMessage(conversation.id, 'inbound', persistedBody, {
         whatsapp_message_id: msg.id,
-        media_path: imageStorage?.path || null,
-        media_mime: imageStorage?.mime || null
+        media_path: imageStorage?.path || audioStorage?.path || null,
+        media_mime: imageStorage?.mime || audioStorage?.mime || null
       });
 
       if (conversation.human_handled) {
