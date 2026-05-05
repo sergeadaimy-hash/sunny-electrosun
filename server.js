@@ -92,65 +92,57 @@ if (require.main === module) {
     logger.info('server.listen', { port: PORT, notifications_disabled: notificationsDisabled() });
   });
 
-  cron.schedule('0 */2 * * *', async () => {
-    if (notificationsDisabled()) {
-      logger.info('cron.period.skipped', { reason: 'DISABLE_NOTIFICATIONS=true' });
-      return;
-    }
-    try {
-      logger.info('cron.period.start');
-      const report = generateHourlyReport();
-      await sendOwnerReport(report);
-      logger.info('cron.period.done', { reportId: report.id });
-    } catch (err) {
-      logger.error('cron.period.error', { message: err.message });
-    }
-  });
-
-  cron.schedule('0 21 * * *', async () => {
-    if (notificationsDisabled()) {
-      logger.info('cron.daily.skipped', { reason: 'DISABLE_NOTIFICATIONS=true' });
-      return;
-    }
-    try {
-      logger.info('cron.daily.start');
-      const report = generateDailyReport();
-      await sendOwnerReport(report);
-      snapshotDb();
-      logger.info('cron.daily.done', { reportId: report.id });
-    } catch (err) {
-      logger.error('cron.daily.error', { message: err.message });
-    }
-  }, { timezone: 'Africa/Lagos' });
-
-  cron.schedule('30 21 * * *', async () => {
-    if (notificationsDisabled()) {
-      logger.info('cron.daily_learning.skipped', { reason: 'DISABLE_NOTIFICATIONS=true' });
-      return;
-    }
-    try {
-      logger.info('cron.daily_learning.start');
-      const report = generateDailyLearningReport();
-      await sendDailyLearningReport(report);
-      logger.info('cron.daily_learning.done', { reportId: report.id });
-    } catch (err) {
-      logger.error('cron.daily_learning.error', { message: err.message });
-    }
-  }, { timezone: 'Africa/Lagos' });
-
-  cron.schedule('*/30 * * * *', async () => {
-    if (notificationsDisabled()) {
-      return;
-    }
-    try {
-      const res = await runWindowScan();
-      if (res.warned || res.expired) {
-        logger.info('cron.window_scan.done', res);
+  if (notificationsDisabled()) {
+    logger.warn('cron.all_schedules_skipped_at_boot', {
+      reason: 'DISABLE_NOTIFICATIONS=true',
+      note: 'No cron handlers will be registered for this container lifetime.'
+    });
+  } else {
+    cron.schedule('0 */2 * * *', async () => {
+      try {
+        logger.info('cron.period.start');
+        const report = generateHourlyReport();
+        await sendOwnerReport(report);
+        logger.info('cron.period.done', { reportId: report.id });
+      } catch (err) {
+        logger.error('cron.period.error', { message: err.message });
       }
-    } catch (err) {
-      logger.error('cron.window_scan.error', { message: err.message });
-    }
-  });
+    });
+
+    cron.schedule('0 21 * * *', async () => {
+      try {
+        logger.info('cron.daily.start');
+        const report = generateDailyReport();
+        await sendOwnerReport(report);
+        snapshotDb();
+        logger.info('cron.daily.done', { reportId: report.id });
+      } catch (err) {
+        logger.error('cron.daily.error', { message: err.message });
+      }
+    }, { timezone: 'Africa/Lagos' });
+
+    cron.schedule('30 21 * * *', async () => {
+      try {
+        logger.info('cron.daily_learning.start');
+        const report = generateDailyLearningReport();
+        await sendDailyLearningReport(report);
+        logger.info('cron.daily_learning.done', { reportId: report.id });
+      } catch (err) {
+        logger.error('cron.daily_learning.error', { message: err.message });
+      }
+    }, { timezone: 'Africa/Lagos' });
+
+    cron.schedule('*/30 * * * *', async () => {
+      try {
+        const res = await runWindowScan();
+        if (res.warned || res.expired) {
+          logger.info('cron.window_scan.done', res);
+        }
+      } catch (err) {
+        logger.error('cron.window_scan.error', { message: err.message });
+      }
+    });
+  }
 
   for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => {
