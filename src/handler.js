@@ -481,4 +481,65 @@ function readBackContact(contactId) {
   return getDb().prepare('SELECT * FROM contacts WHERE id = ?').get(contactId) || {};
 }
 
-module.exports = { handleInbound, extractMessages };
+async function recoverOrphanedInbound(maxAgeMinutes = 10) {
+  const { getDb } = require('../db/init');
+  const db = getDb();
+  const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
+
+  const orphans = db.prepare(`
+    SELECT m.id AS msg_id, m.conversation_id, m.body, m.timestamp, m.whatsapp_message_id,
+           c.contact_id, c.human_handled, ct.phone, ct.name AS contact_name,
+           ct.profile_name AS profile_name
+    FROM messages m
+    JOIN conversations c ON c.id = m.conversation_id
+    JOIN contacts ct ON ct.id = c.contact_id
+    WHERE m.direction = 'inbound'
+      AND m.timestamp >= ?
+      AND NOT EXISTS (
+        SELECT 1 FROM messages m2
+        WHERE m2.conversation_id = m.conversation_id
+          AND m2.direction = 'outbound'
+          AND m2.timestamp > m.timestamp
+      )
+      AND c.human_handled = 0
+    ORDER BY m.timestamp ASC
+  `).all(cutoff);
+
+  if (!orphans.length) {
+    logger.info('handler.recovery.no_orphans');
+    return { recovered: 0 };
+  }
+
+  const ownerPhone = process.env.OWNER_WHATSAPP;
+  const filtered = orphans.filter(o => !ownerPhone || o.phone !== ownerPhone);
+  logger.info('handler.recovery.orphans_found', {
+    total: orphans.length,
+    filtered: filtered.length,
+    cutoff_minutes: maxAgeMinutes
+  });
+
+  let recovered = 0;
+  for (const o of filtered) {
+    try {
+      const synth = {
+        from: o.phone,
+        profileName: o.profile_name || o.contact_name || null,
+        kind: 'text',
+        body: o.body || '',
+        id: o.whatsapp_message_id || `recovered:${o.msg_id}`,
+        replyToId: null,
+        media: null
+      };
+      const contact = getOrCreateContact(synth.from, synth.profileName);
+      const conversation = getActiveConversation(contact.id);
+      enqueueCustomerMessage(contact, conversation, synth, null, null, synth.body);
+      recovered++;
+    } catch (err) {
+      logger.error('handler.recovery.fail', { msgId: o.msg_id, message: err.message });
+    }
+  }
+  logger.info('handler.recovery.done', { recovered });
+  return { recovered };
+}
+
+module.exports = { handleInbound, extractMessages, recoverOrphanedInbound };

@@ -9,6 +9,7 @@ const logger = require('./src/utils/logger');
 const { initDb, DB_PATH } = require('./db/init');
 const webhookRouter = require('./src/webhook');
 const dashboardRouter = require('./api/dashboard');
+const { recoverOrphanedInbound } = require('./src/handler');
 const {
   generateHourlyReport,
   generateDailyReport,
@@ -90,6 +91,11 @@ if (require.main === module) {
   startupSanityChecks();
   const server = app.listen(PORT, () => {
     logger.info('server.listen', { port: PORT, notifications_disabled: notificationsDisabled() });
+    setTimeout(() => {
+      recoverOrphanedInbound(10).catch(err => {
+        logger.error('server.recovery_fail', { message: err.message });
+      });
+    }, 3000);
   });
 
   if (notificationsDisabled()) {
