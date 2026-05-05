@@ -10,6 +10,31 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
+## 2026-05-05 afternoon-evening Beirut — short replies, debounce, pricing discipline, parallel inverter rule, local zombie killed
+
+**Short-reply enforcement (commit `c253fc2`).** Live failure: Sunny was producing 3-paragraph "brochure" replies. Fixed:
+- `src/prompts/system.md`: new "REPLY LENGTH" section. Max 2 short sentences per reply by default. No bullet lists, no proactive education, no multi-paragraph essays. Added bad/good examples. Replaced "offer 2-3 options" rule with "give ONE concrete answer, ask ONE clarifying question". Rewrote ALL worked-example dialogues so every reply is ~10-15 words.
+- `src/claude.js`: `max_tokens` cut from 600 to 180 so Opus physically can't write paragraphs.
+
+**Multi-message debounce (commit `c253fc2`).** When customers send 3-4 messages back-to-back (Patrick's "12kVA?, 8kVA?, lithium battery, all deye products" pattern), Sunny was processing each independently and replying 3 times with similar text. Fixed:
+- `src/handler.js`: per-contact in-memory debounce queue with `MESSAGE_DEBOUNCE_MS` env (default 6000ms). Persists each message to DB immediately (admin UI sees them in real-time), but classification + reply only fire ONCE per debounce window.
+- Combined classifier input format: `[Customer sent N messages back to back]\nmsg1\nmsg2\nmsg3` so Opus reads them as one logical turn.
+
+**Pricing discipline (commits `f2eac1d`, `7a110e5`).** Sunny was volunteering price lists on questions like "i want inverters" or "do you have batteries". Two-layer fix:
+- `src/prompts/system.md` ABSOLUTE rule: do NOT mention any price unless customer explicitly asks ("how much", "price", "cost", "naira", "NGN", "quotation", "quote", "rate"). Quote ONLY the specific item asked about, never adjacent products. NEVER produce a price list. Catalog is for reference only; don't recite. 6 worked examples covering "I want inverters" → no price.
+- `src/claude.js` code-level guard: scans Opus reply, if customer didn't ask for price AND reply has 2+ price patterns, OVERWRITES the reply with "What size or load are you sizing for? Single or three phase?" Logs `claude.reply.price_dump_blocked`.
+- Memory: `feedback_sunny_pricing_discipline.md`.
+
+**Inverter parallel engineering rule (commit `94c3e42`).** Live failure: Sunny suggested "4 x Deye 80kW + 1 x Deye 30kW" for a 350kW system, which is INVALID — inverters can only be paralleled if same size, max 10 units. Fixed:
+- `src/prompts/system.md`: new "Engineering rules you must NEVER violate" section right above the locations block. Same-size only, max 10 units, with valid examples (7 x 50kW = 350kW, 5 x 80kW = 400kW) and the explicit invalid example so Opus pattern-matches against it.
+- Same fact saved to `knowledge_entries` (id 824) via API, category=product, so brother can edit from admin.
+
+**Daily LLM budget raised to $20** (was $5). Set via `railway variables --set DAILY_LLM_BUDGET_USD=20`. At Opus rates this covers ~400-800 messages/day.
+
+**Cron registration NUKED at boot when DISABLE_NOTIFICATIONS=true (commit `ffe7208`).** Previous version registered the cron schedules and skipped at fire time. Stronger: when env var is true at startup, do NOT register any cron schedules at all. Container has zero scheduled work for notifications. Logs `cron.all_schedules_skipped_at_boot` once at startup. Re-enable: `railway variables --set "DISABLE_NOTIFICATIONS=false"` triggers a redeploy that re-registers the schedules.
+
+**LOCAL SUNNY ZOMBIE KILLED (the real culprit).** Serge kept getting "ELECTRO-SUN AGENT REPORT" messages every 2 hours despite the cloud kill switch being verified working. Cause: a `npm start` process had been running on his Mac since Sunday 10 PM (PIDs 59578 + 59596), reading the LOCAL `.env` from when it booted. Local Sunny had a stale cached `OWNER_WHATSAPP=966502392650` (Saudi number) AND its own cron firing every 2h. It used the same Meta API credentials so messages actually delivered. **Always check `ps aux | grep node` for local zombies when reports appear that the cloud DB has no record of.** Killed both PIDs. Local `.env` updated to set `DISABLE_NOTIFICATIONS=true` to prevent recurrence on future accidental `npm start`.
+
 ## 2026-05-05 12:15am Beirut — DISABLE_NOTIFICATIONS kill switch
 
 Owner reports + reminders silenced while Serge tests as a customer. Set `DISABLE_NOTIFICATIONS=true` on Railway via CLI. Cron handlers in `server.js` skip cleanly with one log line each:
