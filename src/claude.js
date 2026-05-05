@@ -352,7 +352,7 @@ async function generateReply(history, message, contact, attachments = []) {
   try {
     const resp = await withRetry(() => client().messages.create({
       model: MODEL_REPLY,
-      max_tokens: 180,
+      max_tokens: 220,
       system: systemBlocks,
       messages
     }), 'generateReply');
@@ -360,7 +360,38 @@ async function generateReply(history, message, contact, attachments = []) {
     if (resp.usage) recordUsage(MODEL_REPLY, resp.usage, 'reply');
     let text = resp.content?.find(b => b.type === 'text')?.text?.trim() || '';
 
-    const customerAskedPrice = /\b(how\s+much|price|cost|naira|ngn|quotation|quote|rate)\b/i.test(String(message || ''));
+    if (text && /=\s*\*{3,}|\*{4,}\b/.test(text)) {
+      logger.warn('claude.reply.censored_with_asterisks_detected', {
+        contactId: contact?.id,
+        original_reply: text.slice(0, 200)
+      });
+      try {
+        const retryMessages = [...messages];
+        const lastIdx = retryMessages.length - 1;
+        const lastUser = retryMessages[lastIdx];
+        const lastUserText = typeof lastUser.content === 'string' ? lastUser.content : message;
+        retryMessages[lastIdx] = {
+          role: 'user',
+          content: `${lastUserText}\n\n[System note: previous attempt censored numbers with asterisks. Give the ACTUAL figures from the catalog. The customer is explicitly asking for totals; this IS a price ask. Compute and write the real numbers.]`
+        };
+        const retry = await client().messages.create({
+          model: MODEL_REPLY,
+          max_tokens: 220,
+          system: systemBlocks,
+          messages: retryMessages
+        });
+        if (retry.usage) recordUsage(MODEL_REPLY, retry.usage, 'reply_retry');
+        const retryText = retry.content?.find(b => b.type === 'text')?.text?.trim() || '';
+        if (retryText && !/=\s*\*{3,}|\*{4,}\b/.test(retryText)) {
+          text = retryText;
+          logger.info('claude.reply.retry_succeeded', { contactId: contact?.id, chars: text.length });
+        }
+      } catch (err) {
+        logger.warn('claude.reply.retry_fail', { message: err.message });
+      }
+    }
+
+    const customerAskedPrice = /\b(how\s+much|price|cost|naira|ngn|quotation|quote|rate|total|totals|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoice|proforma|how\s+many\s+naira)\b/i.test(String(message || ''));
     if (text && !customerAskedPrice) {
       const priceRegex = /\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*(?:M|m|k|K)?\s*NGN\b[)]?|\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*[Mm]\b[)]?|\s*\(\s*\d+(?:[.,]\d+)?\s*[kK]\s*\)|\s*\(\s*\d+(?:[.,]\d+)?\s*[Mm]\s*\)/g;
       const priceMatches = text.match(priceRegex) || [];
