@@ -362,7 +362,7 @@ async function generateReply(history, message, contact, attachments = []) {
 
     const customerAskedPrice = /\b(how\s+much|price|cost|naira|ngn|quotation|quote|rate)\b/i.test(String(message || ''));
     if (text && !customerAskedPrice) {
-      const priceRegex = /\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*(?:M|m|k|K)?\s*NGN\b[)]?|\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*[Mm]\b[)]?/g;
+      const priceRegex = /\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*(?:M|m|k|K)?\s*NGN\b[)]?|\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*[Mm]\b[)]?|\s*\(\s*\d+(?:[.,]\d+)?\s*[kK]\s*\)|\s*\(\s*\d+(?:[.,]\d+)?\s*[Mm]\s*\)/g;
       const priceMatches = text.match(priceRegex) || [];
       if (priceMatches.length >= 1) {
         const stripped = text.replace(priceRegex, '').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
