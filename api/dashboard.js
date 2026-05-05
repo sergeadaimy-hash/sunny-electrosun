@@ -14,6 +14,7 @@ const {
   logEvent
 } = require('../src/memory');
 const { sendMessage } = require('../src/whatsapp');
+const { recoverOrphanedInbound } = require('../src/handler');
 const { getTodayStats, getBudgetCents } = require('../src/cost_tracker');
 const {
   listKnowledge,
@@ -396,6 +397,17 @@ router.get('/version', (req, res) => {
     node_uptime_seconds: Math.floor(process.uptime()),
     server_time: new Date().toISOString()
   });
+});
+
+router.post('/recover-orphans', async (req, res) => {
+  const minutes = parseInt(req.query.minutes || req.body?.minutes || '60', 10);
+  try {
+    const result = await recoverOrphanedInbound(minutes);
+    res.json({ ok: true, minutes, ...result });
+  } catch (err) {
+    logger.error('api.recover_orphans.fail', { message: err.message });
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 module.exports = router;
