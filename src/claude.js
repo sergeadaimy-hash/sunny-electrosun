@@ -279,15 +279,41 @@ async function generateReply(history, message, contact, attachments = []) {
 
     const customerAskedPrice = /\b(how\s+much|price|cost|naira|ngn|quotation|quote|rate)\b/i.test(String(message || ''));
     if (text && !customerAskedPrice) {
-      const priceMatches = text.match(/\b\d+(?:[.,]\d+)?\s*(?:M|m|k|K)?\s*NGN\b|\b\d+(?:[.,]\d+)?\s*M\b/g) || [];
-      if (priceMatches.length >= 2) {
-        logger.warn('claude.reply.price_dump_blocked', {
+      const priceRegex = /\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*(?:M|m|k|K)?\s*NGN\b[)]?|\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*[Mm]\b[)]?/g;
+      const priceMatches = text.match(priceRegex) || [];
+      if (priceMatches.length >= 1) {
+        const stripped = text.replace(priceRegex, '').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
+        logger.warn('claude.reply.prices_stripped', {
           contactId: contact?.id,
           customer_msg: String(message || '').slice(0, 100),
           original_reply: text.slice(0, 200),
+          stripped_reply: stripped.slice(0, 200),
           price_matches: priceMatches.length
         });
-        text = "What size or load are you sizing for? Single or three phase?";
+        text = stripped || "Could you share more about your project so I can guide you better?";
+      }
+    }
+
+    if (contact?.id && text) {
+      try {
+        const { getDb } = require('../db/init');
+        const db = getDb();
+        const lastOutbound = db.prepare(
+          `SELECT body FROM messages WHERE contact_id IS NULL OR conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
+           ORDER BY id DESC LIMIT 1`
+        ).get(contact.id);
+        if (lastOutbound && typeof lastOutbound.body === 'string') {
+          const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+          if (norm(lastOutbound.body) === norm(text)) {
+            logger.warn('claude.reply.duplicate_blocked', {
+              contactId: contact.id,
+              repeated_text: text.slice(0, 200)
+            });
+            text = "Apologies, let me re-read your last message. Could you clarify what specifically you need?";
+          }
+        }
+      } catch (err) {
+        logger.warn('claude.reply.dup_check_fail', { message: err.message });
       }
     }
 
