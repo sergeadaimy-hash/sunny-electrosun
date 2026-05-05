@@ -247,6 +247,147 @@ async function handleUnsupported(msg) {
   });
 }
 
+const MESSAGE_DEBOUNCE_MS = parseInt(process.env.MESSAGE_DEBOUNCE_MS || '6000', 10);
+const PENDING_INBOUND = new Map();
+
+function enqueueCustomerMessage(contact, conversation, msg, imageAttachment, imageStorage, persistedBody) {
+  const key = contact.id;
+  let entry = PENDING_INBOUND.get(key);
+  if (!entry) {
+    entry = { msgs: [], attachments: [], persistedBodies: [], contact, conversation, timer: null };
+    PENDING_INBOUND.set(key, entry);
+  }
+  entry.contact = contact;
+  entry.conversation = conversation;
+  entry.msgs.push(msg);
+  entry.persistedBodies.push(persistedBody);
+  if (imageAttachment) entry.attachments.push(imageAttachment);
+  if (imageStorage) entry.imageStorage = imageStorage;
+
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    PENDING_INBOUND.delete(key);
+    processCustomerBatch(entry).catch(err => {
+      logger.error('handler.batch.process_fail', {
+        contactId: key,
+        message: err.message,
+        stack: err.stack
+      });
+    });
+  }, MESSAGE_DEBOUNCE_MS);
+
+  logger.info('handler.batch.enqueued', {
+    contactId: key,
+    queue_size: entry.msgs.length,
+    debounce_ms: MESSAGE_DEBOUNCE_MS
+  });
+}
+
+async function processCustomerBatch(entry) {
+  const { msgs, contact, conversation, attachments, persistedBodies } = entry;
+  if (!msgs.length) return;
+
+  const lastMsg = msgs[msgs.length - 1];
+  const refreshedContact = { ...contact, ...readBackContact(contact.id) };
+  const priorHistory = getRecentHistory(contact.id, 50);
+
+  const combinedTextParts = msgs.map((m, i) => {
+    if (m.kind === 'image') {
+      return m.body
+        ? `[Customer sent an image with caption]: ${m.body}`
+        : `[Customer sent an image with no caption]`;
+    }
+    return m.body;
+  });
+  const combinedText = combinedTextParts.join('\n');
+
+  logger.info('handler.batch.processing', {
+    contactId: contact.id,
+    batch_size: msgs.length,
+    combined_preview: combinedText.slice(0, 200)
+  });
+
+  const classifierMessage = msgs.length > 1
+    ? `[Customer sent ${msgs.length} messages back to back]\n${combinedText}`
+    : combinedText;
+
+  const classification = await runClassification(refreshedContact, priorHistory, classifierMessage);
+
+  if (handlerIsGreeting(combinedText)) {
+    classification.needs_escalation = false;
+    classification.escalation_type = null;
+    if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
+  }
+
+  if (escalationsDisabled() && classification.needs_escalation) {
+    logger.warn('handler.escalations_disabled_kill_switch_engaged', {
+      contactId: contact.id,
+      original_escalation_type: classification.escalation_type
+    });
+    classification.needs_escalation = false;
+    classification.escalation_type = null;
+  }
+
+  if (classification.needs_escalation) {
+    const escalationType = classification.escalation_type || 'silent_query';
+    logEvent(contact.id, 'escalated', {
+      intent: classification.intent,
+      escalation_type: escalationType,
+      confidence: classification.confidence,
+      batch_size: msgs.length
+    });
+
+    let pendingQueryId = null;
+    if (escalationType === 'silent_query') {
+      pendingQueryId = createPendingQuery({
+        contactId: contact.id,
+        customerMessageId: lastMsg.id,
+        customerMessageText: combinedText,
+        classifierIntent: classification.intent
+      });
+    }
+
+    const alertSendRes = await notifyOwnerEscalation(refreshedContact, combinedText, classification, pendingQueryId);
+    if (pendingQueryId && alertSendRes?.messageId) {
+      setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
+    }
+
+    const holding = pickHoldingReply(escalationType, combinedText);
+    const sendRes = await sendMessage(lastMsg.from, holding);
+    appendMessage(conversation.id, 'outbound', holding, {
+      whatsapp_message_id: sendRes.messageId,
+      intent: escalationType === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
+      language: classification.language
+    });
+    return;
+  }
+
+  const replyMessage = combinedText || '(customer sent attachments only, see images)';
+  const reply = await generateReply(priorHistory, replyMessage, refreshedContact, attachments);
+  if (!reply.ok || !reply.text) {
+    const fallback = pickHoldingReply('silent_query', combinedText);
+    const sendRes = await sendMessage(lastMsg.from, fallback);
+    appendMessage(conversation.id, 'outbound', fallback, {
+      whatsapp_message_id: sendRes.messageId,
+      language: classification.language
+    });
+    logger.warn('handler.reply_fallback_used', { contactId: contact.id, batch_size: msgs.length });
+    return;
+  }
+
+  const sendRes = await sendMessage(lastMsg.from, reply.text);
+  appendMessage(conversation.id, 'outbound', reply.text, {
+    whatsapp_message_id: sendRes.messageId,
+    intent: classification.intent,
+    language: classification.language
+  });
+  logger.info('handler.batch.replied', {
+    contactId: contact.id,
+    batch_size: msgs.length,
+    reply_chars: reply.text.length
+  });
+}
+
 async function handleInbound(payload) {
   const messages = extractMessages(payload);
   if (!messages.length) return;
@@ -304,7 +445,6 @@ async function handleInbound(payload) {
 
       const contact = getOrCreateContact(msg.from, msg.profileName);
       const conversation = getActiveConversation(contact.id);
-      const priorHistory = getRecentHistory(contact.id, 50);
 
       const persistedBody = msg.kind === 'image'
         ? (msg.body ? `[image] ${msg.body}` : '[image]')
@@ -324,95 +464,7 @@ async function handleInbound(payload) {
         continue;
       }
 
-      const classifierMessage = msg.kind === 'image'
-        ? (msg.body
-            ? `[Customer sent an image with caption]: ${msg.body}`
-            : `[Customer sent an image with no caption]`)
-        : msg.body;
-
-      const classification = await runClassification(contact, priorHistory, classifierMessage);
-
-      const refreshedContact = { ...contact, ...readBackContact(contact.id) };
-
-      if (handlerIsGreeting(msg.body)) {
-        logger.info('handler.greeting_force_no_escalation', {
-          contactId: contact.id,
-          msg_body: msg.body
-        });
-        classification.needs_escalation = false;
-        classification.escalation_type = null;
-        if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
-      }
-
-      if (escalationsDisabled() && classification.needs_escalation) {
-        logger.warn('handler.escalations_disabled_kill_switch_engaged', {
-          contactId: contact.id,
-          original_escalation_type: classification.escalation_type
-        });
-        classification.needs_escalation = false;
-        classification.escalation_type = null;
-      }
-
-      if (classification.needs_escalation) {
-        const escalationType = classification.escalation_type || 'silent_query';
-        logEvent(contact.id, 'escalated', {
-          intent: classification.intent,
-          escalation_type: escalationType,
-          confidence: classification.confidence
-        });
-
-        let pendingQueryId = null;
-        if (escalationType === 'silent_query') {
-          pendingQueryId = createPendingQuery({
-            contactId: contact.id,
-            customerMessageId: msg.id,
-            customerMessageText: persistedBody,
-            classifierIntent: classification.intent
-          });
-        }
-
-        const alertSendRes = await notifyOwnerEscalation(refreshedContact, persistedBody, classification, pendingQueryId);
-        if (pendingQueryId && alertSendRes?.messageId) {
-          setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
-          logger.info('handler.silent_query.created', {
-            queryId: pendingQueryId,
-            alertMessageId: alertSendRes.messageId,
-            customerPhone: contact.phone
-          });
-        }
-
-        const holding = pickHoldingReply(escalationType, msg.body);
-        const sendRes = await sendMessage(msg.from, holding);
-        appendMessage(conversation.id, 'outbound', holding, {
-          whatsapp_message_id: sendRes.messageId,
-          intent: escalationType === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
-          language: classification.language
-        });
-        continue;
-      }
-
-      const replyMessage = msg.kind === 'image' && !msg.body
-        ? '(customer sent an image without a caption, see image attached)'
-        : msg.body;
-      const replyAttachments = imageAttachment ? [imageAttachment] : [];
-      const reply = await generateReply(priorHistory, replyMessage, refreshedContact, replyAttachments);
-      if (!reply.ok || !reply.text) {
-        const fallback = pickHoldingReply('silent_query', msg.body);
-        const sendRes = await sendMessage(msg.from, fallback);
-        appendMessage(conversation.id, 'outbound', fallback, {
-          whatsapp_message_id: sendRes.messageId,
-          language: classification.language
-        });
-        logger.warn('handler.reply_fallback_used', { contactId: contact.id });
-        continue;
-      }
-
-      const sendRes = await sendMessage(msg.from, reply.text);
-      appendMessage(conversation.id, 'outbound', reply.text, {
-        whatsapp_message_id: sendRes.messageId,
-        intent: classification.intent,
-        language: classification.language
-      });
+      enqueueCustomerMessage(contact, conversation, msg, imageAttachment, imageStorage, persistedBody);
     } catch (err) {
       logger.error('handler.process_message_error', {
         from: msg.from,

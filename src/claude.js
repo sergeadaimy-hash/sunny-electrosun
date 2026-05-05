@@ -269,7 +269,7 @@ async function generateReply(history, message, contact, attachments = []) {
   try {
     const resp = await withRetry(() => client().messages.create({
       model: MODEL_REPLY,
-      max_tokens: 600,
+      max_tokens: 180,
       system: systemBlocks,
       messages
     }), 'generateReply');
