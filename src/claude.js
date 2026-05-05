@@ -193,6 +193,78 @@ function isGreetingMsg(text) {
   return t.length > 0 && t.length <= 30 && REPLY_GREETING_RE.test(t);
 }
 
+function buildConversationState(history, currentMessage) {
+  if (!Array.isArray(history) || history.length === 0) return null;
+
+  const customerTurns = history.filter(m => m.role === 'user').map(m => String(m.content || ''));
+  const sunnyTurns = history.filter(m => m.role === 'assistant').map(m => String(m.content || ''));
+
+  const allCustomer = (customerTurns.join(' ') + ' ' + (currentMessage || '')).toLowerCase();
+  const allSunny = sunnyTurns.join(' ').toLowerCase();
+
+  const facts = [];
+
+  const sizeMatches = allCustomer.match(/\b(\d{1,4})\s*(?:kw|kva|kilowatt)\b/gi) || [];
+  if (sizeMatches.length) facts.push(`System size mentioned: ${[...new Set(sizeMatches.map(m => m.replace(/\s+/g, '')))].join(', ')}`);
+
+  const kwhMatches = allCustomer.match(/\b(\d{1,4})\s*(?:kwh|kw\.h|kilowatt[-\s]?hour)\b/gi) || [];
+  if (kwhMatches.length) facts.push(`Battery / energy mentioned: ${[...new Set(kwhMatches.map(m => m.replace(/\s+/g, '')))].join(', ')}`);
+
+  const phaseMatch = /\b(single[\s-]?phase|three[\s-]?phase|3[\s-]?phase|1[\s-]?phase|3\s*phases?|3phases?)\b/i.exec(allCustomer);
+  if (phaseMatch) facts.push(`Phase: ${phaseMatch[0].includes('1') || phaseMatch[0].toLowerCase().includes('single') ? 'single phase' : 'three phase'}`);
+
+  const brandMatches = allCustomer.match(/\b(deye|sungrow|jinko|ja\s*solar|longi|huawei|pylontech|byd|tesla|fronius)\b/gi) || [];
+  if (brandMatches.length) facts.push(`Brand mentioned: ${[...new Set(brandMatches.map(b => b.toLowerCase()))].join(', ')}`);
+
+  const projectKeywords = /\b(hotel|factory|residential|home|house|business|office|shop|school|hospital|government|estate|building|warehouse|plant)\b/i;
+  const projectMatch = projectKeywords.exec(allCustomer);
+  if (projectMatch) facts.push(`Project type: ${projectMatch[0].toLowerCase()}`);
+
+  const locKeywords = /\b(lagos|abuja|kano|ibadan|port harcourt|onitsha|enugu|kaduna|jos|benin city)\b/i;
+  const locMatch = locKeywords.exec(allCustomer);
+  if (locMatch) facts.push(`Location: ${locMatch[0]}`);
+
+  const installerSignal = /\b(installer|reseller|dealer|wholesale|my client|my customer|the project|installation team)\b/i.test(allCustomer);
+  const enduserSignal = /\b(my home|my house|for me|my own|my family|i live)\b/i.test(allCustomer);
+  if (installerSignal) facts.push('Customer signal: installer');
+  else if (enduserSignal) facts.push('Customer signal: end-user');
+
+  const askedAlready = [];
+  if (/are you (an? )?installer|installer or end[\s-]?user/i.test(allSunny)) askedAlready.push('installer-or-end-user');
+  if (/single or three phase|how many phases/i.test(allSunny)) askedAlready.push('single-or-three-phase');
+  if (/where (in nigeria|will|are you)|location|lagos or abuja/i.test(allSunny)) askedAlready.push('location');
+  if (/how many (panels|batter|inverter|kw|kwh)|what.* daily kwh|appliances/i.test(allSunny)) askedAlready.push('load-or-quantity');
+  if (/budget|how much (do|are) you/i.test(allSunny)) askedAlready.push('budget');
+  if (/timeline|when (do you need|do you want|are you planning)/i.test(allSunny)) askedAlready.push('timeline');
+
+  const customerOpenAsks = [];
+  const lastCustomer = currentMessage || customerTurns[customerTurns.length - 1] || '';
+  const sentences = String(lastCustomer).split(/[.!?\n]+/).filter(s => s.trim().length > 0);
+  for (const s of sentences) {
+    if (/\?$/.test(s.trim()) || /^\s*(can|could|do|does|is|are|will|would|should|how|what|when|where|why|which|who)\b/i.test(s.trim())) {
+      customerOpenAsks.push(s.trim().slice(0, 120));
+    }
+  }
+
+  const lines = [];
+  if (facts.length) {
+    lines.push('Facts the customer has shared:');
+    for (const f of facts) lines.push(`  - ${f}`);
+  }
+  if (askedAlready.length) {
+    lines.push('You have ALREADY asked the customer:');
+    for (const a of askedAlready) lines.push(`  - ${a} (do NOT re-ask)`);
+  }
+  if (customerOpenAsks.length) {
+    lines.push('Customer asks/questions to address in your reply:');
+    for (const q of customerOpenAsks) lines.push(`  - "${q}"`);
+  }
+
+  if (!lines.length) return null;
+  return '# Conversation state (computed from history; treat as authoritative)\n' + lines.join('\n') +
+    '\n\nUSE THIS STATE: do not re-ask facts the customer already shared. Do not re-ask questions you have already asked. Address every customer ask listed above in your reply (combine into one short reply).';
+}
+
 async function generateReply(history, message, contact, attachments = []) {
   if (isOverBudget()) {
     logger.warn('claude.reply.budget_exceeded');
@@ -239,6 +311,17 @@ async function generateReply(history, message, contact, attachments = []) {
     systemBlocks.push({ type: 'text', text: knowledgeBlock, cache_control: { type: 'ephemeral' } });
   }
   if (contextBlock) systemBlocks.push({ type: 'text', text: contextBlock });
+
+  if (!isCasualGreeting) {
+    const stateBlock = buildConversationState(history, message);
+    if (stateBlock) {
+      systemBlocks.push({ type: 'text', text: stateBlock });
+      logger.info('claude.reply.state_injected', {
+        contactId: contact?.id,
+        state_chars: stateBlock.length
+      });
+    }
+  }
 
   const effectiveHistory = isCasualGreeting ? [] : history;
   if (isCasualGreeting) {
