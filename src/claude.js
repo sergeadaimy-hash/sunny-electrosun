@@ -400,6 +400,26 @@ async function generateReply(history, message, contact, attachments = []) {
       }
     }
 
+    if (text) {
+      const customerMsg = String(message || '').trim();
+      const customerIsShortFactual = customerMsg.length > 0 && customerMsg.length <= 40 && !customerMsg.includes('?');
+      const replyEndsWithQuestion = /\?\s*$/.test(text);
+      if (customerIsShortFactual && replyEndsWithQuestion) {
+        const sentences = text.split(/(?<=[.!])\s+/);
+        const nonQuestionSentences = sentences.filter(s => !/\?\s*$/.test(s));
+        if (nonQuestionSentences.length > 0) {
+          const stripped = nonQuestionSentences.join(' ').trim();
+          logger.warn('claude.reply.trailing_question_stripped', {
+            contactId: contact?.id,
+            customer_msg: customerMsg.slice(0, 80),
+            original_reply: text.slice(0, 200),
+            stripped_reply: stripped.slice(0, 200)
+          });
+          text = stripped;
+        }
+      }
+    }
+
     return { ok: true, text, usage: resp.usage };
   } catch (err) {
     logger.error('claude.reply.error', { message: err.message });
