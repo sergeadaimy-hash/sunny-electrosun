@@ -10,6 +10,54 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Pha
 
 **Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
 
+## 2026-05-05 evening Beirut — conversation-state engine, voice + calls, orphan recovery, hard-ban on trailing questions
+
+**Conversation-state engine (commit `4a35339`).** The architectural shift from patching individual bugs to giving Opus a structured world model. New `buildConversationState(history, currentMessage)` in `src/claude.js` extracts:
+- Facts the customer shared: system size (kW/kVA), battery kWh, phase (single/three), brand mentions (Deye/Sungrow/JA/Longi/...), project type (hotel/factory/residential/...), location (Lagos/Abuja/...), installer-vs-end-user signal.
+- Questions Sunny has ALREADY asked (do NOT re-ask): installer-or-end-user, single-or-three-phase, location, load/quantity, budget, timeline.
+- Customer asks/questions in the current message: extracted by question-mark + question-word heuristics.
+
+Injected as a system block before each Opus call. `src/prompts/system.md` has new sections: "How to use the Conversation state block", "Handling messages with multiple ideas" (multi-part asks), "Anti-repeat rule".
+
+**Cascade fix (commit `7bc982e`).** Live failure: customer asked "Can I parallel different sizes of inverters?" → Sunny generated reply with sample-config prices → previous code-level guard OVERWROTE the entire reply with generic "What size or load are you sizing for?" → customer said "350kw 3phases" THREE times and got the same canned reply each time → escalated to silent_query.
+- Replaced REPLACE-with-fallback with STRIP-prices-keep-rest.
+- New no-repeat guard: if new reply is identical to last outbound, overwrite with "Apologies, let me re-read your last message."
+- New "Answer YES/NO questions with YES or NO first" rule.
+
+**Pricing discipline harden (commits `f2eac1d`, `7a110e5`).** Sunny was volunteering price lists on "I want inverters" or "do you have batteries". Two-layer fix: prompt rule with explicit allowlist of trigger phrases, plus code-level guard that strips price patterns when customer didn't ask. Memory: `feedback_sunny_pricing_discipline.md`.
+
+**Inverter parallel engineering rule (commit `94c3e42`).** Live failure: Sunny suggested "4 x 80kW + 1 x 30kW" for 350kW which is INVALID. Same-size only, max 10 units. Saved both in system prompt AND knowledge_entries (id 824).
+
+**Catalog fidelity rule (commit `21ec42c`).** Sunny said "BOS-A 16kWh" but BOS-A is 7.68kWh (BOS-B Pro is 16kWh). Also hallucinated "10.6kWh" not in catalog. Top-priority rule now forbids inventing capacities or swapping between models. Lists exact catalog strings Opus must use verbatim.
+
+**Daily LLM budget raised to $20** (was $5). Set via `railway variables --set DAILY_LLM_BUDGET_USD=20`. At Opus rates this covers ~400-800 messages/day.
+
+**Cron registration NUKED at boot when DISABLE_NOTIFICATIONS=true (commit `ffe7208`).** Stronger than per-firing skip: cron schedules don't even register when env var is true. Logs `cron.all_schedules_skipped_at_boot` once at startup.
+
+**Pickup-vs-delivery + Best-price rules (commit `c27e0f7`).** Two new operational rules saved in system.md AND knowledge_entries (ids 825, 826):
+- When asked where to get the product: ask if pickup from Abuja warehouse (Plot 816, Idu Industrial Area), Lagos warehouse (Rutam House), or delivery (delivery fees excluded, charged separately).
+- When asked "is this the best price": reply "Yes, this is our best price. Are you ready to pay now?" If yes → HOT lead escalation. If no → acknowledge and stop pushing.
+
+**Orphan recovery on startup (commit `c27e0f7`).** Real bug: in-memory debounce queue is wiped on container restart. Patrick's "What about batteries" message arrived 11 seconds before a redeploy and never got a reply. Fix: `recoverOrphanedInbound(maxAgeMinutes)` scans for inbound messages without a subsequent outbound reply (and not human_handled, not from owner) and re-queues them through the normal pipeline. Server.js calls it 3s after `app.listen`. Default 10 minutes.
+
+**Voice note transcription (commit `834e2b0`).** WhatsApp voice notes (audio messages) now flow through the full pipeline:
+- handler.js detects `msg.type === 'audio'` (or `voice`) and downloads from Meta media API.
+- New `src/transcribe.js` calls OpenAI Whisper API (`whisper-1` by default, `WHISPER_MODEL` env override).
+- Pipeline: download → save to MEDIA_DIR → Whisper transcription → rewrite `msg.body` to transcript and `msg.kind='text'` so the rest of the handler processes normally.
+- Persisted in messages table with `[voice note transcribed]: <text>` prefix for admin visibility.
+- Falls back gracefully if `OPENAI_API_KEY` is missing or Whisper fails ("[Customer sent a voice note that could not be transcribed]").
+- Cost: ~$0.006/minute (~$0.005-0.01 per typical voice note).
+- New dependency: `form-data` for multipart upload.
+- **Pending: set `OPENAI_API_KEY` on Railway when Serge has one.**
+
+**WhatsApp call auto-reply (commit `834e2b0`).** When Meta delivers a `calls` webhook event (someone tries to voice-call the business number), Sunny auto-sends: "Hello, this number isn't monitored for voice calls. Please send a text message and the Electro-Sun team will respond." Throttled per-caller to once per hour (in-memory). Logs `call_received` event for admin analytics. Note: Meta's Calling API is in beta; whether the `calls` webhook events actually arrive depends on Cloud API access tier.
+
+**Catalog dedup.** Catalog had 12 duplicate items (ids 23-34) from a second `seed_hv_products.js` run. Deleted via API after Serge's authorization. Catalog now has 22 items only.
+
+**HARD BAN on trailing questions (commit `e3b2598`).** The `a2f4be9` "optional question" rule was too soft; Sunny still asked a question after every one-word answer ("30kwh" → "Is this for home or business?", "Home" → "Single or three phase?", "Three phase" → "What's the peak load?"). Customer felt interrogated. Two-layer fix:
+- system.md: rewrote REPLY LENGTH section as HARD BAN. Top of section: "STOP ASKING QUESTIONS AFTER EVERY ANSWER. This is the #1 most violated rule." Bad-vs-good table with EXACT failures from screenshots. Acknowledging is enough: "Noted." or "Got it." then STOP.
+- claude.js: code-level guard. If customer's message is short factual (≤40 chars, no question mark) AND Sunny's reply ends with "?", STRIP the trailing question sentence from the reply. Logs `claude.reply.trailing_question_stripped`.
+
 ## 2026-05-05 afternoon-evening Beirut — short replies, debounce, pricing discipline, parallel inverter rule, local zombie killed
 
 **Short-reply enforcement (commit `c253fc2`).** Live failure: Sunny was producing 3-paragraph "brochure" replies. Fixed:
