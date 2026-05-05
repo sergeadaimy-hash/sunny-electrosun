@@ -275,7 +275,22 @@ async function generateReply(history, message, contact, attachments = []) {
     }), 'generateReply');
 
     if (resp.usage) recordUsage(MODEL_REPLY, resp.usage, 'reply');
-    const text = resp.content?.find(b => b.type === 'text')?.text?.trim() || '';
+    let text = resp.content?.find(b => b.type === 'text')?.text?.trim() || '';
+
+    const customerAskedPrice = /\b(how\s+much|price|cost|naira|ngn|quotation|quote|rate)\b/i.test(String(message || ''));
+    if (text && !customerAskedPrice) {
+      const priceMatches = text.match(/\b\d+(?:[.,]\d+)?\s*(?:M|m|k|K)?\s*NGN\b|\b\d+(?:[.,]\d+)?\s*M\b/g) || [];
+      if (priceMatches.length >= 2) {
+        logger.warn('claude.reply.price_dump_blocked', {
+          contactId: contact?.id,
+          customer_msg: String(message || '').slice(0, 100),
+          original_reply: text.slice(0, 200),
+          price_matches: priceMatches.length
+        });
+        text = "What size or load are you sizing for? Single or three phase?";
+      }
+    }
+
     return { ok: true, text, usage: resp.usage };
   } catch (err) {
     logger.error('claude.reply.error', { message: err.message });
