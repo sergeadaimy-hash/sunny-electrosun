@@ -4,7 +4,7 @@ This file is the working memory for Sunny. Read it before making any change. It 
 
 Detailed session-by-session changelog lives in `docs/session-history.md`. That file is the audit trail for "what shipped when and why"; this file is the always-true reference for what is currently in the codebase and what rules govern Sunny's behavior.
 
-## Current launch status (paused 2026-05-05 evening Beirut)
+## Current launch status (paused 2026-05-06 evening Beirut)
 
 Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud deploy) are closed. Phase B code work is closed: schema migration, 2-hour reports with HOT/WARM/COLD aggregations, silent-query workflow with reply-to routing, daily learning report, owner Q&A, knowledge ingestion, image vision, voice-note transcription, WhatsApp call auto-reply, conversation-state engine, multi-message debounce, orphan recovery on startup, code-level reply guards (price-strip, trailing-question-strip, repeat guard, wa.me link ban). Task #15 (48-hour soak) is the next user-driven launch step.
 
@@ -19,7 +19,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud
 - `DAILY_LLM_BUDGET_USD=20` (raised from $5 to absorb Opus pricing).
 - `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit per `git log`: `b07bcd8`.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit per `git log`: `50729dd`.
 
 **Resume plan:**
 - Waiting on brother: pricing data for Sungrow / JA / Longi; Section 11 decisions (working hours, location tags, currency, default warranty/delivery copy, after-hours reply, competitor pricing doctrine); real WhatsApp business number (Task #17 full).
