@@ -173,6 +173,13 @@ function listPendingQueries() {
   ).all();
 }
 
+function getOpenPendingQueryForContact(contactId) {
+  const db = getDb();
+  return db.prepare(
+    "SELECT * FROM pending_queries WHERE contact_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1"
+  ).get(contactId) || null;
+}
+
 function findPendingQueriesNeedingWarning(warnAfterIso) {
   const db = getDb();
   return db.prepare(`
@@ -269,6 +276,7 @@ module.exports = {
   setPendingQueryAlertId,
   findPendingByAlertId,
   resolvePendingQuery,
+  getOpenPendingQueryForContact,
   listPendingQueries,
   findPendingQueriesNeedingWarning,
   markPendingQueryWarned,

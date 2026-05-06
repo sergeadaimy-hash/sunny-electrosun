@@ -12,6 +12,7 @@ const {
   setPendingQueryAlertId,
   findPendingByAlertId,
   resolvePendingQuery,
+  getOpenPendingQueryForContact,
   getContactById
 } = require('./memory');
 const { runClassification } = require('./classifier');
@@ -346,6 +347,95 @@ function enqueueCustomerMessage(contact, conversation, msg, imageAttachment, ima
   });
 }
 
+async function dispatchEscalation({ contact, conversation, classification, safeCombinedText, lastMsg, batchSize, source }) {
+  const escalationType = classification.escalation_type || 'silent_query';
+
+  logEvent(contact.id, 'escalated', {
+    intent: classification.intent,
+    escalation_type: escalationType,
+    confidence: classification.confidence,
+    batch_size: batchSize,
+    source: source || 'classifier'
+  });
+
+  const openPending = getOpenPendingQueryForContact(contact.id);
+
+  if (openPending) {
+    const followThrottle = security.checkFollowupThrottle(contact.id);
+    if (followThrottle.allowed) {
+      const ownerPhone = process.env.OWNER_WHATSAPP;
+      if (ownerPhone) {
+        const followUp = [
+          `Follow-up on [QID:${openPending.id}], same customer is still asking.`,
+          `Contact: ${contact.name || 'unknown'} (${contact.phone})`,
+          '',
+          'New customer message:',
+          safeCombinedText,
+          '',
+          `REPLY to the original [QID:${openPending.id}] alert with the answer.`
+        ].join('\n');
+        await sendMessage(ownerPhone, followUp);
+      }
+      logger.info('handler.escalation.followup_to_open_query', {
+        contactId: contact.id,
+        query_id: openPending.id,
+        source: source || 'classifier'
+      });
+    } else {
+      security.logSecurityEvent('followup_throttled', {
+        contactId: contact.id,
+        query_id: openPending.id,
+        last_at: followThrottle.lastAt,
+        cooldown_ms: followThrottle.cooldownMs
+      });
+    }
+
+    const holding = pickHoldingReply(escalationType, safeCombinedText);
+    const sendRes = await sendMessage(lastMsg.from, holding);
+    appendMessage(conversation.id, 'outbound', holding, {
+      whatsapp_message_id: sendRes.messageId,
+      intent: escalationType === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
+      language: classification.language
+    });
+    return true;
+  }
+
+  const escThrottle = security.checkEscalationThrottle(contact.id);
+  if (!escThrottle.allowed) {
+    security.logSecurityEvent('escalation_throttled', {
+      contactId: contact.id,
+      last_at: escThrottle.lastAt,
+      cooldown_ms: escThrottle.cooldownMs,
+      source: source || 'classifier'
+    });
+    return false;
+  }
+
+  let pendingQueryId = null;
+  if (escalationType === 'silent_query') {
+    pendingQueryId = createPendingQuery({
+      contactId: contact.id,
+      customerMessageId: lastMsg.id,
+      customerMessageText: safeCombinedText,
+      classifierIntent: classification.intent
+    });
+  }
+
+  const alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification, pendingQueryId);
+  if (pendingQueryId && alertSendRes?.messageId) {
+    setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
+  }
+
+  const holding = pickHoldingReply(escalationType, safeCombinedText);
+  const sendRes = await sendMessage(lastMsg.from, holding);
+  appendMessage(conversation.id, 'outbound', holding, {
+    whatsapp_message_id: sendRes.messageId,
+    intent: escalationType === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
+    language: classification.language
+  });
+  return true;
+}
+
 async function processCustomerBatch(entry) {
   const { msgs, contact, conversation, attachments, persistedBodies } = entry;
   if (!msgs.length) return;
@@ -401,50 +491,18 @@ async function processCustomerBatch(entry) {
   }
 
   if (classification.needs_escalation) {
-    const escThrottle = security.checkEscalationThrottle(contact.id);
-    if (!escThrottle.allowed) {
-      security.logSecurityEvent('escalation_throttled', {
-        contactId: contact.id,
-        last_at: escThrottle.lastAt,
-        cooldown_ms: escThrottle.cooldownMs
-      });
-      classification.needs_escalation = false;
-      classification.escalation_type = null;
-    }
-  }
-
-  if (classification.needs_escalation) {
-    const escalationType = classification.escalation_type || 'silent_query';
-    logEvent(contact.id, 'escalated', {
-      intent: classification.intent,
-      escalation_type: escalationType,
-      confidence: classification.confidence,
-      batch_size: msgs.length
+    const dispatched = await dispatchEscalation({
+      contact: refreshedContact,
+      conversation,
+      classification,
+      safeCombinedText,
+      lastMsg,
+      batchSize: msgs.length,
+      source: 'classifier'
     });
-
-    let pendingQueryId = null;
-    if (escalationType === 'silent_query') {
-      pendingQueryId = createPendingQuery({
-        contactId: contact.id,
-        customerMessageId: lastMsg.id,
-        customerMessageText: safeCombinedText,
-        classifierIntent: classification.intent
-      });
-    }
-
-    const alertSendRes = await notifyOwnerEscalation(refreshedContact, safeCombinedText, classification, pendingQueryId);
-    if (pendingQueryId && alertSendRes?.messageId) {
-      setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
-    }
-
-    const holding = pickHoldingReply(escalationType, safeCombinedText);
-    const sendRes = await sendMessage(lastMsg.from, holding);
-    appendMessage(conversation.id, 'outbound', holding, {
-      whatsapp_message_id: sendRes.messageId,
-      intent: escalationType === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
-      language: classification.language
-    });
-    return;
+    if (dispatched) return;
+    classification.needs_escalation = false;
+    classification.escalation_type = null;
   }
 
   const replyMessage = safeCombinedText || '(customer sent attachments only, see images)';
@@ -458,6 +516,44 @@ async function processCustomerBatch(entry) {
     });
     logger.warn('handler.reply_fallback_used', { contactId: contact.id, batch_size: msgs.length });
     return;
+  }
+
+  if (!escalationsDisabled()) {
+    const stallHit = security.detectStallLanguage(reply.text);
+    if (stallHit) {
+      security.logSecurityEvent('stall_language_detected', {
+        contactId: contact.id,
+        pattern: stallHit.pattern,
+        reply_preview: reply.text.slice(0, 200)
+      });
+      const stallClassification = {
+        ...classification,
+        needs_escalation: true,
+        escalation_type: 'silent_query'
+      };
+      const dispatched = await dispatchEscalation({
+        contact: refreshedContact,
+        conversation,
+        classification: stallClassification,
+        safeCombinedText,
+        lastMsg,
+        batchSize: msgs.length,
+        source: 'stall_guard'
+      });
+      if (dispatched) return;
+      const fallback = SILENT_QUERY_REPLY;
+      const sendRes = await sendMessage(lastMsg.from, fallback);
+      appendMessage(conversation.id, 'outbound', fallback, {
+        whatsapp_message_id: sendRes.messageId,
+        intent: 'silent_query',
+        language: classification.language
+      });
+      logger.warn('handler.stall_replaced_no_alert', {
+        contactId: contact.id,
+        pattern: stallHit.pattern
+      });
+      return;
+    }
   }
 
   const sendRes = await sendMessage(lastMsg.from, reply.text);

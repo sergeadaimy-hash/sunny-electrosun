@@ -5,10 +5,12 @@ const RATE_LIMIT_DAILY = parseInt(process.env.RATE_LIMIT_DAILY || '300', 10);
 const MAX_SINGLE_MESSAGE_CHARS = parseInt(process.env.MAX_SINGLE_MESSAGE_CHARS || '2000', 10);
 const MAX_COMBINED_BATCH_CHARS = parseInt(process.env.MAX_COMBINED_BATCH_CHARS || '4000', 10);
 const ESCALATION_COOLDOWN_MS = parseInt(process.env.ESCALATION_COOLDOWN_MS || '1800000', 10);
+const FOLLOWUP_COOLDOWN_MS = parseInt(process.env.FOLLOWUP_COOLDOWN_MS || '300000', 10);
 const MAX_IMAGES_PER_DAY = parseInt(process.env.MAX_IMAGES_PER_DAY || '10', 10);
 
 const rateLimitState = new Map();
 const escalationState = new Map();
+const followupState = new Map();
 const imageState = new Map();
 
 function todayKey() {
@@ -149,6 +151,38 @@ function checkEscalationThrottle(contactId) {
   return { allowed: true };
 }
 
+function checkFollowupThrottle(contactId) {
+  const now = Date.now();
+  const state = followupState.get(contactId);
+  if (!state) {
+    followupState.set(contactId, { lastFollowupAt: now });
+    return { allowed: true };
+  }
+  if (now - state.lastFollowupAt < FOLLOWUP_COOLDOWN_MS) {
+    return { allowed: false, lastAt: state.lastFollowupAt, cooldownMs: FOLLOWUP_COOLDOWN_MS };
+  }
+  state.lastFollowupAt = now;
+  return { allowed: true };
+}
+
+const STALL_PATTERNS = [
+  /\b(let\s+me|i['']?ll|i\s+will|we['']?ll|we\s+will)\s+(check|confirm|verify|find\s+out|come\s+back|revert|get\s+back)/i,
+  /\b(get\s+back\s+to\s+you|will\s+revert|will\s+come\s+back\s+to\s+you|circle\s+back\s+with\s+you)/i,
+  /\b(sales\s+engineers?|our\s+team|our\s+engineers?|our\s+sales|one\s+of\s+our\s+(sales\s+engineers?|engineers?|team))\s+will\s+(reach\s+out|contact|get\s+in\s+touch|follow\s+up|revert)/i,
+  /\bgive\s+me\s+a\s+(moment|second|minute)/i,
+];
+
+function detectStallLanguage(replyText) {
+  const text = String(replyText || '');
+  if (!text) return null;
+  for (const re of STALL_PATTERNS) {
+    if (re.test(text)) {
+      return { pattern: re.source };
+    }
+  }
+  return null;
+}
+
 function checkImageQuota(contactId) {
   const today = todayKey();
   let state = imageState.get(contactId);
@@ -177,6 +211,8 @@ module.exports = {
   countPricePatterns,
   countPhonePatterns,
   checkEscalationThrottle,
+  checkFollowupThrottle,
+  detectStallLanguage,
   checkImageQuota,
   logSecurityEvent,
   RATE_LIMIT_PER_MINUTE,
@@ -184,5 +220,6 @@ module.exports = {
   MAX_SINGLE_MESSAGE_CHARS,
   MAX_COMBINED_BATCH_CHARS,
   ESCALATION_COOLDOWN_MS,
+  FOLLOWUP_COOLDOWN_MS,
   MAX_IMAGES_PER_DAY,
 };

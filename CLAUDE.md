@@ -80,9 +80,19 @@ Single module exposing rate limits, length caps, injection-attempt detection, an
 
 **Batch-level guards (in `src/handler.js > processCustomerBatch`):**
 - `security.truncateBatch(text)`: caps the combined debounced batch at 4000 chars (`MAX_COMBINED_BATCH_CHARS`). Logs `security.batch_truncated`.
-- `security.checkEscalationThrottle(contactId)`: at most one escalation alert per contact per 30 minutes (`ESCALATION_COOLDOWN_MS`). Repeat triggers within the window get demoted to a normal Opus reply. Defends specialist-spam attacks against the brother's WhatsApp. Logs `security.escalation_throttled`.
+- `security.checkEscalationThrottle(contactId)`: at most one BRAND-NEW escalation alert per contact per 30 minutes (`ESCALATION_COOLDOWN_MS`). Defends specialist-spam attacks against the brother's WhatsApp. Logs `security.escalation_throttled`.
+- `security.checkFollowupThrottle(contactId)`: at most one FOLLOW-UP ping per contact per 5 minutes (`FOLLOWUP_COOLDOWN_MS`). Used by the open-pending-query path so the brother gets a heads-up when the same customer keeps pushing on an unresolved query, without flooding. Logs `security.followup_throttled`.
+- `dispatchEscalation` (in `src/handler.js`): single entry point for sending the customer holding reply + alerting the owner. Behavior:
+  1. If an open `pending_queries` row already exists for this contact (`getOpenPendingQueryForContact`), send a "Follow-up on [QID:N], same customer is still asking" message to the owner (throttled by `checkFollowupThrottle`), do NOT create a new pending_queries row, do NOT touch the main escalation throttle. The brother replies to the original [QID:N] alert.
+  2. If no open pending query, fall through to `checkEscalationThrottle`. If allowed, create the pending_queries row and send the regular alert. If throttled, return false so the caller falls back to a normal reply.
+  Reason: the original throttle silenced legitimate follow-up pings during an active query, so Sunny invented "let me check / will get back" stalls (see "stall guard" below). Opening this side channel keeps the throttle's anti-spam defense for fresh escalations while letting the brother see urgency rise on an already-known query.
 
 **Output-side guards (in `src/claude.js > generateReply`):** see "Code-level reply guards" above, items 5-8.
+
+**Stall-language guard (in `src/handler.js > processCustomerBatch`):** after `generateReply` returns, before sending, `security.detectStallLanguage(reply.text)` checks for first-person stall patterns ("let me check / I'll confirm / will revert / will get back to you / one of our sales engineers will reach out / give me a moment"). If matched AND `DISABLE_ESCALATIONS=false`:
+- Force `escalation_type='silent_query'` and call `dispatchEscalation` with `source='stall_guard'`. The customer gets the canned `SILENT_QUERY_REPLY` and the brother gets a follow-up [QID:N] ping (or a fresh alert if no open query).
+- If the dispatch is blocked (no open query AND main throttle in cooldown), the reply is replaced with `SILENT_QUERY_REPLY` and no alert is sent. Logs `handler.stall_replaced_no_alert`.
+The canned replies themselves use third-person ("A specialist will confirm...") and are not matched. Reason: Opus sometimes invented "I'll check and get back" promises after the 30-min throttle blocked a re-escalation, leaving the customer hanging without the owner being notified.
 
 ### Kill switches and runtime overrides (Railway env vars)
 
@@ -102,7 +112,8 @@ Single module exposing rate limits, length caps, injection-attempt detection, an
 | `RATE_LIMIT_DAILY` | Per-contact daily message cap (default 300). Owner exempt. |
 | `MAX_SINGLE_MESSAGE_CHARS` | Per-message inbound truncation limit (default 2000). |
 | `MAX_COMBINED_BATCH_CHARS` | Debounced batch truncation limit (default 4000). |
-| `ESCALATION_COOLDOWN_MS` | Per-contact escalation-alert cooldown (default 1800000 = 30 minutes). Repeat triggers within the window demote to a normal reply. |
+| `ESCALATION_COOLDOWN_MS` | Per-contact BRAND-NEW escalation cooldown (default 1800000 = 30 minutes). Repeat first-time triggers within the window demote to a normal reply. Does NOT apply when an open pending_queries row already exists for the contact (the follow-up channel takes over). |
+| `FOLLOWUP_COOLDOWN_MS` | Per-contact follow-up-alert cooldown for the open-pending-query path (default 300000 = 5 minutes). Bounds how often the brother gets "same customer still asking on [QID:N]" pings. |
 | `MAX_IMAGES_PER_DAY` | Per-contact daily image-vision quota (default 10). When exceeded, images flow through as text markers, vision is skipped. |
 
 ### Models, costs, and budget
