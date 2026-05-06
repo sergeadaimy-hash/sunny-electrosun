@@ -5,6 +5,7 @@ const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { formatKnowledgeForPrompt } = require('./knowledge');
 const { formatCatalogForPrompt } = require('./catalog');
+const security = require('./security');
 
 const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-opus-4-7';
 const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-opus-4-7';
@@ -459,6 +460,50 @@ async function generateReply(history, message, contact, attachments = []) {
           });
           text = stripped;
         }
+      }
+    }
+
+    if (text) {
+      const leakedMarkers = security.detectPromptLeak(text);
+      if (leakedMarkers) {
+        security.logSecurityEvent('prompt_leak_blocked', {
+          contactId: contact?.id,
+          markers: leakedMarkers,
+          original_reply: text.slice(0, 200)
+        });
+        text = "I can help with product questions, pricing, and orders. What do you need?";
+      }
+    }
+
+    if (text && security.detectOwnerNumberLeak(text)) {
+      security.logSecurityEvent('owner_number_leak_blocked', {
+        contactId: contact?.id,
+        original_reply: text.slice(0, 200)
+      });
+      text = "Could you tell me what you're looking for so I can help?";
+    }
+
+    if (text) {
+      const phoneCount = security.countPhonePatterns(text);
+      if (phoneCount >= 3) {
+        security.logSecurityEvent('phone_list_dump_blocked', {
+          contactId: contact?.id,
+          phone_count: phoneCount,
+          original_reply: text.slice(0, 200)
+        });
+        text = "Could you share what specifically you need so I can guide you?";
+      }
+    }
+
+    if (text) {
+      const priceCount = security.countPricePatterns(text);
+      if (priceCount >= 5) {
+        security.logSecurityEvent('catalog_enumeration_blocked', {
+          contactId: contact?.id,
+          price_count: priceCount,
+          original_reply: text.slice(0, 200)
+        });
+        text = "Could you tell me which model or system size you need? I'll quote that one.";
       }
     }
 

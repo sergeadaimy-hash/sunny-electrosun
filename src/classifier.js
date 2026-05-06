@@ -15,7 +15,7 @@ function isCasualGreeting(text) {
   return t.length <= 30 && GREETING_RE.test(t);
 }
 
-const HOT_TRIGGER_RE = /\b(pay|paying|payment|account\s*(number|details|info)|bank\s*(details|account)|proforma|invoice|quotation|deposit|let'?s\s+(proceed|go\s+ahead)|go\s+ahead\s+with|i'?m\s+ready|i\s+am\s+ready|confirm\s+(the\s+)?order|send\s+(your|the)\s+(engineer|team)|when\s+can\s+(you|your\s+team)\s+(install|come)|ready\s+to\s+(pay|order|buy|proceed)|i\s+want\s+to\s+(pay|order|buy|proceed)|i'?ll\s+(pay|order|buy|proceed)|let\s+me\s+pay|site\s+visit)\b/i;
+const HOT_TRIGGER_RE = /\b(want\s+to\s+pay|ready\s+to\s+pay|pay\s+(now|today|tomorrow|this\s+week)|i'?ll\s+pay|let\s+me\s+pay|paying\s+(now|today)|making\s+(the\s+)?payment|send\s+(me\s+)?(your|the|account)\s+(account|bank|details|number|info)|share\s+(your|the|account)\s+(account|bank)|account\s+(number|details)\s+please|send\s+(me\s+)?(a\s+)?proforma|send\s+(me\s+)?(an\s+)?invoice|issue\s+(me\s+)?(a\s+)?(proforma|invoice|quotation)|deposit\s+\d|\d+%\s+deposit|let'?s\s+(proceed|go\s+ahead|do\s+this)|go\s+ahead\s+with|i'?m\s+ready\s+to\s+(buy|order|pay|proceed)|i\s+am\s+ready\s+to\s+(buy|order|pay|proceed)|confirm\s+(the\s+)?order|place\s+(the\s+)?order|send\s+(your|the)\s+(engineer|team)|when\s+can\s+(you|your\s+team)\s+(install|come|deliver|visit)|ready\s+to\s+(order|buy|proceed)|i\s+want\s+to\s+(order|buy|proceed)|i'?ll\s+(order|buy|proceed)|book\s+(the\s+)?(installation|site\s+visit)|schedule\s+(the\s+)?(installation|site\s+visit))\b/i;
 
 function hasHotTrigger(text) {
   return HOT_TRIGGER_RE.test(text || '');

@@ -63,6 +63,26 @@ After Opus generates a reply, before sending:
 2. **Repeat guard**: if new reply is byte-identical to the last outbound, overwrite with "Apologies, let me re-read your last message."
 3. **Trailing-question strip**: if customer's last message is short factual (≤40 chars, no `?`) and reply ends with `?`, strip the trailing question sentence. Logs `claude.reply.trailing_question_stripped`.
 4. **wa.me URL strip**: any wa.me link Opus emits gets removed.
+5. **Prompt-leak detector** (`security.detectPromptLeak`): if the reply contains markers from the system prompt or internals (`Lagos sales floor`, `system prompt`, `claude-opus-4`, `OWNER_WHATSAPP`, `lead_temperature`, etc.), replace with a generic deflection. Logs `security.prompt_leak_blocked`.
+6. **Owner-number leak detector** (`security.detectOwnerNumberLeak`): if the reply contains `OWNER_WHATSAPP` digits anywhere outside the canonical `wa.me/<number>` URL, replace with a generic deflection. Logs `security.owner_number_leak_blocked`.
+7. **Phone-list-dump block**: if reply contains 3+ Nigerian-format phone numbers, replace with a deflection. Logs `security.phone_list_dump_blocked`.
+8. **Catalog enumeration block**: if reply contains 5+ price patterns, replace with "Could you tell me which model or system size you need? I'll quote that one." Defends bulk catalog extraction. Logs `security.catalog_enumeration_blocked`.
+
+### Security layer (`src/security.js`)
+
+Single module exposing rate limits, length caps, injection-attempt detection, and output-side leak detection. All defaults configurable via env vars; all triggers logged with `security.*` keys for observability.
+
+**Input-side guards (in `src/handler.js > handleInbound`):**
+- `security.checkRateLimit(contactId)`: per-contact rate limit. Default 15 messages/minute (`RATE_LIMIT_PER_MINUTE`) and 300/day (`RATE_LIMIT_DAILY`). Owner is exempt. Blocked messages are dropped without persistence or reply. Logs `security.rate_limit_blocked`.
+- `security.checkImageQuota(contactId)`: per-contact daily image-vision quota. Default 10/day (`MAX_IMAGES_PER_DAY`). When exceeded, the image is converted to a text marker so the message still flows, but vision is skipped. Logs `security.image_quota_exceeded`.
+- `security.truncateInbound(text)`: caps single inbound message at 2000 chars (`MAX_SINGLE_MESSAGE_CHARS`). Logs `security.inbound_truncated`.
+- `security.detectInjectionAttempt(text)`: scans for classic prompt-injection phrases ("ignore previous", "system prompt", "you are now", "DAN mode", `<system>` tags, etc.). Logs `security.injection_attempt_detected` with matched patterns. Detection is observability-only, does NOT block; Opus's own resistance plus the output-side leak detectors handle blocking.
+
+**Batch-level guards (in `src/handler.js > processCustomerBatch`):**
+- `security.truncateBatch(text)`: caps the combined debounced batch at 4000 chars (`MAX_COMBINED_BATCH_CHARS`). Logs `security.batch_truncated`.
+- `security.checkEscalationThrottle(contactId)`: at most one escalation alert per contact per 30 minutes (`ESCALATION_COOLDOWN_MS`). Repeat triggers within the window get demoted to a normal Opus reply. Defends specialist-spam attacks against the brother's WhatsApp. Logs `security.escalation_throttled`.
+
+**Output-side guards (in `src/claude.js > generateReply`):** see "Code-level reply guards" above, items 5-8.
 
 ### Kill switches and runtime overrides (Railway env vars)
 
@@ -78,6 +98,12 @@ After Opus generates a reply, before sending:
 | `OPENAI_API_KEY` | Required for voice-note transcription. PENDING: not yet set on Railway. |
 | `MEDIA_DIR` | Where downloaded WhatsApp media is stored. Defaults to `<DB_PATH dirname>/media`, set to `/data/media` on Railway. |
 | `SPECIALIST_DIRECT_LINK` | Digits-only WhatsApp number for the wa.me click-to-chat link appended to HOT lead replies. Currently set to brother's number. |
+| `RATE_LIMIT_PER_MINUTE` | Per-contact message rate limit (default 15). Owner exempt. Blocked messages dropped without persistence or reply. |
+| `RATE_LIMIT_DAILY` | Per-contact daily message cap (default 300). Owner exempt. |
+| `MAX_SINGLE_MESSAGE_CHARS` | Per-message inbound truncation limit (default 2000). |
+| `MAX_COMBINED_BATCH_CHARS` | Debounced batch truncation limit (default 4000). |
+| `ESCALATION_COOLDOWN_MS` | Per-contact escalation-alert cooldown (default 1800000 = 30 minutes). Repeat triggers within the window demote to a normal reply. |
+| `MAX_IMAGES_PER_DAY` | Per-contact daily image-vision quota (default 10). When exceeded, images flow through as text markers, vision is skipped. |
 
 ### Models, costs, and budget
 

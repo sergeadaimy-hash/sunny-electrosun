@@ -21,6 +21,7 @@ const { DB_PATH } = require('../db/init');
 const { extractKnowledge, addKnowledgeEntry } = require('./knowledge');
 const { answerOwnerQuestion } = require('./owner_qa');
 const { transcribeAudio } = require('./transcribe');
+const security = require('./security');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
 
@@ -369,9 +370,18 @@ async function processCustomerBatch(entry) {
     combined_preview: combinedText.slice(0, 200)
   });
 
+  const batchTrunc = security.truncateBatch(combinedText);
+  const safeCombinedText = batchTrunc.text;
+  if (batchTrunc.truncated) {
+    security.logSecurityEvent('batch_truncated', {
+      contactId: contact.id,
+      original_length: batchTrunc.original
+    });
+  }
+
   const classifierMessage = msgs.length > 1
-    ? `[Customer sent ${msgs.length} messages back to back]\n${combinedText}`
-    : combinedText;
+    ? `[Customer sent ${msgs.length} messages back to back]\n${safeCombinedText}`
+    : safeCombinedText;
 
   const classification = await runClassification(refreshedContact, priorHistory, classifierMessage);
 
@@ -391,6 +401,19 @@ async function processCustomerBatch(entry) {
   }
 
   if (classification.needs_escalation) {
+    const escThrottle = security.checkEscalationThrottle(contact.id);
+    if (!escThrottle.allowed) {
+      security.logSecurityEvent('escalation_throttled', {
+        contactId: contact.id,
+        last_at: escThrottle.lastAt,
+        cooldown_ms: escThrottle.cooldownMs
+      });
+      classification.needs_escalation = false;
+      classification.escalation_type = null;
+    }
+  }
+
+  if (classification.needs_escalation) {
     const escalationType = classification.escalation_type || 'silent_query';
     logEvent(contact.id, 'escalated', {
       intent: classification.intent,
@@ -404,17 +427,17 @@ async function processCustomerBatch(entry) {
       pendingQueryId = createPendingQuery({
         contactId: contact.id,
         customerMessageId: lastMsg.id,
-        customerMessageText: combinedText,
+        customerMessageText: safeCombinedText,
         classifierIntent: classification.intent
       });
     }
 
-    const alertSendRes = await notifyOwnerEscalation(refreshedContact, combinedText, classification, pendingQueryId);
+    const alertSendRes = await notifyOwnerEscalation(refreshedContact, safeCombinedText, classification, pendingQueryId);
     if (pendingQueryId && alertSendRes?.messageId) {
       setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
     }
 
-    const holding = pickHoldingReply(escalationType, combinedText);
+    const holding = pickHoldingReply(escalationType, safeCombinedText);
     const sendRes = await sendMessage(lastMsg.from, holding);
     appendMessage(conversation.id, 'outbound', holding, {
       whatsapp_message_id: sendRes.messageId,
@@ -424,10 +447,10 @@ async function processCustomerBatch(entry) {
     return;
   }
 
-  const replyMessage = combinedText || '(customer sent attachments only, see images)';
+  const replyMessage = safeCombinedText || '(customer sent attachments only, see images)';
   const reply = await generateReply(priorHistory, replyMessage, refreshedContact, attachments);
   if (!reply.ok || !reply.text) {
-    const fallback = pickHoldingReply('silent_query', combinedText);
+    const fallback = pickHoldingReply('silent_query', safeCombinedText);
     const sendRes = await sendMessage(lastMsg.from, fallback);
     appendMessage(conversation.id, 'outbound', fallback, {
       whatsapp_message_id: sendRes.messageId,
@@ -493,9 +516,40 @@ async function handleInbound(payload) {
         }
       }
 
+      const ownerPhoneForRl = process.env.OWNER_WHATSAPP;
+      if (!ownerPhoneForRl || msg.from !== ownerPhoneForRl) {
+        const provisionalContact = getOrCreateContact(msg.from, msg.profileName);
+        const rl = security.checkRateLimit(provisionalContact.id);
+        if (!rl.allowed) {
+          security.logSecurityEvent('rate_limit_blocked', {
+            contactId: provisionalContact.id,
+            phone: msg.from,
+            reason: rl.reason,
+            count: rl.count
+          });
+          continue;
+        }
+      }
+
       let imageAttachment = null;
       let imageStorage = null;
+      let imageQuotaBlocked = false;
       if (msg.kind === 'image') {
+        const provisionalContact = getOrCreateContact(msg.from, msg.profileName);
+        const iq = security.checkImageQuota(provisionalContact.id);
+        if (!iq.allowed) {
+          security.logSecurityEvent('image_quota_exceeded', {
+            contactId: provisionalContact.id,
+            count: iq.count
+          });
+          imageQuotaBlocked = true;
+          const caption = msg.body || '';
+          msg.body = caption || '[image attached, daily image-processing quota reached]';
+          msg.kind = 'text';
+        }
+      }
+
+      if (msg.kind === 'image' && !imageQuotaBlocked) {
         try {
           ensureMediaDir();
           const dl = await downloadMedia(msg.media.id);
@@ -545,6 +599,24 @@ async function handleInbound(payload) {
 
       const contact = getOrCreateContact(msg.from, msg.profileName);
       const conversation = getActiveConversation(contact.id);
+
+      const trunc = security.truncateInbound(msg.body);
+      if (trunc.truncated) {
+        security.logSecurityEvent('inbound_truncated', {
+          contactId: contact.id,
+          original_length: trunc.original
+        });
+        msg.body = trunc.text;
+      }
+
+      const injectionMatches = security.detectInjectionAttempt(msg.body);
+      if (injectionMatches) {
+        security.logSecurityEvent('injection_attempt_detected', {
+          contactId: contact.id,
+          patterns: injectionMatches,
+          preview: String(msg.body || '').slice(0, 200)
+        });
+      }
 
       const persistedBody = msg.kind === 'image'
         ? (msg.body ? `[image] ${msg.body}` : '[image]')
