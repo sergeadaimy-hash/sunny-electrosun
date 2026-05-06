@@ -15,6 +15,19 @@ function isCasualGreeting(text) {
   return t.length <= 30 && GREETING_RE.test(t);
 }
 
+const HOT_TRIGGER_RE = /\b(pay|paying|payment|account\s*(number|details|info)|bank\s*(details|account)|proforma|invoice|quotation|deposit|let'?s\s+(proceed|go\s+ahead)|go\s+ahead\s+with|i'?m\s+ready|i\s+am\s+ready|confirm\s+(the\s+)?order|send\s+(your|the)\s+(engineer|team)|when\s+can\s+(you|your\s+team)\s+(install|come)|ready\s+to\s+(pay|order|buy|proceed)|i\s+want\s+to\s+(pay|order|buy|proceed)|i'?ll\s+(pay|order|buy|proceed)|let\s+me\s+pay|site\s+visit)\b/i;
+
+function hasHotTrigger(text) {
+  return HOT_TRIGGER_RE.test(text || '');
+}
+
+const CLARIFICATION_RE = /^(\??\s*)?(for\s+what|why|how|huh|what|wat|what\?+|what\s+is\s+this(\s+message)?|what\s+do\s+you\s+mean|i\s+don'?t\s+understand|i\s+don'?t\s+get\s+(it|that)|come\s+again|please\s+repeat|repeat|explain|you\s+mean|are\s+you\s+(serious|kidding|sure)|ok\??|okay\??|hmm+|eh+|abeg|sorry\??|pardon\??)[\s.?!]*$/i;
+
+function isClarificationMessage(text) {
+  const t = (text || '').trim();
+  return t.length <= 40 && CLARIFICATION_RE.test(t);
+}
+
 async function runClassification(contact, history, message) {
   const body = bodyText(message);
 
@@ -51,6 +64,17 @@ async function runClassification(contact, history, message) {
     result.lead_temperature = 'WARM';
   }
 
+  if (result.lead_temperature === 'HOT' && !hasHotTrigger(body)) {
+    logger.warn('classifier.hot_without_commitment_phrase_demoted', {
+      contactId: contact.id,
+      original_escalation_type: result.escalation_type,
+      message_preview: body.slice(0, 120)
+    });
+    result.lead_temperature = 'WARM';
+    result.needs_escalation = false;
+    result.escalation_type = null;
+  }
+
   if (result.needs_escalation && !result.escalation_type) {
     logger.warn('classifier.escalation_without_type_skipped', {
       contactId: contact.id,
@@ -61,6 +85,17 @@ async function runClassification(contact, history, message) {
 
   if (result.needs_escalation && isCasualGreeting(body)) {
     logger.warn('classifier.greeting_escalation_blocked', {
+      contactId: contact.id,
+      escalation_type: result.escalation_type,
+      message_preview: body
+    });
+    result.needs_escalation = false;
+    result.escalation_type = null;
+    if (result.lead_temperature === 'HOT') result.lead_temperature = 'COLD';
+  }
+
+  if (result.needs_escalation && isClarificationMessage(body)) {
+    logger.warn('classifier.clarification_escalation_blocked', {
       contactId: contact.id,
       escalation_type: result.escalation_type,
       message_preview: body

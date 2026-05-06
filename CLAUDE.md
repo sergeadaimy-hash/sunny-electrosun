@@ -2,413 +2,133 @@
 
 This file is the working memory for Sunny. Read it before making any change. It captures decisions already made so they do not need to be re-litigated.
 
-## Current launch status (paused 2026-05-03 evening Beirut)
+Detailed session-by-session changelog lives in `docs/session-history.md`. That file is the audit trail for "what shipped when and why"; this file is the always-true reference for what is currently in the codebase and what rules govern Sunny's behavior.
 
-Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune) are closed. Phase B code work (separate from launch sequence) substantially closed in the same session: schema migration, 2-hour reports with HOT/WARM/COLD aggregations, silent-query workflow with reply-to routing, daily learning report, seed.js modernization. Task #15 (48-hour soak) is the next user-driven launch step.
+## Current launch status (paused 2026-05-05 evening Beirut)
 
-**Phase 5 is cloud-first** (Railway or Fly.io, NOT Mac Mini). PM2 + named tunnel are no longer in the production path. See `memory/project_cloud_first_decision.md`.
+Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud deploy) are closed. Phase B code work is closed: schema migration, 2-hour reports with HOT/WARM/COLD aggregations, silent-query workflow with reply-to routing, daily learning report, owner Q&A, knowledge ingestion, image vision, voice-note transcription, WhatsApp call auto-reply, conversation-state engine, multi-message debounce, orphan recovery on startup, code-level reply guards (price-strip, trailing-question-strip, repeat guard, wa.me link ban). Task #15 (48-hour soak) is the next user-driven launch step.
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Origin is in sync with local main as of 2026-05-04 (the 14 queued commits were pushed). Latest commit before this session: `ffcaac6`. Reminder: pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat.
+**Phase 5 is cloud-first** (Railway production). PM2 + named tunnel are no longer in the production path; PM2 stays in the repo as a local-dev fallback only. See `memory/project_cloud_first_decision.md`.
 
-## 2026-05-05 evening Beirut — conversation-state engine, voice + calls, orphan recovery, hard-ban on trailing questions
+**Live state on Railway:**
+- URL: https://sunny-electrosun-production.up.railway.app
+- Volume `/data` mounts the SQLite DB at `/data/sunny.db` and media at `/data/media/`.
+- `OWNER_WHATSAPP=2347041328055` (brother). Verified via `/version` → `owner_whatsapp_tail: "8055"`.
+- `DISABLE_NOTIFICATIONS=true` (kill switch ON: cron schedules don't even register at boot). Customer chat still flows normally. Re-enable with `railway variables --set "DISABLE_NOTIFICATIONS=false"`.
+- All four model env defaults are `claude-opus-4-7` (classifier, reply, teacher, owner_qa).
+- `DAILY_LLM_BUDGET_USD=20` (raised from $5 to absorb Opus pricing).
+- `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
 
-**Conversation-state engine (commit `4a35339`).** The architectural shift from patching individual bugs to giving Opus a structured world model. New `buildConversationState(history, currentMessage)` in `src/claude.js` extracts:
-- Facts the customer shared: system size (kW/kVA), battery kWh, phase (single/three), brand mentions (Deye/Sungrow/JA/Longi/...), project type (hotel/factory/residential/...), location (Lagos/Abuja/...), installer-vs-end-user signal.
-- Questions Sunny has ALREADY asked (do NOT re-ask): installer-or-end-user, single-or-three-phase, location, load/quantity, budget, timeline.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit per `git log`: `b07bcd8`.
+
+**Resume plan:**
+- Waiting on brother: pricing data for Sungrow / JA / Longi; Section 11 decisions (working hours, location tags, currency, default warranty/delivery copy, after-hours reply, competitor pricing doctrine); real WhatsApp business number (Task #17 full).
+- User-driven: Task #15 48-hour soak with 3-5 testers; re-check Meta template approval status (`node scripts/check_templates.js`).
+- Code nice-to-haves (not blocking): hot-lead alert with Haiku/Opus conversation summary; admin "approve to permanent fact" button on daily learning items; per-contact avatar color hashing; image inline rendering in admin; RAG-style fact retrieval if knowledge base exceeds the 500-fact cap; re-enable owner teaching from WhatsApp with intent disambiguation.
+
+## Current operational rules and configuration
+
+This section captures behavior rules and runtime config that are LIVE in the codebase right now. The deeper "why we shipped this" notes are in `docs/session-history.md`.
+
+### Voice and reply discipline (enforced in `src/prompts/system.md`)
+
+- **No double dashes anywhere.** Permanent user rule (2026-04-26). No em-dash, en-dash, or `--`. Applies to chat replies, prompts, code comments, commit messages, every artifact. CSS custom properties (`--cream`) are the only allowed exception.
+- **No compliments, no AI-speak, no subjective phrases.** Banned: "Great", "Excellent", "Awesome", "Perfect", "I'd be happy to help", "I love that", "I understand", "I see", "Let me help you with that", "Feel free to", "Hope this helps", "Just to clarify", "Certainly", "indeed", "moreover", "delve". No unsolicited adjectives on the customer's project. Tone: Lagos sales floor.
+- **HARD BAN on trailing questions.** When customer gives a short factual answer (≤40 chars, no `?`), Sunny acknowledges and STOPS. Never squeezes another question. Code-level guard in `src/claude.js` strips trailing question sentences if the prompt rule is violated.
+- **Reply length: max 2 short sentences by default.** No bullet lists, no proactive education, no multi-paragraph essays. `max_tokens=180` in `src/claude.js`.
+- **Pricing discipline.** No proactive prices. Only quote if customer explicitly asks ("how much", "price/prices/pricing", "cost/costs", "naira", "NGN", "quotation/quote", "rate", "total", "invoice", "proforma"). Quote ONLY the specific item asked, never adjacent products, never produce a price list. Code-level guard strips price patterns when customer didn't ask. The guard also looks back at the previous 2 customer messages so a follow-up like "what about the battery?" after a price ask is treated as continuing the pricing flow.
+- **Catalog fidelity.** Use exact catalog model strings and capacities verbatim. Never invent kWh/kW figures, never swap between models (BOS-A is 7.68kWh; BOS-B Pro is 16kWh).
+- **Engineering rules.** Inverters can ONLY be paralleled if SAME size, max 10 units. Valid: 7 x 50kW = 350kW. Invalid: 4 x 80kW + 1 x 30kW.
+- **Phone numbers never proactive.** Patrick `07041328055`, Charbel `09068859213`, Lagos `0911 188 0000` only on explicit "call me" / "your number" / HOT lead.
+- **Addresses ARE shared on location/branch/office/pickup/visit/warehouse questions.** Abuja office: Wuse 2. Abuja warehouse: Plot 816, Idu Industrial Area. Lagos office: Rutam House. Top-of-prompt "Electro-Sun locations" block, never pruned.
+- **Pickup vs delivery.** When asked where to get the product: ask if pickup from Abuja warehouse, Lagos warehouse, or delivery (delivery fees excluded, charged separately).
+- **Best-price scripted answer.** "Yes, this is our best price. Are you ready to pay now?" If yes → HOT lead. If no → acknowledge and stop pushing.
+- **No wa.me URLs in replies.** System handles handoff via separate canned messages. `scrubHistoryContent()` strips wa.me URLs from prior assistant messages so Opus can't pattern-match on them.
+- **Greetings get fresh greetings.** Empty conversation history sent to Opus, "Known about this customer" context block suppressed (except name). Don't anchor on prior products/categories/temperatures unless customer references them.
+- **Prices source = catalog table.** Never quote a price from owner-taught knowledge or "Past quote" entries. Past quotes are historical only.
+
+### Conversation-state engine (`src/claude.js > buildConversationState`)
+
+Before each Opus reply call, `buildConversationState(history, currentMessage)` builds a structured world model and injects it as a system block:
+- Facts the customer shared: system size (kW/kVA), battery kWh, phase, brand mentions, project type, location, installer-vs-end-user signal.
+- Questions Sunny has ALREADY asked (do NOT re-ask): installer-or-end-user, phase, location, load/quantity, budget, timeline.
 - Customer asks/questions in the current message: extracted by question-mark + question-word heuristics.
 
-Injected as a system block before each Opus call. `src/prompts/system.md` has new sections: "How to use the Conversation state block", "Handling messages with multiple ideas" (multi-part asks), "Anti-repeat rule".
-
-**Cascade fix (commit `7bc982e`).** Live failure: customer asked "Can I parallel different sizes of inverters?" → Sunny generated reply with sample-config prices → previous code-level guard OVERWROTE the entire reply with generic "What size or load are you sizing for?" → customer said "350kw 3phases" THREE times and got the same canned reply each time → escalated to silent_query.
-- Replaced REPLACE-with-fallback with STRIP-prices-keep-rest.
-- New no-repeat guard: if new reply is identical to last outbound, overwrite with "Apologies, let me re-read your last message."
-- New "Answer YES/NO questions with YES or NO first" rule.
-
-**Pricing discipline harden (commits `f2eac1d`, `7a110e5`).** Sunny was volunteering price lists on "I want inverters" or "do you have batteries". Two-layer fix: prompt rule with explicit allowlist of trigger phrases, plus code-level guard that strips price patterns when customer didn't ask. Memory: `feedback_sunny_pricing_discipline.md`.
-
-**Inverter parallel engineering rule (commit `94c3e42`).** Live failure: Sunny suggested "4 x 80kW + 1 x 30kW" for 350kW which is INVALID. Same-size only, max 10 units. Saved both in system prompt AND knowledge_entries (id 824).
-
-**Catalog fidelity rule (commit `21ec42c`).** Sunny said "BOS-A 16kWh" but BOS-A is 7.68kWh (BOS-B Pro is 16kWh). Also hallucinated "10.6kWh" not in catalog. Top-priority rule now forbids inventing capacities or swapping between models. Lists exact catalog strings Opus must use verbatim.
-
-**Daily LLM budget raised to $20** (was $5). Set via `railway variables --set DAILY_LLM_BUDGET_USD=20`. At Opus rates this covers ~400-800 messages/day.
-
-**Cron registration NUKED at boot when DISABLE_NOTIFICATIONS=true (commit `ffe7208`).** Stronger than per-firing skip: cron schedules don't even register when env var is true. Logs `cron.all_schedules_skipped_at_boot` once at startup.
-
-**Pickup-vs-delivery + Best-price rules (commit `c27e0f7`).** Two new operational rules saved in system.md AND knowledge_entries (ids 825, 826):
-- When asked where to get the product: ask if pickup from Abuja warehouse (Plot 816, Idu Industrial Area), Lagos warehouse (Rutam House), or delivery (delivery fees excluded, charged separately).
-- When asked "is this the best price": reply "Yes, this is our best price. Are you ready to pay now?" If yes → HOT lead escalation. If no → acknowledge and stop pushing.
-
-**Orphan recovery on startup (commit `c27e0f7`).** Real bug: in-memory debounce queue is wiped on container restart. Patrick's "What about batteries" message arrived 11 seconds before a redeploy and never got a reply. Fix: `recoverOrphanedInbound(maxAgeMinutes)` scans for inbound messages without a subsequent outbound reply (and not human_handled, not from owner) and re-queues them through the normal pipeline. Server.js calls it 3s after `app.listen`. Default 10 minutes.
-
-**Voice note transcription (commit `834e2b0`).** WhatsApp voice notes (audio messages) now flow through the full pipeline:
-- handler.js detects `msg.type === 'audio'` (or `voice`) and downloads from Meta media API.
-- New `src/transcribe.js` calls OpenAI Whisper API (`whisper-1` by default, `WHISPER_MODEL` env override).
-- Pipeline: download → save to MEDIA_DIR → Whisper transcription → rewrite `msg.body` to transcript and `msg.kind='text'` so the rest of the handler processes normally.
-- Persisted in messages table with `[voice note transcribed]: <text>` prefix for admin visibility.
-- Falls back gracefully if `OPENAI_API_KEY` is missing or Whisper fails ("[Customer sent a voice note that could not be transcribed]").
-- Cost: ~$0.006/minute (~$0.005-0.01 per typical voice note).
-- New dependency: `form-data` for multipart upload.
-- **Pending: set `OPENAI_API_KEY` on Railway when Serge has one.**
-
-**WhatsApp call auto-reply (commit `834e2b0`).** When Meta delivers a `calls` webhook event (someone tries to voice-call the business number), Sunny auto-sends: "Hello, this number isn't monitored for voice calls. Please send a text message and the Electro-Sun team will respond." Throttled per-caller to once per hour (in-memory). Logs `call_received` event for admin analytics. Note: Meta's Calling API is in beta; whether the `calls` webhook events actually arrive depends on Cloud API access tier.
-
-**Catalog dedup.** Catalog had 12 duplicate items (ids 23-34) from a second `seed_hv_products.js` run. Deleted via API after Serge's authorization. Catalog now has 22 items only.
-
-**HARD BAN on trailing questions (commit `e3b2598`).** The `a2f4be9` "optional question" rule was too soft; Sunny still asked a question after every one-word answer ("30kwh" → "Is this for home or business?", "Home" → "Single or three phase?", "Three phase" → "What's the peak load?"). Customer felt interrogated. Two-layer fix:
-- system.md: rewrote REPLY LENGTH section as HARD BAN. Top of section: "STOP ASKING QUESTIONS AFTER EVERY ANSWER. This is the #1 most violated rule." Bad-vs-good table with EXACT failures from screenshots. Acknowledging is enough: "Noted." or "Got it." then STOP.
-- claude.js: code-level guard. If customer's message is short factual (≤40 chars, no question mark) AND Sunny's reply ends with "?", STRIP the trailing question sentence from the reply. Logs `claude.reply.trailing_question_stripped`.
-
-## 2026-05-05 afternoon-evening Beirut — short replies, debounce, pricing discipline, parallel inverter rule, local zombie killed
-
-**Short-reply enforcement (commit `c253fc2`).** Live failure: Sunny was producing 3-paragraph "brochure" replies. Fixed:
-- `src/prompts/system.md`: new "REPLY LENGTH" section. Max 2 short sentences per reply by default. No bullet lists, no proactive education, no multi-paragraph essays. Added bad/good examples. Replaced "offer 2-3 options" rule with "give ONE concrete answer, ask ONE clarifying question". Rewrote ALL worked-example dialogues so every reply is ~10-15 words.
-- `src/claude.js`: `max_tokens` cut from 600 to 180 so Opus physically can't write paragraphs.
-
-**Multi-message debounce (commit `c253fc2`).** When customers send 3-4 messages back-to-back (Patrick's "12kVA?, 8kVA?, lithium battery, all deye products" pattern), Sunny was processing each independently and replying 3 times with similar text. Fixed:
-- `src/handler.js`: per-contact in-memory debounce queue with `MESSAGE_DEBOUNCE_MS` env (default 6000ms). Persists each message to DB immediately (admin UI sees them in real-time), but classification + reply only fire ONCE per debounce window.
-- Combined classifier input format: `[Customer sent N messages back to back]\nmsg1\nmsg2\nmsg3` so Opus reads them as one logical turn.
-
-**Pricing discipline (commits `f2eac1d`, `7a110e5`).** Sunny was volunteering price lists on questions like "i want inverters" or "do you have batteries". Two-layer fix:
-- `src/prompts/system.md` ABSOLUTE rule: do NOT mention any price unless customer explicitly asks ("how much", "price", "cost", "naira", "NGN", "quotation", "quote", "rate"). Quote ONLY the specific item asked about, never adjacent products. NEVER produce a price list. Catalog is for reference only; don't recite. 6 worked examples covering "I want inverters" → no price.
-- `src/claude.js` code-level guard: scans Opus reply, if customer didn't ask for price AND reply has 2+ price patterns, OVERWRITES the reply with "What size or load are you sizing for? Single or three phase?" Logs `claude.reply.price_dump_blocked`.
-- Memory: `feedback_sunny_pricing_discipline.md`.
-
-**Inverter parallel engineering rule (commit `94c3e42`).** Live failure: Sunny suggested "4 x Deye 80kW + 1 x Deye 30kW" for a 350kW system, which is INVALID — inverters can only be paralleled if same size, max 10 units. Fixed:
-- `src/prompts/system.md`: new "Engineering rules you must NEVER violate" section right above the locations block. Same-size only, max 10 units, with valid examples (7 x 50kW = 350kW, 5 x 80kW = 400kW) and the explicit invalid example so Opus pattern-matches against it.
-- Same fact saved to `knowledge_entries` (id 824) via API, category=product, so brother can edit from admin.
-
-**Daily LLM budget raised to $20** (was $5). Set via `railway variables --set DAILY_LLM_BUDGET_USD=20`. At Opus rates this covers ~400-800 messages/day.
-
-**Cron registration NUKED at boot when DISABLE_NOTIFICATIONS=true (commit `ffe7208`).** Previous version registered the cron schedules and skipped at fire time. Stronger: when env var is true at startup, do NOT register any cron schedules at all. Container has zero scheduled work for notifications. Logs `cron.all_schedules_skipped_at_boot` once at startup. Re-enable: `railway variables --set "DISABLE_NOTIFICATIONS=false"` triggers a redeploy that re-registers the schedules.
-
-**LOCAL SUNNY ZOMBIE KILLED (the real culprit).** Serge kept getting "ELECTRO-SUN AGENT REPORT" messages every 2 hours despite the cloud kill switch being verified working. Cause: a `npm start` process had been running on his Mac since Sunday 10 PM (PIDs 59578 + 59596), reading the LOCAL `.env` from when it booted. Local Sunny had a stale cached `OWNER_WHATSAPP=966502392650` (Saudi number) AND its own cron firing every 2h. It used the same Meta API credentials so messages actually delivered. **Always check `ps aux | grep node` for local zombies when reports appear that the cloud DB has no record of.** Killed both PIDs. Local `.env` updated to set `DISABLE_NOTIFICATIONS=true` to prevent recurrence on future accidental `npm start`.
-
-## 2026-05-05 12:15am Beirut — DISABLE_NOTIFICATIONS kill switch
-
-Owner reports + reminders silenced while Serge tests as a customer. Set `DISABLE_NOTIFICATIONS=true` on Railway via CLI. Cron handlers in `server.js` skip cleanly with one log line each:
-- 2-hour cron reports (`sendOwnerReport`)
-- Daily reports (21:00 Africa/Lagos)
-- Daily learning report (21:30 Africa/Lagos)
-- 30-min window scan (24h-window reminders, over-budget alerts)
-
-Inbound customer messages still work normally. Webhook handling, admin UI, DB tracking all unaffected. Verified live at `notifications_disabled=true` via `/version`. To re-enable: `railway variables --set "DISABLE_NOTIFICATIONS=false"` from the repo. Commit `9ddfd81`.
-
-## 2026-05-04 8:30pm-9pm Beirut — Railway CLI + bulletproof greeting + history scrub
-
-**Railway CLI installed.** Serge auth'd, Claude can now run `railway` commands directly from this repo:
-- Project linked: `ample-laughter` / environment `production` / service `sunny-electrosun`
-- `railway variables --set KEY=VALUE` updates Railway env vars without dashboard clicks
-- `railway up --detach --ci` triggers a fresh deploy from local files (does NOT use git SHA, so `RAILWAY_GIT_COMMIT_SHA` env will be null on these deploys)
-- `railway redeploy --yes` re-runs the latest deploy (only works when no build is in progress)
-- `railway logs` tails live logs
-- `railway status` confirms project/env/service binding
-- IMPORTANT: `railway variables` (no args) is BLOCKED in Claude's sandbox because it would dump every secret into the transcript. Use `--set` for writes; use `/version` and `/api/brain` endpoints to read non-secret config like `owner_whatsapp_tail` and the `MODEL_*` values.
-
-**OWNER_WHATSAPP routing fixed at 8:42pm Beirut.** Reports were going to Serge's Saudi number (`966502392650`) all evening because the Railway env var was still set to it despite the brother's number being intended. Set via CLI: `railway variables --set OWNER_WHATSAPP=2347041328055`. Verified live via `https://sunny-electrosun-production.up.railway.app/version` → `owner_whatsapp_tail: "8055"`.
-
-**Public `/version` endpoint shipped (commit `f469935`).** No API key required. Returns `git_sha_short`, `git_branch`, `git_commit_message`, `deploy_id`, `escalations_disabled`, `owner_whatsapp_tail`, `node_uptime_seconds`. One-tap diagnostic for what's running. Lives on the main app router (`server.js`), NOT under `/api`, so it bypasses the X-API-Key middleware.
-
-**Defense-in-depth greeting bypass (commit `d87c455`).**
-- `src/handler.js`: `handlerIsGreeting()` runs BEFORE the escalation branch and forces `needs_escalation=false` on any short greeting message even if the classifier somehow asked for hot_lead. Belt-and-suspenders against the `src/classifier.js` fast-path bug.
-- `src/handler.js`: `DISABLE_ESCALATIONS` env kill switch. Set `DISABLE_ESCALATIONS=true` on Railway and ALL escalations (hot_lead and silent_query) get demoted to normal Sonnet/Opus replies. Useful for testing without canned holding messages firing.
-
-**Critical bug fixed (commit `2a94d8b`).** The greeting guard in `src/classifier.js` was checking `message?.body` but the classifier receives the message body as a STRING, not an object. So `body` always evaluated to `"undefined"` and the regex never matched. That's why "hello" still hit hot_lead even after `065653a` deployed. Fix: new `bodyText()` helper handles both string and object inputs. Plus a fast-path that returns a synthetic `{C1, COLD, no escalation, intent=greeting}` result and SKIPS Haiku/Opus entirely for casual greetings, saving cost.
-
-**wa.me link ban + history scrub (commit `735d748`).** Live failure: greeting bypass worked, but Opus generated its own wa.me link in the reply text, mimicking patterns it saw in prior canned holding replies in the conversation history. Three fixes:
-- `src/prompts/system.md`: top-priority rule "NEVER write wa.me URLs, click-to-chat links, or phone-number tel-links". The system handles handoff via separate canned messages.
-- `src/prompts/system.md`: "Treat each new customer message as the live one. A greeting gets a greeting reply. Do NOT bring up prior products, categories, or temperatures."
-- `src/claude.js`: `scrubHistoryContent()` strips wa.me URLs and "Direct line to the specialist" sentences from prior assistant messages before sending history to Opus. Replaces canned holding-reply lines with `[earlier system holding message]` so Opus can't anchor on the pattern.
-- `src/claude.js`: when current message is a casual greeting, suppress the "Known about this customer" context block (except name) and append guidance: "Do NOT bring up prior products."
-
-**Empty history on greetings + extended AI-speak ban (commit `851faa8`).** Even with context-block suppression, Opus still anchored on prior turns ("12kW order and payment details") because the conversation HISTORY itself referenced those. Fix:
-- `src/claude.js`: when greeting detected, send Opus an EMPTY conversation history (clean slate). Just the system prompt + the greeting. Stops Opus from inheriting any anchor from prior turns.
-- `src/prompts/system.md`: extends the AI-speak ban list with "I can help you with", "Is there anything else I can help you with", "How can I assist you", "How may I assist". Adds explicit rule against carrying over prior context the customer did not bring up in the current message.
-
-**Architecture rule (Serge clarified):** On a greeting, history is empty so Opus can't anchor. On any other message, full history available so Opus CAN pull prior context if the customer references it ("what about that 12kW we discussed?"). Don't proactively reach into history; do reach in when asked.
-
-**Address-vs-phone split (commit `a6d2a7a`).** Live failure: customer asked "Where in Lagos" twice, Sunny replied with the Lagos PHONE number instead of the Lagos OFFICE ADDRESS. Three fixes:
-- `src/prompts/system.md`: split the conflated "do not proactively share phone OR address" rule. Addresses ARE shared whenever asked about location, branch, office, pickup, visit, warehouse. Phone numbers are still NEVER proactive (only on explicit "call me"/"your number" or HOT lead).
-- `src/prompts/system.md`: baked the actual office addresses into the prompt as a top-of-prompt "Electro-Sun locations" section. Always in scope, never pruned by the knowledge cap.
-- `src/prompts/classifier.md`: location/branch/address/pickup/warehouse questions are NEVER silent_query.
-
-**Specialist-link gating (commits `065653a`, `d3992ab`).** Specialist link was being attached to every escalation reply (silent_query AND hot_lead). Now: link only attached on `escalation_type === 'hot_lead'` AND `SPECIALIST_DIRECT_LINK` env set. Silent queries get just the holding sentence (team will handle via the alert pipeline).
-
-**Voice rule deepened.** All references to "Great." in worked examples and HOT_LEAD_REPLY constant scrubbed. New holding reply: "Noted. A specialist will follow up with you shortly with the formal documents and final figures."
-
-## 2026-05-04 8pm Beirut — Opus everywhere
-
-Serge directive: every model call uses `claude-opus-4-7`. Classifier, reply, teacher, owner-Q&A, all on Opus. Reasoning: he's frustrated with Haiku-classifier mistakes (greetings escalating, addresses turning into phone numbers in replies) and wants a single high-capability brain handling everything.
-
-**Implemented:**
-- `src/claude.js`: `MODEL_CLASSIFIER` and `MODEL_REPLY` default to `claude-opus-4-7`, env-overridable via `MODEL_CLASSIFIER` / `MODEL_REPLY`.
-- `src/knowledge.js`: `MODEL_TEACHER` defaults to `claude-opus-4-7`, env-overridable via `MODEL_TEACHER`.
-- `src/owner_qa.js`: `MODEL` defaults to `claude-opus-4-7`, env-overridable via `MODEL_OWNER_QA`.
-- `src/cost_tracker.js`: added Opus pricing (1500 cents/M input, 7500 output, 150 cache_read, 1875 cache_write). `DAILY_LLM_BUDGET_USD` guardrail still enforces, just trips faster.
-- `api/dashboard.js`: `/api/brain` now reports the live model env values so the admin Models & config tab shows what's actually running, not the hardcoded constants.
-
-**Cost reality:** ~$0.025-0.05 per message vs ~$0.005 before. Roughly 5-10x. At 500 messages/day that's $15-25/day or $450-750/month. Brother needs to confirm appetite. Use the env overrides to step back to Sonnet/Haiku selectively if budget tightens (`MODEL_REPLY=claude-sonnet-4-6` for example).
-
-**Important caveat documented in CLAUDE.md:** the recent visible bugs ("hello" escalating, link spam on every escalation, phone-vs-address confusion) were all CODE bugs in classifier.js, handler.js, and system.md. They are NOT model-quality issues. Opus does NOT fix bad code; it only improves judgement on borderline cases the prompt actually handles correctly. Greeting fast-path bypass + address-vs-phone split + greeting-guard string-typing fix shipped in commits 2a94d8b, a6d2a7a, 065653a, d3992ab.
-
-## 2026-05-04 evening tail (Beirut) — voice rule + diag
-
-**Voice rule, set permanently 2026-05-04 (Serge):**
-Sunny must NOT sound like an AI. No compliments, no subjective praise, no AI-speak fillers. Banned phrases include: "Great", "Great choice", "Great project", "Great question", "Excellent", "Awesome", "Amazing", "Perfect", "I'd be happy to help", "I love that", "Sounds wonderful", "I understand", "I see", "I hear you", "Let me help you with that", "Feel free to...", "Hope this helps", "Just to clarify", "Certainly", "indeed", "moreover", "delve". No unsolicited adjectives on the customer's project ("nice property", "good plan"). Tone target: Lagos sales floor, not customer-service chatbot. Information first, brevity always.
-
-Implemented in:
-- `src/prompts/system.md`, new section "No compliments, no AI-speak, no subjective phrases" added directly under "Voice".
-- All worked-example dialogues in `system.md` scrubbed of compliment openers (no more "Great." in HOT replies).
-- `src/handler.js > HOT_LEAD_REPLY` and `SILENT_QUERY_REPLY` rewritten without "Great" or "happy to help" tone.
-- `UNSUPPORTED_REPLY` shortened, no more "I'll get back to you right away".
-- Specialist-link copy ("If you'd like to reach our specialist directly now") replaced with neutral "Direct line to the specialist:".
-- Memory: `memory/feedback_sunny_voice_no_compliments.md`.
-
-**Number swap timing rule (Serge, 2026-05-04):**
-Replace the test number `+1 555 172 6906` with the real Electro-Sun production number ONLY when end-to-end testing is 100% done. Until then, keep the test number. Brother's number is already in use as `OWNER_WHATSAPP` for alerts and reports; that's separate from the customer-facing number.
-
-**Owner-target diagnostics (commit `7c348e3`):**
-- `/api/brain` now returns `owner_whatsapp_tail` (last 4 digits of `process.env.OWNER_WHATSAPP`) so the admin Knowledge tab can verify which number the live container is targeting without leaking the full number.
-- `src/reports.js`: every `sendOwnerReport` and `sendDailyLearningReport` call logs `report.target {owner_tail: "XXXX"}` at info-level. Lets you see in Railway logs where each cron actually fired.
-- Reason: 4 PM and 6 PM Beirut crons both landed on Serge's phone despite `OWNER_WHATSAPP` set to brother's number (`8055`) on Railway. Diagnostic is in place to catch whether the env or the code is at fault on the next cron firing.
-
-## 2026-05-04 afternoon-evening session (Beirut) — full snapshot
-
-Today's focus: production hardening, owner cutover, owner Q&A, knowledge ingestion at scale, admin UI redesign in two passes (brand-dark, then WhatsApp-light).
-
-**Owner cutover (Task #17 partial):**
-- Brother's number `2347041328055` is now `OWNER_WHATSAPP` on Railway. Brother is whitelisted on Meta. Serge stays as a customer-tester from `+966 50 239 2650`. Serge's messages now flow through the normal customer pipeline.
-- Specialist link kept pointing at brother's number too (`SPECIALIST_DIRECT_LINK=2347041328055`).
-- Note: a 4 PM Beirut 2-hour cron report still landed on Serge's phone the day of the env change, attributed to a stale container; next cron should land on brother's. **Verify each cron firing for the next 24h**.
-
-**Image vision (commit `ad39a4e`):**
-- WhatsApp images now flow through full pipeline: download from Meta media API, save to `MEDIA_DIR` on the Railway volume (default `/data/media/`), pass as base64 to Sonnet 4.6 vision.
-- `src/whatsapp.js > downloadMedia(mediaId)` does the two-step Meta download (metadata GET → signed URL GET with auth, 25MB cap).
-- `src/handler.js`: `extractMessages()` picks up `msg.type === 'image'`, `handleInbound()` downloads + base64s + threads into `generateReply(history, message, contact, attachments)`.
-- `src/claude.js > generateReply` accepts attachments; rewrites the last user message into a multi-block content array with image blocks before the text.
-- `src/memory.js`: new `media_path` and `media_mime` columns on messages; idempotent migration in `db/init.js`.
-- Classifier still text-only by design; sees `[Customer sent an image with caption]: ...` marker.
-- Use cases unlocked: roof photos, inverter labels, meter readings, payment screenshots (HOT escalation), warranty damage photos.
-
-**Owner teaching → owner Q&A (commits `bb2b540` then `543440b`):**
-- First version was teaching mode: brother WhatsApps Sunny → Haiku-teacher (`src/prompts/teacher.md`) extracts facts → saved to `knowledge_entries` (status=active) → Sunny WhatsApps confirmation back. New table + CRUD + admin Knowledge tab shipped with this.
-- Then the brother's first real conversations made it clear that teaching-mode + casual chat were getting confused. Replaced with **owner Q&A mode** (`src/owner_qa.js`, `src/prompts/owner_qa.md`). Brother now asks Sunny questions about his data ("how many leads today", "any HOT leads", "did Patrick reply") and Sunny answers from a live snapshot (today's stats + last 24h hot leads + pending queries + recent contacts + brother's own chat history + active facts count). For teaching, brother uses the admin Knowledge tab.
-- `src/handler.js > handleOwnerNonQueryMessage` calls `answerOwnerQuestion(ownerContactId, msg.body)`. Persists owner inbound/outbound with intents `owner_question` / `owner_qa_reply`.
-- Owner replies to alerts (`msg.replyToId` matching a pending QID) still route via `handleOwnerReply` and relay to the customer.
-
-**Catalog moved to DB and made editable from admin (commit `e771021`):**
-- `db/schema.sql`: new `catalog_items` and `catalog_notes` tables.
-- `db/init.js`: idempotent seed-from-`products.json` on first boot. `products.json` stays in repo as the seed source; subsequent boots leave the DB alone.
-- `src/catalog.js`: CRUD + `formatCatalogForPrompt()` produces the same Markdown block `claude.js` used to bake at module init.
-- `src/claude.js`: drops file-based loader, calls `formatCatalogForPrompt()` inside `generateReply()` so each customer reply sees the latest prices (no restart needed after an edit).
-- `api/dashboard.js`: `GET /api/catalog`, `POST /api/catalog/items`, `POST /api/catalog/items/:id`, `DELETE /api/catalog/items/:id`, plus notes CRUD.
-- Admin UI Catalog sub-tab is fully editable: per-row inputs for brand/model/price/stock/notes with Save/Delete; "Add a new item" form; editable note list; flash-green confirmation on save. Owner can change prices any time without a developer push.
-
-**Knowledge tab expanded** (commit `38f26cd`): Knowledge tab has four sub-panels now:
-- **Live facts**: existing owner-taught facts (filterable, editable).
-- **Rules**: read-only render of `system.md`, `classifier.md`, `teacher.md` so the owner can see what's in Sunny's system prompt.
-- **Catalog**: fully editable (above).
-- **Models & config**: model IDs (Sonnet 4.6 reply, Haiku 4.5 classifier, Haiku 4.5 teacher), runtime config (DB path, media dir, daily budget, WABA ID, graph version), and which env vars are set as booleans only (never the actual values).
-- New endpoint `GET /api/brain` returns rules + models + config from disk and env. No secrets returned.
-
-**HV catalog seeded (commit `99a91fd`):**
-- New script `scripts/seed_hv_products.js`. Posts 12 catalog items + 4 product facts:
-  - Inverters: Deye 30/50/80kW HV 3-phase (4.1M / 5.9M / 8.8M NGN).
-  - Batteries: BOS-G 5.12kWh (1.15M), BOS-A 7.68kWh (1.65M), BOS-B Pro 16kWh (2.75M).
-  - Battery accessories (new section in catalog): BOS-G PDU + rack, BOS-A PDU + rack 11/14, BOS-B PDU+accessories.
-  - Compatibility facts about PDU stacking limits per inverter size.
-
-**Legacy data import (commit `44bf23d`):**
-- `scripts/import_legacy.js` parses the brother's old MariaDB dump from `/Users/sergeadaimy/Downloads/localhost.sql` (whatsapp_n8n_database_v2 schema). 11k+ message rows, 258 INSERT statements, plus `ai_memory` and `contact_list`.
-- Five stages, all post to `/api/knowledge`:
-  1. `ai_memory` direct (10 already-extracted Q&A facts saved as `customer`).
-  2. `fact_summary` per substantive conversation, deduped by leading 80 chars to avoid near-identical "client inquired about X" repeats. Cap 150 most recent.
-  3. Pricing references via regex over team replies (`Nx.xM`, `xxxk`). Limited to 80 unique. Marked as historical "Past quote ({date})" entries. **Later REJECTED** because they were polluting Sunny's prompt with stale prices (commit `4eb07fe`).
-  4. Writing-style examples: 25 sampled team replies bundled into one fact in `sales` category as a tone reference.
-  5. (Optional, `--llm`) Haiku pass over top 80 substantive conversations. Extracts up to 4 facts each, confidence ≥ 60. Costs ~$0.05 in API spend.
-- Bound runaway memory: `src/knowledge.js > formatKnowledgeForPrompt` now caps active facts at most recent 500 entries and 30KB total characters (env-overridable: `KNOWLEDGE_PROMPT_MAX_FACTS`, `KNOWLEDGE_PROMPT_BUDGET_CHARS`).
-
-**Critical bug fix (commit `5c64aa8`):**
-- `src/memory.js > updateContactFields` was crashing with `RangeError: Too many parameter values were provided` when Haiku returned `products_asked_about` as an array (better-sqlite3 spreads arrays into bind params). Now coerces arrays to comma-joined strings, plain objects to JSON, primitives to String(). Live impact: Patrick's "12kVA / 18kVA inverter" question silently failed before this fix.
-
-**Behaviour fixes after the brother used Sunny in production (commit `4eb07fe`):**
-- Sunny was dumping phone numbers and addresses on routine queries; doctrine facts weren't strong enough.
-- `src/prompts/system.md` now opens with three top-priority rules:
-  1. **Source of truth for prices is the catalog.** NEVER quote a price from owner-taught knowledge or "Past quote" entries. Past quotes are historical only.
-  2. **Do NOT proactively share phone numbers or addresses.** Phone numbers (Patrick `07041328055`, Charbel `09068859213`, Lagos `0911 188 0000`) and office addresses NEVER appear in a reply unless the customer explicitly asks for contact/location/pickup OR the lead is HOT.
-  3. **Think and answer from catalog + general knowledge before escalating.** Sizing questions are answered with concrete options, not silent_query'd.
-- `src/prompts/classifier.md` updated: "I'm using 50kW inverter and want 200kWh backup" type sizing questions are explicitly NOT escalations now.
-- `src/knowledge.js > addKnowledgeEntry` now dedups at insert time. If a new fact's normalised leading 120 chars (lowercase, alphanumeric+spaces only) match an existing active fact in the same category, returns the existing id without inserting. `skipDedup: true` escapes if needed.
-- `scripts/cleanup_past_quotes.js`: one-shot to mark all "Past quote" pricing facts as rejected. Stays in audit trail; no longer feeds the prompt. **Run this after the next push.**
-
-**Admin UI: full Electro-Sun brand refresh (commit `49a7baf`, then refreshed `3a2ca80`):**
-- Pass 1 was a brand-dark theme with deep leaf-green surfaces, gold accents, Manrope/Fraunces typography. Brother didn't like it.
-- Pass 2 (`3a2ca80`) is the WhatsApp-style light redesign. White surfaces, charcoal text, brand green only as a sparing accent. Inbox redesigned to look like WhatsApp Web: gradient-green avatar circles with per-contact initials (commit `55166a2`), white incoming bubbles with bottom-left tail, pastel green (`#DCF8C6`) outgoing bubbles with bottom-right tail, pastel violet for human-typed outgoing. Compose pill with circular green send button (paper-plane glyph). Typography: Inter throughout, system mono for phones/code. WhatsApp-style inline-bottom-right timestamps via float trick (commit `55166a2`).
-- All four sub-tabs (Live facts / Rules / Catalog / Models & config) and all three top tabs (Inbox / Contacts / Knowledge) reskinned to the same palette.
-
-**HV products + locations + sales doctrine seeded as Live facts:**
-- `scripts/seed_locations.js`: 7 facts about Abuja office (Wuse 2), Abuja warehouse (Idu Industrial Area), Abuja contacts (Charbel/Patrick), Lagos office (Rutam House), Lagos line, DEYE Platinum credential.
-- `scripts/seed_doctrine.js`: 3 facts enforcing the no-proactive-numbers/addresses doctrine and the credentials line ("DEYE Platinum authorised distributor").
-- `scripts/seed_hv_products.js`: 12 catalog items + 4 product facts (above).
-- All run-once, idempotent against the dedup at insert time.
-
-**Done (20 of 27, plus #16 came free):**
-1. Meta Developer app `ElectroSun_Whtspp` created. App ID `2440193806402796`.
-2. Meta credentials captured. Test number `+1 555 172 6906`. Phone Number ID `1111486288711551`. WABA ID `1713234916358524`. Owner whitelisted (Saudi `+966502392650`).
-3. Anthropic API key, Org `7e197f14-a3e1-4b93-9836-cd54cd831e1f`, Tier 2.
-4. Meta business verification confirmed (since 2026-06-27, also closes #16).
-5. `.env` filled, sanity check passed.
-6. `cloudflared` installed (dev-only).
-7. Sunny + quick tunnel booted on laptop.
-8. Meta webhook configured.
-9. First live WhatsApp test passed end-to-end. Anthropic block resolved on its own.
-10. Five-language coverage by code review.
-11. Force-escalation test passed.
-12. Hourly report cron verified.
-13. **Task #13 system prompt deployed against brother's Electro-Sun foundation document.** Identity: "member of the Electro-Sun team", never reveals AI. Voice: fast, direct, confident, professional, English-only. New categorization C1-C5. New lead temperature HOT/WARM/COLD/DISQUALIFIED/CLOSED/LOST. New client_type taxonomy. Two escalation patterns: silent_query and hot_lead. Punctuation rule (no double dashes) preserved.
-14. **Task #14 classifier prompt deployed and hardened.** Outputs C1-C5, lead_temperature, client_type, escalation_type. HOT triggers force escalation regardless of prior context. Code-level safety net: if classifier sets HOT temperature without escalation, handler forces it. Live tested: 5 categories all classified correctly, hot lead handoff fires both customer reply and owner RED alert.
-18. Permanent System User token issued. System User "Sunny-Server", ID `615889422441392`. No expiry.
-19. **Task #19 templates submitted to Meta** 2026-05-04. Both PENDING. Approval clock running.
-20. **Phase 5 cloud deploy DONE 2026-05-04.** Sunny live on Railway at https://sunny-electrosun-production.up.railway.app, /health returning 200, volume mounted, env vars set, Meta webhook updated to the Railway URL, `messages` field subscribed. **First live cloud conversation passed end-to-end** at 12:42 PM Beirut.
-21. **Task #17 partial DONE 2026-05-04 evening.** `OWNER_WHATSAPP` swapped from Serge `966502392650` to brother `2347041328055` on Railway. Brother whitelisted on Meta. Serge stays as customer-tester. Real production WhatsApp business number (Task #17 full) still pending the brother providing one.
-
-**Bonus shipped today (not on the formal task list):**
-- `handleUnsupported()` in `src/handler.js`: voice notes / images / documents / stickers / locations no longer drop silently, customer gets a polite "text only" reply.
-- HOLDING_REPLIES (multi-language) replaced with English-only HOT_LEAD_REPLY and SILENT_QUERY_REPLY constants per brother's "Always English" directive. Multi-language detection still runs in classifier for data capture only.
-- `notifyOwnerEscalation` differentiates hot lead vs silent query in alert text (RED vs YELLOW, includes lead_temperature and client_type).
-- Cloud-deploy readiness: `LOG_TO_FILE` env var (default true) opt-out for cloud PaaS. Disables `logs/sunny.log` writes and daily DB snapshot when set to `false`.
-- Templates `templates/owner_hourly_report_en.json` and `templates/follow_up_24h_en.json` drafted with Meta API schema, ready for one-click submission.
-- **Task #19 templates submitted to Meta 2026-05-04.** `scripts/submit_templates.js` posts both with `_notes` stripped. Owner hourly report id `3044946312362011`, follow-up 24h id `949981397673982`. Both PENDING. 24-48h Meta review clock running. Check status with `node -e "require('axios').get('https://graph.facebook.com/v21.0/1713234916358524/message_templates?fields=name,status,rejected_reason', {headers:{Authorization:'Bearer '+require('dotenv').config().parsed.META_ACCESS_TOKEN}}).then(r=>console.log(JSON.stringify(r.data,null,2)))"`.
-- Contact #5 (Serge's test number) wiped clean multiple times during testing.
-
-**Phase B code work shipped today (separate from launch sequence):**
-- **Schema migration.** Added `lead_temperature`, `client_type`, `products_asked_about`, `brand_preference`, `budget_mentioned`, `expiring_warning_sent_at` columns. Added `pending_queries` and `daily_costs` tables. Idempotent ALTER TABLE migration in `db/init.js > applyMigrations`.
-- **Reports refactor.** `src/reports.js` aggregates by `lead_temperature` (HOT/WARM/COLD/DISQUALIFIED) and `category` (C1-C5). Brother's Section 9.2 format with emoji headers, no em-dashes. Hourly cron switched from `0 * * * *` to `0 */2 * * *` per brother's spec.
-- **Silent-query workflow (the killer feature).** Sunny holds the customer reply, sends YELLOW alert to owner with `[QID:N]` tag and `alert_message_id` captured. When owner long-presses the alert and replies in WhatsApp, webhook's `context.id` matches the pending row. `handleOwnerReply` posts the answer to the customer, marks pending resolved, logs `silent_query_resolved` event with `elapsed_ms`. Verified end-to-end: 27.5s loopback test.
-- **Classifier HOT lock-down.** Tightened `src/prompts/classifier.md` so HOT temperature requires explicit commitment phrases (pay/account/proforma/deposit/install-date/proceed/order). Specific-brand pricing defaults to C2/WARM/silent_query.
-- **Daily learning report (Section 9.3).** `generateDailyLearningReport` in `src/reports.js`. New cron at 21:30 Africa/Lagos. Pulls unanswered `pending_queries`, unsorted contacts, frequent inbound intents.
-- **scripts/seed.js modernized** to C1-C5 + HOT/WARM/COLD demo data.
-- **23h/24h window monitor (`src/window_monitor.js`).** New cron `*/30 * * * *` scans `pending_queries`. Rows past 22h: one-time reminder to owner. Rows past 24h: marked status='expired' and owner gets a "Meta window closed, needs template" alert. Idempotent via `expiring_warning_sent_at` column.
-- **Budget guardrail (`src/cost_tracker.js`).** Per-day spend tracked in `daily_costs` table (cents, integers, no float drift). `recordUsage` after every Anthropic response includes input/output/cache_read/cache_write costs per model. `isOverBudget` short-circuits classify and generateReply to fallback paths when daily spend exceeds `DAILY_LLM_BUDGET_USD`. One-time over-budget alert to owner via the window-scan cron. Pricing per million tokens (cents): haiku in 80/out 400/cache_read 8/cache_write 100; sonnet in 300/out 1500/cache_read 30/cache_write 375.
-- **Template voice aligned.** Both `templates/owner_hourly_report_en.json` and `templates/follow_up_24h_en.json` now say "Electro-Sun team" instead of "Sunny" (brother's foundation doc forbids the name).
-- **FALLBACK_CLASSIFICATION updated** in `src/claude.js` from old `category=explorer` to new C1-C5 framework: `category=unsorted`, `lead_temperature=COLD`, `client_type=unknown`, `escalation_type=silent_query`. Plus generateReply context block now includes `client_type`, `lead_temperature`, `products_asked_about`, `brand_preference`, `budget_mentioned`.
-- **Admin web UI** at `/admin` (commit `77507ae`). Single-page HTML+JS+CSS, dark theme, two-pane layout (conversation list + message thread). Login with `API_KEY` from `.env`, stored in localStorage. Endpoints: `GET /api/inbox`, `GET /api/conversations/:id`, `POST /api/conversations/:id/{handle, release, send-reply}`, `GET /api/queries/pending`, `GET /api/budget/today`. Filter tabs (All / Pending / HOT / WARM / Human / C2 / C3 / C5). Take-over and Return-to-agent buttons; a manual reply auto-marks the conversation `human_handled` so Sunny stops auto-replying there. New columns on `conversations`: `human_handled`, `human_handled_at`. Handler skips Sunny processing when `conversation.human_handled` is true.
-- **Product catalog injection** (commit `19ce347`). New file `src/knowledge/products.json` with 8 Deye inverters and 2 Deye batteries at confirmed NGN prices. `src/claude.js` loads at module init, injects formatted catalog into Sonnet's system prompt as a third cache_control: ephemeral block. Classifier updated: pricing on these specific Deye products does NOT escalate (agent has the answer). Other brands still escalate.
-- **No-hedge rule + multi-option rule** (commits `19ce347`, `ffcaac6`). System prompt: never say "let me check and get back" type phrases. Always share what you know in the same reply. For open questions (sizing, choice, "how much"), offer 2-3 concrete options the customer can evaluate, each with prices from the catalog when relevant, with a clarifying question to help them pick.
-- **No-repetition rule** (commit `19ce347`). System prompt: read the FULL conversation history before each reply, never repeat own prior phrases, never re-ask answered questions, build on prior turns. Conversation history limit bumped from 20 to 50 messages.
-- **Specialist direct link** (commit `4737584`). Optional wa.me click-to-chat link appended to escalation holding replies. Configured via `SPECIALIST_DIRECT_LINK` env var (digits only, no plus sign). When set, customers hitting a HOT lead or silent_query also get a tap-to-chat link with a pre-filled context message. When unset, no link is appended (default off). Trade-off: link breaks Sunny's conversation continuity but offers immediate human-route for genuinely critical cases.
-- **Tightened over-escalation** (commit `7167de5`). Classifier escalation rules now require Electro-Sun specific facts (exact price, current stock, specific install date, complaints, warranty claims, custom designs). General questions about how solar works, brand context, sizing, market price ranges, segment confirmations are answered, NOT escalated. Plus enriched system prompt with general industry knowledge (brand overviews, typical Nigerian household sizing, install timeline norms) and concrete example dialogues from foundation doc Section 4 verbatim.
-
-**Open items the brother explicitly left blank** in Section 11 of the foundation doc, must answer before production launch:
-- Reference WhatsApp number for escalations (currently `OWNER_WHATSAPP=966502392650` is Serge's; needs swap to brother's actual number for go-live).
-- Working hours (24/7 or specific?). Affects after-hours fallback.
-- Greeting opener variations (one fixed or 2-3 to rotate?).
-- Location-specific tags (Lagos, Abuja, Port Harcourt, Kano, Ibadan?).
-- Currency: NGN only or also USD for installers / regional?
-- Default delivery and installation policy lines.
-- Default warranty messaging.
-- Competitor pricing doctrine (beat / match / justify / walk).
-- After-hours auto-reply text.
-- Pricing data: Deye 12kW, Sungrow 50kW, JA 550W, etc. Until provided, every C2 inquiry triggers silent_query escalation to the brother.
-
-**Owner teaching loop shipped 2026-05-04:**
-- New table `knowledge_entries` (id, source_message, extracted_fact, category, confidence, status, created_at, approved_at, rejected_at).
-- New file `src/knowledge.js`: `extractKnowledge()` calls Haiku with `src/prompts/teacher.md`, returns `{facts:[{category, text, confidence}], reply_to_owner}`. Helpers for add/list/setStatus/edit/delete/formatForPrompt.
-- New prompt `src/prompts/teacher.md`: turns owner DMs into structured facts. Categories: pricing, policy, product, sales, operations, warranty, customer, correction, other. Confidence < 60 triggers a clarifying question instead of save.
-- `src/handler.js`: any text message from `OWNER_WHATSAPP` that is NOT a reply to a `[QID:N]` alert is now routed to `handleOwnerTeaching()`. Sunny extracts facts (auto-status `active`, only saved if confidence >= 60), persists them, and WhatsApps the owner a confirmation. If no facts (greeting, casual chat), still replies appropriately.
-- `src/claude.js > generateReply` now injects a fourth `cache_control: ephemeral` block with all active knowledge facts, grouped by category. Sonnet treats them as authoritative and overrides earlier general guidance if they conflict.
-- Admin UI: new **Knowledge** tab with status/category filters, manual fact entry, and per-card buttons (Edit / Approve / Reject / Delete). Each card shows the extracted fact, confidence pill, category pill, status pill, original source message (truncated), and the timestamp.
-- API endpoints: `GET /api/knowledge`, `POST /api/knowledge`, `POST /api/knowledge/:id/status`, `POST /api/knowledge/:id/edit`, `DELETE /api/knowledge/:id`.
-- Workflow: owner WhatsApps Sunny "Working hours are 9 to 6 Mon-Sat" → Haiku extracts {category: policy, text: "Working hours are 9am to 6pm Mon-Sat, closed Sundays.", confidence: 95} → saves as active → Sunny replies "Got it: working hours 9am to 6pm Mon-Sat. Logged. Anything else?" → next customer asking about hours gets the answer.
-
-**Image support shipped 2026-05-04:**
-- WhatsApp images now flow through the full pipeline (download from Meta media API → save to volume → classifier sees text hint → Sonnet sees the actual image as a vision input → reply).
-- `src/whatsapp.js > downloadMedia(mediaId)` does the two-step Meta download (metadata GET → signed URL GET with auth, 25MB cap, 30s timeout).
-- `src/handler.js`: `extractMessages()` now picks up `msg.type === 'image'` with caption, mime, and sha256. `handleInbound()` downloads, base64-encodes, saves to `MEDIA_DIR`, and threads the bytes into `generateReply(history, message, contact, attachments)`.
-- `src/claude.js > generateReply` accepts an `attachments` array. When present, the last user message becomes a multi-block content array with `image` blocks before the text. Sonnet 4.6 vision handles it.
-- `src/memory.js > appendMessage`: new `media_path` and `media_mime` meta keys persist the local file path so the admin UI can render the image later. `getMessagesForConversation` now returns both columns.
-- `db/init.js`: idempotent migration adds `messages.media_path` and `messages.media_mime`.
-- `MEDIA_DIR` env var: defaults to `<DB_PATH dirname>/media` (so on Railway, images land in `/data/media/`). Documented in `.env.example`.
-- Classifier still text-only by design (sees `[Customer sent an image with caption]: <text>` or `[Customer sent an image with no caption]`). Cheap, fast. If image-only messages prove hard to classify, switch to vision-Haiku later.
-- Use cases unlocked: roof photos, inverter labels, meter readings, payment screenshots (HOT escalation), warranty damage photos.
-- Cost: ~$0.01-0.03 per image on Sonnet vision. Daily budget tracker already in place.
-- Storage: ~200KB avg image, ~200MB/month at 1000 images. Volume is 1GB on Railway, so plenty of runway.
-
-**Phase 5 cloud deploy DONE 2026-05-04 (Railway):**
-- `db/init.js`: `DB_PATH` env-overridable, auto-creates parent dir.
-- `railway.json`: Nixpacks, `npm start`, /health check with 30s timeout, restart on failure up to 5.
-- `.env.example`: documents `DB_PATH`.
-- `DEPLOY.md`: full Railway guide.
-- `scripts/print_railway_env.js`: produces the Railway env-var block from `.env` with cloud overrides (`DB_PATH=/data/sunny.db`, `LOG_TO_FILE=false`, `META_WABA_ID=1713234916358524`). Pipes cleanly to `pbcopy` so secrets never hit the chat transcript.
-- **Live URL:** https://sunny-electrosun-production.up.railway.app
-- **Volume:** `sunny-electrosun-volume` mounted at `/data`, holds the SQLite DB at `/data/sunny.db`. Persists across redeploys, restarts, and 7 days after detach. Railway also auto-backs up volumes.
-- **`/health` verified:** HTTP 200, JSON `{status:"ok",uptime_seconds:N,timestamp:...}`.
-- **Project on Railway:** project name "ample-laughter" (auto-generated), service "sunny-electrosun", environment "production", region us-west2, 1 replica.
-- **Trial vs. Hobby:** Railway showed "30 days or $1.00 left | Limited Trial" banner during setup. Serge said he subscribed to Hobby; verify the subscription is actually active in Settings → Billing or the service will pause in 30 days.
-- **PM2 + cloudflared retired** for production. Local dev still uses cloudflared if needed for testing webhooks against local code, but production traffic now runs through Railway's stable HTTPS URL.
-
-**Resume plan (current as of 2026-05-04 evening Beirut):**
-
-PUSHED but PENDING USER ACTION:
-1. **Push the latest commits.** `git push` from Serge's Terminal. Last local commits: `4eb07fe` (behavior fixes + dedup + cleanup script), `3a2ca80` (admin WhatsApp redesign), `55166a2` (avatar initials + inline timestamps). Railway redeploys automatically.
-2. **Run `node scripts/cleanup_past_quotes.js`** AFTER push to retire ~50 noisy "Past quote" pricing facts from the legacy import. They stay in audit but no longer feed Sunny's prompt. Costs are now sourced from the catalog only.
-3. **Hard refresh `/admin`** (Cmd+Shift+R) to bypass cached old CSS for the new WhatsApp-style UI.
-
-WAITING ON BROTHER:
-4. **Brother's pricing data** for Sungrow, JA panels, Longi, etc. (whatever isn't in the catalog yet). Add via admin Catalog tab or by feeding a spec to a new seed script.
-5. **Brother's Section 11 decisions** still blank from foundation doc:
-   - Working hours (24/7 or specific hours)
-   - Greeting opener variations (one fixed or 2-3 to rotate)
-   - Location-specific tags (Lagos, Abuja, Port Harcourt, Kano, Ibadan)
-   - Currency: NGN only or also USD for installers / regional
-   - Default delivery and installation policy lines
-   - Default warranty messaging
-   - Competitor pricing doctrine (beat / match / justify / walk)
-   - After-hours auto-reply text
-6. **Brother's real WhatsApp business number** (Task #17 full). Right now the test number `+1 555 172 6906` is in use; once brother provides ElectroSun's actual line, swap `META_PHONE_NUMBER_ID` on Railway and re-verify the webhook.
-
-USER-DRIVEN:
-7. **Task #15: 48-hour soak** with 3-5 testers on the current test number. Captures real conversation patterns to feed the daily learning loop and surface gaps.
-8. **Task #19 templates**: re-check Meta approval status in 24-48h via `node scripts/check_templates.js`. If rejected, read `rejected_reason` and re-submit.
-9. **Verify the next 2-hour cron** (every even hour Beirut) lands on brother's phone, not Serge's. The 4 PM Beirut cron landed on Serge — likely stale container; needs verification.
-
-CODE NICE-TO-HAVES (not blocking launch):
-10. **Hot-lead alert with conversation summary** (a small Haiku synthesis call to enrich the brother's RED alert; Section 9.1 of foundation doc).
-11. **Approve-to-permanent learning loop** (admin UI button on daily learning items to convert into permanent fact).
-12. **v2 daily learning sections** ("New patterns with draft replies", "Internal questions I have").
-13. **Knowledge file expansion**: brother to send remaining 14 categories (installation pricing, service area, warranty, payment terms, common objections, past projects, real conversation samples, working hours, holidays, compliance). Each new fact via admin Knowledge tab or via a new seed script.
-14. **Cleanup `scripts/seed.js`** (still has old category names).
-15. **Re-enable owner teaching from WhatsApp** with a cleaner intent disambiguation (today brother's WhatsApp messages always go to Q&A mode; teaching is admin-only).
-16. **RAG-style fact retrieval** instead of always injecting all active facts. With ~500 facts cap today, fine; if knowledge base grows, switch to per-message semantic search.
-17. **Avatars: per-contact color hashing** so different contacts get visually distinct avatar discs (currently all green).
-18. **Image inline rendering in admin** (`media_path` is stored; admin doesn't yet render the image inline).
-
-**Hard rule reminder:** before recommending or relying on a remembered fact (file path, function, key, URL), verify it still holds. Quick-tunnel URLs are stale-by-design; the Meta webhook config will need redoing next session if cloudflared was restarted.
+`src/prompts/system.md` has matching sections: "How to use the Conversation state block", "Handling messages with multiple ideas", "Anti-repeat rule".
+
+### Code-level reply guards (`src/claude.js`)
+
+After Opus generates a reply, before sending:
+1. **Price-dump guard**: if neither the current message nor the previous 2 customer messages contain a price-ask keyword AND reply has at least 1 price pattern, STRIP price patterns. If the strip leaves dangling labels (e.g. "Deye 16kW:.") the reply falls back to "Could you share more about your project so I can guide you better?" instead of sending the gibberish. Logs `claude.reply.prices_stripped` with `dangling_label` flag.
+2. **Repeat guard**: if new reply is byte-identical to the last outbound, overwrite with "Apologies, let me re-read your last message."
+3. **Trailing-question strip**: if customer's last message is short factual (≤40 chars, no `?`) and reply ends with `?`, strip the trailing question sentence. Logs `claude.reply.trailing_question_stripped`.
+4. **wa.me URL strip**: any wa.me link Opus emits gets removed.
+
+### Kill switches and runtime overrides (Railway env vars)
+
+| Env var | Effect |
+|---|---|
+| `DISABLE_NOTIFICATIONS=true` | Cron schedules don't register at boot. No 2-hour reports, no daily report, no daily learning, no window-monitor scan. Customer pipeline unaffected. Logs `cron.all_schedules_skipped_at_boot` once. |
+| `DISABLE_ESCALATIONS=true` | All escalations (hot_lead, silent_query) get demoted to normal Sonnet/Opus replies. Useful for testing without canned holding messages firing. |
+| `MODEL_CLASSIFIER`, `MODEL_REPLY`, `MODEL_TEACHER`, `MODEL_OWNER_QA` | Override the four Opus defaults selectively. E.g. `MODEL_REPLY=claude-sonnet-4-6` to step back if budget tightens. |
+| `MESSAGE_DEBOUNCE_MS` | Per-contact debounce window in ms (default 6000). When customer sends multiple messages back-to-back, classification + reply fires ONCE per window with combined input `[Customer sent N messages back to back]\nmsg1\nmsg2\nmsg3`. |
+| `DAILY_LLM_BUDGET_USD` | Soft daily cap (currently 20). `src/cost_tracker.js > isOverBudget` short-circuits classify and generateReply to fallback paths when daily spend exceeds it. |
+| `KNOWLEDGE_PROMPT_MAX_FACTS`, `KNOWLEDGE_PROMPT_BUDGET_CHARS` | Cap on how many active facts get injected into Sonnet/Opus prompt (default 500 facts, 30KB chars). |
+| `WHISPER_MODEL` | OpenAI model for voice-note transcription (default `whisper-1`). |
+| `OPENAI_API_KEY` | Required for voice-note transcription. PENDING: not yet set on Railway. |
+| `MEDIA_DIR` | Where downloaded WhatsApp media is stored. Defaults to `<DB_PATH dirname>/media`, set to `/data/media` on Railway. |
+| `SPECIALIST_DIRECT_LINK` | Digits-only WhatsApp number for the wa.me click-to-chat link appended to HOT lead replies. Currently set to brother's number. |
+
+### Models, costs, and budget
+
+- All model defaults: `claude-opus-4-7` (classifier, reply, teacher, owner_qa).
+- Cost reality on Opus: ~$0.025-$0.05 per message (vs ~$0.005 on Sonnet). At 500 messages/day that's $15-$25/day.
+- Opus pricing per million tokens (cents, in `src/cost_tracker.js`): in 1500 / out 7500 / cache_read 150 / cache_write 1875.
+- Sonnet pricing (kept for fallback): in 300 / out 1500 / cache_read 30 / cache_write 375.
+- Haiku pricing (kept for fallback): in 80 / out 400 / cache_read 8 / cache_write 100.
+- Per-day spend tracked in `daily_costs` table (cents, integers). One-time over-budget alert to owner via window-scan cron.
+
+### New code modules and their roles
+
+| File | Role |
+|---|---|
+| `src/owner_qa.js` + `src/prompts/owner_qa.md` | Owner Q&A mode. Brother WhatsApps Sunny questions about his data, gets answers from a live snapshot (today's stats, last 24h hot leads, pending queries, recent contacts, brother's own chat history, active facts count). |
+| `src/knowledge.js` + `src/prompts/teacher.md` | Knowledge_entries CRUD + Haiku/Opus teaching extraction. Dedup at insert (normalised leading 120 chars per category). 500-fact / 30KB cap on prompt injection. |
+| `src/catalog.js` | catalog_items + catalog_notes CRUD. `formatCatalogForPrompt()` renders the live catalog as Markdown for each reply. Editable from admin Catalog tab. |
+| `src/cost_tracker.js` | `recordUsage` after every Anthropic response; `isOverBudget` short-circuit. |
+| `src/window_monitor.js` | `*/30 * * * *` cron. Past 22h: one-time reminder to owner. Past 24h: marks status='expired' and alerts owner. Idempotent via `expiring_warning_sent_at`. |
+| `src/transcribe.js` | OpenAI Whisper wrapper for voice-note transcription. Falls back to "[Customer sent a voice note that could not be transcribed]" if OPENAI_API_KEY missing. |
+| `src/whatsapp.js > downloadMedia(mediaId)` | Two-step Meta media download (metadata GET → signed URL GET with auth, 25MB cap, 30s timeout). |
+| `src/handler.js > handleOwnerNonQueryMessage` | Routes brother's WhatsApp messages to `answerOwnerQuestion`. Owner replies to alerts (`msg.replyToId` matching pending QID) still route via `handleOwnerReply`. |
+| `src/handler.js > recoverOrphanedInbound(maxAgeMinutes)` | Scans inbound messages without a subsequent outbound reply (and not human_handled, not from owner) and re-queues them through the normal pipeline. Called 3s after `app.listen`. Default 10 minutes. Bug it fixes: in-memory debounce queue is wiped on container restart. |
+| `src/handler.js` debounce queue | Per-contact in-memory queue, fires once per `MESSAGE_DEBOUNCE_MS` window. Persists each message to DB immediately for admin visibility. |
+| `src/handler.js > handleUnsupported` (legacy) | Polite "text only" fallback for unsupported message types. Voice notes now flow through transcribe instead. |
+| `src/handler.js` calls handler | When Meta delivers a `calls` webhook event, auto-sends "Hello, this number isn't monitored for voice calls. Please send a text message and the Electro-Sun team will respond." Throttled per-caller to once per hour. Logs `call_received`. Note: Meta's Calling API is in beta. |
 
 ## Mission
 
-Sunny is an AI-powered WhatsApp Account Manager for **ElectroSun**, a solar energy supply agency in Nigeria. Sunny answers every inbound WhatsApp message in the customer's own language, explains ElectroSun's services, qualifies leads, categorizes contacts, sends hourly reports to the owner, and stores everything behind a clean REST API ready for a future web dashboard.
+Sunny is an AI-powered WhatsApp Account Manager for **ElectroSun**, a solar energy supply agency in Nigeria. Sunny answers every inbound WhatsApp message in the customer's own language, explains ElectroSun's services, qualifies leads, categorizes contacts, sends owner reports, and stores everything behind a clean REST API ready for a future web dashboard.
 
 ## Who is who
 
-- **Project owner**: Serge (builder, technical lead).
-- **End client**: Serge's brother, who runs ElectroSun.
-- **Production host**: Mac Mini M4 in the office.
-- **First production phone number**: ElectroSun's verified WhatsApp Business number (TBD at launch).
+- **Project owner**: Serge (builder, technical lead). Currently testing as a customer from `+966 50 239 2650`.
+- **End client**: Serge's brother, who runs ElectroSun. Owner WhatsApp `2347041328055`.
+- **Production host**: Railway (cloud). Mac Mini was the original plan but was retired due to office power/internet reliability.
+- **First production phone number**: ElectroSun's verified WhatsApp Business number (TBD at launch). Currently using Meta test number `+1 555 172 6906`.
 
 ## Tech stack (locked, do not deviate without asking)
 
-- **Runtime**: Node.js 20+ on macOS (Mac Mini M4 in production, same machine for dev).
+- **Runtime**: Node.js 20+. Production runs on Railway (Linux container); local dev runs on macOS.
 - **Framework**: Express.js.
-- **Database**: SQLite via `better-sqlite3` (synchronous, single file at `db/sunny.db`).
+- **Database**: SQLite via `better-sqlite3` (synchronous, single file at `db/sunny.db` locally, `/data/sunny.db` on Railway).
 - **WhatsApp**: Meta WhatsApp Cloud API (official, NOT Twilio, NOT unofficial libs). Graph API version `v21.0`.
-- **LLM**: Anthropic Claude API.
-  - `claude-haiku-4-5` for classification (fast, cheap, strict JSON output).
-  - `claude-sonnet-4-6` for reply generation (smarter, on-brand voice).
-  - Prompt caching enabled on the system blocks via `cache_control: { type: 'ephemeral' }`.
+- **LLM**: Anthropic Claude API. All four call sites (`src/claude.js > classify`, `generateReply`; `src/knowledge.js > extractKnowledge`; `src/owner_qa.js > answerOwnerQuestion`) default to `claude-opus-4-7`. Override via `MODEL_*` env vars. Prompt caching enabled on system blocks via `cache_control: { type: 'ephemeral' }`.
+- **Voice transcription**: OpenAI Whisper (`whisper-1` default, `WHISPER_MODEL` override).
 - **Scheduler**: `node-cron`.
 - **Email fallback**: `nodemailer` (used only if owner's WhatsApp report fails).
-- **Tunnel for local webhook**: Cloudflare Tunnel (preferred) or ngrok.
-- **Process manager**: PM2 (`ecosystem.config.js`) for autostart on Mac Mini boot.
+- **Process manager (local dev only)**: PM2 (`ecosystem.config.js`).
+- **Tunnel for local webhook (dev only)**: Cloudflare Tunnel quick-tunnel or named tunnel.
+- **Multipart upload for Whisper**: `form-data`.
 
 Do not add any dependency that is not in the list above without explicit approval.
 
@@ -420,32 +140,58 @@ sunny/
 ├── .env.example                 # Reference of required keys.
 ├── .gitignore
 ├── package.json
-├── server.js                    # Express app + cron registration + startup checks.
-├── ecosystem.config.js          # PM2 process config.
+├── server.js                    # Express app, cron registration, startup checks, orphan recovery call.
+├── ecosystem.config.js          # PM2 process config (local dev only).
+├── railway.json                 # Railway build/deploy config.
 ├── db/
-│   ├── schema.sql               # Single source of truth for the schema.
-│   ├── init.js                  # Initializes DB with WAL + foreign keys, exports getDb().
-│   └── sunny.db                 # Generated, gitignored.
+│   ├── schema.sql               # Single source of truth for schema.
+│   ├── init.js                  # WAL + foreign keys, idempotent migrations, optional seed-from-products.json on first boot.
+│   └── sunny.db                 # Generated, gitignored. On Railway: /data/sunny.db.
 ├── src/
-│   ├── webhook.js               # Express router: GET /webhook (Meta verify) + POST /webhook (signed inbound).
-│   ├── whatsapp.js              # Graph API send: sendMessage(to, body), sendTemplate(to, name, lang, components).
-│   ├── claude.js                # classify() and generateReply(), with retries and JSON parse fallback.
-│   ├── classifier.js            # Wraps classify(): updates contact category and lead_data, logs category_changed.
+│   ├── webhook.js               # GET /webhook (Meta verify) + POST /webhook (signed inbound).
+│   ├── whatsapp.js              # sendMessage, sendTemplate, downloadMedia.
+│   ├── claude.js                # classify, generateReply, buildConversationState, scrubHistoryContent, code-level reply guards.
+│   ├── classifier.js            # Wraps classify, updates contact, logs category_changed.
 │   ├── memory.js                # Contacts + conversations + messages + events. ISO timestamps everywhere.
-│   ├── handler.js               # handleInbound(payload): parse, idempotency, classify, escalate or reply, persist.
-│   ├── reports.js               # Hourly + daily aggregation, formatting, send via WhatsApp first, email fallback.
+│   ├── handler.js               # handleInbound pipeline, debounce queue, owner routing, calls handler, unsupported handler.
+│   ├── reports.js               # 2-hour + daily + daily-learning aggregation, WhatsApp + email send.
+│   ├── window_monitor.js        # 23h/24h pending_queries scan.
+│   ├── cost_tracker.js          # daily_costs ledger, recordUsage, isOverBudget.
+│   ├── knowledge.js             # knowledge_entries CRUD, Haiku/Opus extractKnowledge, formatKnowledgeForPrompt.
+│   ├── catalog.js               # catalog_items + catalog_notes CRUD, formatCatalogForPrompt.
+│   ├── owner_qa.js              # answerOwnerQuestion (live snapshot Q&A for the brother).
+│   ├── transcribe.js            # OpenAI Whisper wrapper.
 │   ├── prompts/
-│   │   ├── system.md            # Sunny's personality. Editable, no code restart needed beyond a process restart.
-│   │   └── classifier.md        # Strict JSON classifier rules.
+│   │   ├── system.md            # Sunny's personality, voice rules, hard rules, locations block, conversation-state usage, engineering rules.
+│   │   ├── classifier.md        # C1-C5 classification, lead_temperature, client_type, escalation rules.
+│   │   ├── teacher.md           # Owner-DM-to-fact extraction prompt.
+│   │   └── owner_qa.md          # Owner Q&A prompt with live snapshot context.
+│   ├── knowledge/
+│   │   └── products.json        # Seed source for catalog_items on first boot.
 │   └── utils/
-│       ├── logger.js            # Console + rotating file at logs/sunny.log (5MB rotations, 5 kept).
+│       ├── logger.js            # Console + rotating file at logs/sunny.log (5MB rotations, 5 kept). Disabled when LOG_TO_FILE=false.
 │       └── verifySignature.js   # HMAC-SHA256 of raw body using META_APP_SECRET.
 ├── api/
-│   └── dashboard.js             # Express router mounted at /api. Requires X-API-Key header.
+│   └── dashboard.js             # Express router mounted at /api. Requires X-API-Key header. /version is on the main app router (no auth).
+├── public/
+│   └── admin/                   # Single-page admin UI (HTML + JS + CSS, WhatsApp-style light theme).
 ├── scripts/
-│   └── seed.js                  # Demo data for testing the dashboard.
+│   ├── seed.js                  # Demo data (still has old category names; cleanup pending).
+│   ├── seed_hv_products.js      # 12 HV catalog items + 4 product facts (idempotent via dedup).
+│   ├── seed_locations.js        # 7 location/contact facts.
+│   ├── seed_doctrine.js         # 3 doctrine facts.
+│   ├── import_legacy.js         # Parses brother's old MariaDB dump into facts.
+│   ├── cleanup_past_quotes.js   # Marks legacy "Past quote" pricing facts as rejected.
+│   ├── submit_templates.js      # POST templates to Meta.
+│   ├── check_templates.js       # GET template approval status.
+│   └── print_railway_env.js     # Produces Railway env-var block from .env with cloud overrides.
+├── templates/
+│   ├── owner_hourly_report_en.json
+│   └── follow_up_24h_en.json
 ├── presentation/
-│   └── sunny-overview.html      # Stakeholder-facing brochure. Self-contained, print-ready.
+│   └── sunny-overview.html      # Stakeholder-facing brochure.
+├── docs/
+│   └── session-history.md       # Chronological changelog (this file used to live in CLAUDE.md).
 └── logs/                        # sunny.log, daily DB snapshots, PM2 logs.
 ```
 
@@ -453,55 +199,84 @@ The project folder path contains a space: `/Users/sergeadaimy/Desktop/Claude Pro
 
 ## How a message flows (the pipeline)
 
-1. Customer sends a WhatsApp text to ElectroSun's number.
+1. Customer sends WhatsApp text/image/voice/audio to ElectroSun's number.
 2. Meta POSTs to `/webhook` with `X-Hub-Signature-256` header.
-3. `src/webhook.js` reads the raw body (captured by an `express.json` `verify` callback so HMAC computation matches what Meta signed) and calls `verifyMetaSignature`. Mismatched signatures get a 403. The webhook returns 200 immediately, then processes asynchronously to be friendly to Meta retries.
-4. `handler.js > handleInbound(payload)`:
-   1. Extracts text messages only. Non-text types are logged and ignored.
-   2. **Idempotency**: looks up `whatsapp_message_id` in `messages`. If already stored, skips (Meta retries failed webhooks).
-   3. `getOrCreateContact(phone, profileName)`.
-   4. `getActiveConversation(contactId)` opens a new conversation if the last message was more than 24 hours ago.
-   5. Reads the prior history (last 20 messages) BEFORE persisting the new one.
-   6. Persists the inbound message.
-   7. Calls `classifier.runClassification()` which calls Haiku, parses JSON, retries once on parse failure, falls back to a safe `explorer + needs_escalation: true` if Claude fails entirely. It updates the contact's category, language, and lead_data fields (only fills in nulls, never overwrites existing values).
-   8. **Branch A (escalation)**: logs `escalated` event, alerts owner via WhatsApp with full context, sends the customer a short holding reply in their detected language.
-   9. **Branch B (auto-reply)**: calls Sonnet via `generateReply(history, message, contact)`. The system prompt is `src/prompts/system.md` plus a "Known about this customer" block built from the contact row. If Sonnet fails, falls back to the holding reply.
-   10. Sends the reply via `sendMessage`, persists outbound message with the returned WhatsApp message ID.
-
-5. Hourly cron (`0 * * * *` UTC) generates an hourly report and sends it to the owner.
-6. Daily cron (`0 21 * * *` Africa/Lagos) generates a 24h report, sends it, then snapshots `db/sunny.db` to `logs/sunny_YYYY-MM-DD.db`.
+3. `src/webhook.js` reads the raw body (captured by an `express.json` `verify` callback so HMAC computation matches what Meta signed) and calls `verifyMetaSignature`. Mismatched signatures get a 403. Webhook returns 200 immediately, then processes asynchronously.
+4. **Calls webhook event** (separate path): handler.js fires the auto-reply "this number isn't monitored for voice calls", throttled to once/hour per caller.
+5. `handler.js > extractMessages` extracts text, image, audio. `handleInbound(payload)`:
+   1. **Idempotency**: looks up `whatsapp_message_id` in `messages`. If already stored, skips.
+   2. **Voice notes**: download from Meta, save to `MEDIA_DIR`, transcribe via Whisper, rewrite `msg.body` to transcript with `[voice note transcribed]:` prefix.
+   3. **Images**: download from Meta, save to `MEDIA_DIR`, base64-encode, persist with `media_path` and `media_mime`. Classifier sees text marker `[Customer sent an image with caption]:`; Opus reply call sees the actual image as a vision input.
+   4. `getOrCreateContact(phone, profileName)`.
+   5. `getActiveConversation(contactId)` opens a new conversation if the last message was more than 24 hours ago. If `conversation.human_handled` is true, Sunny skips processing.
+   6. **Owner routing**: messages from `OWNER_WHATSAPP` that match a pending `[QID:N]` go to `handleOwnerReply` (relays to customer). Other owner messages go to `handleOwnerNonQueryMessage` → `answerOwnerQuestion` (live snapshot Q&A).
+   7. **Debounce queue**: per-contact in-memory queue. Persists each message to DB immediately for admin visibility. Classification + reply only fire ONCE per `MESSAGE_DEBOUNCE_MS` window with combined input `[Customer sent N messages back to back]\n...`.
+   8. Reads prior history (last 50 messages), then `classifier.runClassification()` calls Opus, parses JSON, retries once on parse failure, falls back to `category=unsorted, lead_temperature=COLD, escalation_type=silent_query` if Claude fails entirely. Updates contact category, language, lead_data fields (only fills nulls, never overwrites).
+   9. **Greeting fast-path**: if message matches greeting regex, return synthetic `{C1, COLD, no escalation, intent=greeting}` without calling Opus. Saves cost. Reply path then sends Opus EMPTY history (clean slate, no anchoring on prior products).
+   10. **Branch A (escalation)**: logs `escalated`, alerts owner via WhatsApp (RED for hot_lead, YELLOW for silent_query, with `[QID:N]` tag and pending_queries row). Sends customer the canned `HOT_LEAD_REPLY` or `SILENT_QUERY_REPLY` (English). HOT also gets the wa.me specialist link. Demoted to normal reply when `DISABLE_ESCALATIONS=true`.
+   11. **Branch B (auto-reply)**: `generateReply(history, message, contact, attachments)`. System prompt = `system.md` + locations block + conversation-state block + catalog block + active knowledge facts (capped) + "Known about this customer" context. Code-level guards (price-strip, repeat, trailing-question-strip, wa.me-strip) clean up the reply before send.
+   12. Sends via `sendMessage`, persists outbound with returned WhatsApp message ID. `cost_tracker.recordUsage` after every Anthropic response.
+6. **Cron jobs (only register at boot if `DISABLE_NOTIFICATIONS=false`)**:
+   - `0 */2 * * *` (UTC) every 2 hours: 2-hour report, sends to owner.
+   - `0 21 * * *` (Africa/Lagos) daily: 24h report, sends, snapshots DB.
+   - `30 21 * * *` (Africa/Lagos) daily: daily learning report (unanswered queries, unsorted contacts, frequent inbound intents).
+   - `*/30 * * * *` window monitor: 23h reminder + 24h expire on pending_queries; over-budget one-time alert.
+7. **Startup**: `recoverOrphanedInbound(10)` runs 3s after `app.listen` to re-queue any orphaned inbound from the last 10 minutes.
 
 ## Database schema and conventions
 
-Schema lives in `db/schema.sql`. Tables: `contacts`, `conversations`, `messages`, `events`, `reports`. Indexes include a partial unique index on `messages.whatsapp_message_id` (only when not null) for idempotency.
+Schema lives in `db/schema.sql`. Tables:
+- **`contacts`**: phone, profile_name, category, language, lead_data fields (`name`, `location`, `use_case`, `load_estimate`, `timeline`), `lead_temperature`, `client_type`, `products_asked_about`, `brand_preference`, `budget_mentioned`, `expiring_warning_sent_at`, `last_active`.
+- **`conversations`**: `contact_id`, `started_at`, `last_message_at`, `human_handled`, `human_handled_at`.
+- **`messages`**: `whatsapp_message_id` (partial unique index for idempotency), `conversation_id`, `direction`, `body`, `kind`, `media_path`, `media_mime`, `created_at`.
+- **`events`**: log of category_changed, escalated, silent_query_resolved, call_received, etc.
+- **`reports`**: persisted hourly/daily/learning reports.
+- **`pending_queries`**: silent-query workflow. `customer_contact_id`, `customer_message`, `alert_message_id`, `status` (open/resolved/expired), `created_at`, `resolved_at`, `expiring_warning_sent_at`.
+- **`daily_costs`**: per-day spend in cents (integers, no float drift).
+- **`knowledge_entries`**: owner-taught facts. `id`, `source_message`, `extracted_fact`, `category` (pricing/policy/product/sales/operations/warranty/customer/correction/other), `confidence`, `status` (active/rejected/draft), `created_at`, `approved_at`, `rejected_at`.
+- **`catalog_items`**: `brand`, `model`, `price_naira`, `stock`, `notes`. Seeded from `src/knowledge/products.json` on first boot only.
+- **`catalog_notes`**: free-form catalog notes (PDU stacking limits, etc.).
 
-**Timestamp convention**: every timestamp written by application code is an **ISO 8601 string** (`new Date().toISOString()`). Do NOT rely on SQLite's `CURRENT_TIMESTAMP` default for new rows because it produces `'YYYY-MM-DD HH:MM:SS'` (no `T`, no `Z`) which sorts wrong against ISO strings in range queries. The schema keeps the defaults for safety, but every INSERT in code passes an explicit ISO timestamp.
+Idempotent ALTER TABLE migrations live in `db/init.js > applyMigrations`.
 
-**Conversation rollover**: a new conversation row is opened if the latest one's `last_message_at` is older than `CONVERSATION_WINDOW_MS` (24 hours). Defined in `src/memory.js`.
+**Timestamp convention**: every timestamp written by application code is an **ISO 8601 string** (`new Date().toISOString()`). Do NOT rely on SQLite's `CURRENT_TIMESTAMP` default for new rows because it produces `'YYYY-MM-DD HH:MM:SS'` (no `T`, no `Z`) which sorts wrong against ISO strings in range queries.
 
-**History shape for Claude**: `getRecentHistory(contactId, limit=20)` returns an array of `{role, content}` objects with **alternating roles enforced**. Consecutive same-role messages (e.g. customer sends two texts before Sunny replies) are merged into one with newline joins. The Anthropic API requires alternation.
+**Conversation rollover**: a new conversation row is opened if the latest one's `last_message_at` is older than `CONVERSATION_WINDOW_MS` (24 hours).
 
-**Lead data merge rule**: `classifier.js` only fills in lead fields (`name`, `location`, `use_case`, `load_estimate`, `timeline`) when the contact's existing value is null. We never overwrite a known value with a possibly noisier later guess.
+**History shape for Claude**: `getRecentHistory(contactId, limit=50)` returns `{role, content}` array with **alternating roles enforced**. Consecutive same-role messages are merged with newline joins. The Anthropic API requires alternation.
+
+**Lead data merge rule**: classifier only fills lead fields when the existing value is null. Never overwrite a known value.
+
+**Coercion safety**: `src/memory.js > updateContactFields` coerces arrays to comma-joined strings, plain objects to JSON, primitives via `String()`. Avoids better-sqlite3 spreading arrays into bind params and crashing.
 
 ## Environment variables
 
 All listed in `.env.example`. Required at runtime:
 
-| Key | Purpose | Required for |
-|---|---|---|
-| `META_VERIFY_TOKEN` | Random string. Must match the value pasted into Meta's webhook config. | Webhook GET handshake |
-| `META_ACCESS_TOKEN` | Bearer token for Graph API. Use the 24h temp token for dev, a permanent System User token in production. | All outbound WhatsApp |
-| `META_PHONE_NUMBER_ID` | The Meta-issued ID for the sending number. | All outbound WhatsApp |
-| `META_APP_SECRET` | Used to verify `X-Hub-Signature-256`. If unset, signature checks are SKIPPED and a startup warning is logged (dev only). Production must set this. | Webhook signature verification |
-| `ANTHROPIC_API_KEY` | Claude API key. | Classification and replies |
-| `OWNER_WHATSAPP` | E.164 digits, e.g. `2348012345678`. Receives escalation alerts and reports. | Owner notifications |
-| `OWNER_EMAIL` | Email fallback when WhatsApp report fails. | Email fallback |
-| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | SMTP credentials for the email fallback. Optional. | Email fallback |
-| `PORT` | Express port. Defaults to 3000. | Server |
-| `API_KEY` | Required by `/api/*`. If unset, every API call returns 503. | Dashboard API |
-| `DAILY_LLM_BUDGET_USD` | Soft daily cap. Currently a placeholder, NOT YET enforced. | Future cost guardrail |
-| `DB_PATH` | Optional override of the SQLite file location. Defaults to `db/sunny.db` inside the repo. Set to `/data/sunny.db` on Railway (volume mount). | Cloud deploy |
-| `META_WABA_ID` | WhatsApp Business Account ID for template management. Default `1713234916358524`. | Template submissions |
+| Key | Purpose |
+|---|---|
+| `META_VERIFY_TOKEN` | Random string. Must match the value pasted into Meta's webhook config. |
+| `META_ACCESS_TOKEN` | Bearer token for Graph API. Permanent System User token in production. |
+| `META_PHONE_NUMBER_ID` | Meta-issued ID for the sending number. Currently the test number; swap when brother provides production line. |
+| `META_APP_SECRET` | Used to verify `X-Hub-Signature-256`. Must be set in production. |
+| `META_WABA_ID` | WhatsApp Business Account ID. `1713234916358524`. |
+| `ANTHROPIC_API_KEY` | Claude API key. |
+| `OPENAI_API_KEY` | Whisper transcription. PENDING: not yet set on Railway. |
+| `OWNER_WHATSAPP` | E.164 digits, currently `2347041328055`. Receives escalation alerts and reports. |
+| `OWNER_EMAIL`, `SMTP_*` | Email fallback when WhatsApp report fails. Optional. |
+| `PORT` | Express port. Defaults to 3000. |
+| `API_KEY` | Required by `/api/*`. If unset, every API call returns 503. `/version` and `/health` bypass this. |
+| `DB_PATH` | SQLite file location. `/data/sunny.db` on Railway. |
+| `MEDIA_DIR` | Downloaded media location. Defaults to `<DB_PATH dirname>/media`. |
+| `LOG_TO_FILE` | Default true. Set false on cloud PaaS to disable rotating-file logger and DB snapshot. |
+| `DISABLE_NOTIFICATIONS` | When true, no cron schedules register at boot. |
+| `DISABLE_ESCALATIONS` | When true, escalations get demoted to normal replies. |
+| `MESSAGE_DEBOUNCE_MS` | Debounce window per contact. Default 6000. |
+| `MODEL_CLASSIFIER`, `MODEL_REPLY`, `MODEL_TEACHER`, `MODEL_OWNER_QA` | Override Opus default selectively. |
+| `WHISPER_MODEL` | OpenAI model. Default `whisper-1`. |
+| `DAILY_LLM_BUDGET_USD` | Soft daily cap. Currently 20. |
+| `KNOWLEDGE_PROMPT_MAX_FACTS`, `KNOWLEDGE_PROMPT_BUDGET_CHARS` | Active-fact injection cap. Defaults 500 / 30000. |
+| `SPECIALIST_DIRECT_LINK` | Digits-only number for the wa.me link on HOT replies. |
 
 `server.js > startupSanityChecks()` logs warnings for missing critical keys at boot.
 
@@ -523,145 +298,168 @@ npm start
 cloudflared tunnel --url http://localhost:3000
 ```
 
-The `cloudflared` quick-tunnel URL changes every restart. For production use a named tunnel with a stable hostname.
+The `cloudflared` quick-tunnel URL changes every restart. For production use a named tunnel with a stable hostname (we use Railway HTTPS URL instead).
+
+**Local zombie warning**: before debugging "ghost" reports, always check `ps aux | grep node` for stale `npm start` processes that may be reading a cached `.env` and posting to Meta with old config. Set `DISABLE_NOTIFICATIONS=true` in local `.env` to prevent recurrence on accidental local starts.
 
 ## Cron schedule
 
-Defined in `server.js`:
+Defined in `server.js`. **All schedules are skipped at boot when `DISABLE_NOTIFICATIONS=true`** (logs `cron.all_schedules_skipped_at_boot`).
 
-- `0 * * * *` (UTC) hourly: `generateHourlyReport()` then `sendOwnerReport(report)`.
-- `0 21 * * *` (Africa/Lagos timezone) daily: `generateDailyReport()` then `sendOwnerReport(report)`, then `snapshotDb()` copies `db/sunny.db` to `logs/sunny_YYYY-MM-DD.db`.
+- `0 */2 * * *` (UTC) every 2 hours: `generateHourlyReport()` then `sendOwnerReport(report)`.
+- `0 21 * * *` (Africa/Lagos): `generateDailyReport()` then `sendOwnerReport(report)`, then `snapshotDb()`.
+- `30 21 * * *` (Africa/Lagos): `generateDailyLearningReport()` then send.
+- `*/30 * * * *`: `window_monitor.scan()` for 23h reminders, 24h expirations, over-budget alerts.
 
 ## Dashboard API
 
-Mounted at `/api`. Every endpoint requires header `X-API-Key: <process.env.API_KEY>`. Returns 401 on mismatch, 503 if `API_KEY` is not set on the server.
+Mounted at `/api`. Every endpoint requires header `X-API-Key: <process.env.API_KEY>`. Returns 401 on mismatch, 503 if `API_KEY` is not set on the server. `/version` and `/health` are on the main app router (no auth).
 
-- `GET /api/contacts?category=&from=&to=&limit=&offset=` paginated list, ordered by `last_active DESC`.
-- `GET /api/contacts/:id` single contact + all conversations + all messages + last 50 events.
-- `GET /api/stats/today` counts since UTC midnight.
-- `GET /api/stats/range?from=&to=` same shape over an arbitrary ISO window.
-- `GET /api/reports/latest?type=hourly|daily` most recent persisted report (default `hourly`).
-- `GET /api/reports?from=&to=&type=` list of reports.
+Public:
+- `GET /health` returns `{status, uptime_seconds, timestamp}`.
+- `GET /version` returns `git_sha_short`, `git_branch`, `git_commit_message`, `deploy_id`, `escalations_disabled`, `notifications_disabled`, `owner_whatsapp_tail`, `node_uptime_seconds`. One-tap diagnostic.
 
-Plus `GET /health` (no auth) returns `{status, uptime_seconds, timestamp}`.
+Authed:
+- `GET /api/contacts?category=&from=&to=&limit=&offset=`, `GET /api/contacts/:id`.
+- `GET /api/stats/today`, `GET /api/stats/range?from=&to=`.
+- `GET /api/reports/latest?type=hourly|daily`, `GET /api/reports?from=&to=&type=`.
+- `GET /api/inbox`, `GET /api/conversations/:id`, `POST /api/conversations/:id/{handle, release, send-reply}`.
+- `GET /api/queries/pending`, `GET /api/budget/today`.
+- `GET /api/knowledge`, `POST /api/knowledge`, `POST /api/knowledge/:id/status`, `POST /api/knowledge/:id/edit`, `DELETE /api/knowledge/:id`.
+- `GET /api/catalog`, `POST /api/catalog/items`, `POST /api/catalog/items/:id`, `DELETE /api/catalog/items/:id`, plus `/api/catalog/notes` CRUD.
+- `GET /api/brain` returns model env values, runtime config (DB path, media dir, daily budget, WABA ID, graph version, owner_whatsapp_tail), and which env vars are set as booleans only. No secrets returned.
+- `POST /api/recover-orphans?minutes=N` manual orphan recovery.
+
+## Admin web UI
+
+Mounted at `/admin`. Single-page HTML+JS+CSS, WhatsApp-style light theme (white surfaces, charcoal text, brand green as accent). Login with `API_KEY` (stored in localStorage).
+
+- **Inbox**: WhatsApp-style two-pane (conversation list + thread). Gradient-green avatar circles with per-contact initials. White incoming bubbles, pastel green (`#DCF8C6`) outgoing, pastel violet for human-typed outgoing. Inline-bottom-right timestamps. Take-over and Return-to-agent buttons; manual reply auto-marks `human_handled` so Sunny stops auto-replying.
+- **Contacts**: filterable contacts list with last-active and category.
+- **Knowledge**: four sub-panels.
+  - Live facts: filterable, editable owner-taught facts with Edit / Approve / Reject / Delete.
+  - Rules: read-only render of `system.md`, `classifier.md`, `teacher.md`.
+  - Catalog: fully editable (brand/model/price/stock/notes); Add new; editable note list.
+  - Models & config: model IDs, runtime config, env-var booleans.
 
 ## Prompts: where to tune Sunny's voice
 
-Two files, edited like English prose, no code changes needed:
+Four files, edited like English prose, no code changes needed (process restart picks up changes):
 
-- `src/prompts/system.md`: Sunny's personality, tone rules, what she can answer, what she escalates, format rules, escalation phrase. Edit and restart the server.
-- `src/prompts/classifier.md`: strict JSON schema, category definitions, escalation triggers. Edit and restart.
-
-Both files are read once at module load via `fs.readFileSync`. A process restart picks up changes.
+- `src/prompts/system.md`: Sunny's personality, voice rules, hard rules, locations block, engineering rules, conversation-state usage, worked-example dialogues.
+- `src/prompts/classifier.md`: strict JSON schema, C1-C5 categories, lead_temperature definitions, escalation triggers.
+- `src/prompts/teacher.md`: owner-DM-to-fact extraction rules.
+- `src/prompts/owner_qa.md`: owner Q&A live-snapshot rules.
 
 ## Languages
 
-Sunny detects from the customer's first message and replies in the same language throughout:
+Sunny detects from the customer's first message and replies in the same language by default:
 
-- English (default fallback).
+- English (default fallback and the brother's "Always English" preference for canned holding replies).
 - Nigerian Pidgin.
 - Hausa.
 - Yoruba.
 - Igbo.
 
-Holding reply text per language is hardcoded in `src/handler.js > HOLDING_REPLIES`. The classifier returns the detected language as `english | pidgin | hausa | yoruba | igbo | other` and that drives which holding reply is used when escalating.
+Multi-language detection still runs in classifier for data capture. `HOT_LEAD_REPLY` and `SILENT_QUERY_REPLY` constants in `src/handler.js` are English-only per brother's directive.
 
-## Categories and escalation rules
+## Categories and escalation (current C1-C5 framework)
 
-Categories returned by the classifier:
-- `new_client` (first ever message)
-- `serious_buyer` (requires AT LEAST TWO of: location shared, load details, timeline, payment discussion, scheduling request)
-- `explorer` (general questions, no commitment)
-- `queries_only` (info seeking, no buying intent)
-- `returning_customer` (mentions past install or service)
-- `spam` (not solar related, scams, bulk marketing, jobs)
+Source of truth is `src/prompts/classifier.md`. Classifier output:
+- `category`: C1 (greeting/casual), C2 (product/price specific), C3 (sizing/general), C4, C5 (definitions in classifier.md).
+- `lead_temperature`: HOT / WARM / COLD / DISQUALIFIED / CLOSED / LOST. HOT requires explicit commitment phrases (pay/account/proforma/deposit/install-date/proceed/order).
+- `client_type`: end_user / installer / integrator / reseller / unknown.
+- `escalation_type`: hot_lead / silent_query / none.
 
-Default to `explorer` when uncertain.
+**Classification safety nets** (in `src/classifier.js`, all logged when triggered):
+1. `classifier.hot_without_escalation_demoted_to_warm`: if Opus returns `lead_temperature=HOT` without `needs_escalation=true`, demote to WARM.
+2. `classifier.hot_without_commitment_phrase_demoted`: if Opus returns HOT but the customer body contains NO explicit commitment keyword (pay, account number, proforma, invoice, quotation, deposit, let's proceed, i'm ready, confirm order, send your team, when can you install, ready to buy, site visit, etc.), demote HOT to WARM AND clear escalation. Whitelist regex is `HOT_TRIGGER_RE`. Reason: Opus once misclassified "I need solar panels" as HOT and the customer got the canned wa.me handoff prematurely.
+3. `classifier.greeting_escalation_blocked`: if a casual greeting was misclassified as needing escalation, block it.
+4. `classifier.clarification_escalation_blocked`: if the customer message is a short confusion/clarification reaction ("for what?", "what is this message?", "what do you mean?", "I don't understand", "huh?", etc., regex `CLARIFICATION_RE`), force `needs_escalation=false` and `escalation_type=null`. Reason: customer was getting the specialist canned reply for "for what?" and "what is this message?" — these are conversational repair, not handoff signals.
 
-`needs_escalation: true` triggers the human alert path. The classifier sets it true when:
-- Specific pricing requested.
-- Complaint or warranty claim.
-- Custom system design request.
-- Confidence below 90.
+**Classifier fallback** (in `src/claude.js > FALLBACK_CLASSIFICATION`): when Opus parse fails / network error / retries exhaust, the synthetic classification is `category=unsorted, lead_temperature=COLD, needs_escalation=false, escalation_type=null`. Customer gets a normal Opus reply via `generateReply`, NOT the specialist canned reply. Reason: previously the fallback escalated by default, so any classifier hiccup spammed the specialist message.
 
-If Claude fails entirely, the fallback classification has `needs_escalation: true` so we err on the side of human review.
+**Default unsorted**: when uncertain or when the Opus classify call fails entirely, the synthetic classification is `category=unsorted, lead_temperature=COLD, client_type=unknown, needs_escalation=false, escalation_type=null`. The reply path then runs normally so Sunny attempts an answer instead of punting to specialist.
+
+**Greeting fast-path**: greeting regex skips Opus and returns synthetic `{C1, COLD, no escalation}` to save cost.
+
+**Sizing questions are NOT escalated.** General questions about how solar works, brand context, sizing, market price ranges, segment confirmations are answered, not silent_query'd. Only Electro-Sun specific facts (exact price for non-catalog brands, current stock, specific install date, complaints, warranty claims, custom designs) trigger escalation.
+
+**Location/branch/address/pickup/warehouse questions are NEVER silent_query.** Sunny answers from the locations block.
 
 ## Hard rules (do not violate)
 
-1. **No double dashes anywhere.** This is a permanent user preference (set 2026-04-26). No em-dashes (`—`), no en-dashes (`–`), no ASCII `--`. Applies to: chat replies, prompts, code comments, commit messages, README, slide copy, every single artifact. Use commas, periods, colons, parentheses, or semicolons. The only allowed `--` substrings are CSS custom property names (`--cream`, etc.) which are syntactically required. Before writing any text or code, scan for these characters and rewrite.
-2. **Never invent specs, prices, model numbers, or timelines** in customer replies. Sunny escalates whenever uncertain. Confirmed prices in Naira only.
+1. **No double dashes anywhere.** Permanent user preference (2026-04-26). No em-dash, en-dash, or `--`. Use commas, periods, colons, parentheses, semicolons. CSS custom properties (`--cream`) are the only allowed exception.
+2. **Never invent specs, prices, model numbers, or timelines** in customer replies. Sunny escalates whenever uncertain. Confirmed prices in Naira only, sourced from the catalog table only.
 3. **Never overwrite known lead data** with later guesses. Fill nulls only.
-4. **Idempotency is mandatory** on `whatsapp_message_id`. Meta retries failed webhooks. Duplicate processing must be a silent skip, not an error.
-5. **Webhook signature verification** is required in production. The current dev convenience of skipping it when `META_APP_SECRET` is unset must be removed before public launch (or production deployment must always set the secret).
+4. **Idempotency is mandatory** on `whatsapp_message_id`. Meta retries failed webhooks. Duplicate processing must be a silent skip.
+5. **Webhook signature verification** is required in production.
 6. **Do not auto-deploy or auto-commit** anything. Builder runs deploys manually.
 7. **Ask before installing any dependency** not in the locked tech stack list above.
-8. **Stay inside the 24-hour window** for free-form replies. Outside that window, only pre-approved Meta message templates can be sent. Templates are NOT YET implemented (see TODO).
-9. **Never expose `API_KEY`, `META_*`, or `ANTHROPIC_API_KEY`** in logs, error responses, or any user-facing output.
+8. **Stay inside the 24-hour window** for free-form replies. Outside that window, only pre-approved Meta message templates can be sent.
+9. **Never expose `API_KEY`, `META_*`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`** in logs, error responses, or any user-facing output. `railway variables` (no args) is BLOCKED in Claude's sandbox; use `--set` for writes and `/version` / `/api/brain` for reads.
 
 ## Build status
 
-**Done and verified locally**:
-- Folder structure, `package.json`, `.env.example`, `.gitignore`.
-- `db/schema.sql` and `db/init.js` (WAL mode, foreign keys, idempotency index).
-- `src/utils/logger.js` (rotating file logger).
-- `src/utils/verifySignature.js` (HMAC SHA-256, timing-safe compare).
-- `src/whatsapp.js` (sendMessage, sendTemplate).
-- `src/webhook.js` (GET verify, POST signed handler, async processing).
-- `src/memory.js` (contacts, conversations, messages, events, history collapse).
-- `src/claude.js` (classify with retry + JSON parse fallback, generateReply with prompt caching, exponential backoff with jitter on retriable errors).
-- `src/classifier.js` (category change events, lead_data merge).
-- `src/handler.js` (full inbound pipeline including escalation alerts).
-- `src/reports.js` (hourly + daily aggregation, WhatsApp formatting, WhatsApp + email send).
-- `api/dashboard.js` (all REST endpoints, X-API-Key auth).
-- `server.js` (Express, cron, health, startup checks, graceful shutdown).
-- `ecosystem.config.js` (PM2).
-- `scripts/seed.js` (4 demo contacts).
-- `presentation/sunny-overview.html` (stakeholder brochure).
-- Local end-to-end smoke test: webhook GET verify, signed POST round-trip (good and bad sigs), seed + dashboard reads, hourly report generation.
+**Shipped and live on Railway**:
+- Full pipeline (text + image + voice + calls + debounce + orphan recovery).
+- Conversation-state engine, code-level reply guards, greeting fast-path, empty-history-on-greeting, wa.me-link ban, history scrub.
+- Owner Q&A mode (brother's number).
+- Knowledge ingestion with Haiku/Opus extraction, dedup, 500-fact cap.
+- Catalog moved to DB, fully editable from admin (no developer push needed for price changes).
+- Admin web UI (Inbox, Contacts, Knowledge with 4 sub-panels).
+- Cost tracker + budget guardrail.
+- Window monitor (23h/24h pending_queries).
+- 2-hour, daily, daily-learning reports (currently silenced via `DISABLE_NOTIFICATIONS=true`).
+- HV catalog seeded (12 items: Deye 30/50/80kW HV 3-phase + BOS-G/A/B Pro batteries + accessories).
+- Locations + doctrine facts seeded.
+- Legacy data import done; "Past quote" entries retired.
+- Templates submitted to Meta (PENDING approval): `owner_hourly_report_en` id `3044946312362011`, `follow_up_24h_en` id `949981397673982`.
+- Permanent System User token issued ("Sunny-Server", id `615889422441392`, no expiry).
+- Meta business verification confirmed.
 
-**Not yet done**:
-- Real WhatsApp test with Meta test number (requires `.env` filled with Meta credentials).
-- 5-language live test.
-- Soak test with real users.
-- Meta business verification for ElectroSun (1 to 14 days lead time).
-- Permanent System User access token for production.
-- Message template submission and approval (24 to 48 hours per template):
-  - `follow_up_24h_en` (re-engage silent leads).
-  - `owner_hourly_report_en` (deliver reports outside the 24h window).
-  - Optional: language variants.
-- Stable named Cloudflare Tunnel with a real hostname.
-- PM2 install and `pm2 startup` registration on the Mac Mini.
-- `DAILY_LLM_BUDGET_USD` enforcement in `src/claude.js` (currently just an env value).
-- Web dashboard frontend on top of the existing API.
-- "Human took over" flag on escalations so reports can show resolution.
+**Pending**:
+- `OPENAI_API_KEY` on Railway (for Whisper transcription).
+- Brother's pricing data (Sungrow, JA panels, Longi).
+- Brother's Section 11 decisions (working hours, location tags, currency, default warranty/delivery copy, after-hours reply, competitor pricing doctrine).
+- Brother's real WhatsApp business number (Task #17 full).
+- Task #15 48-hour soak with 3-5 testers.
+- Re-check Meta template approval status (`node scripts/check_templates.js`).
+- Meta template re-submit if any are rejected.
 
-## Deployment (Mac Mini, PM2)
+## Deployment
 
+**Production: Railway.** Deploy via:
+- Auto-redeploy on push to main (preferred): `git push` from Serge's Terminal.
+- Manual: `railway up --detach --ci` from the repo (uses local files, NOT git SHA, so `RAILWAY_GIT_COMMIT_SHA` will be null).
+- Restart only: `railway redeploy --yes` (only when no build is in progress).
+- Env var update: `railway variables --set KEY=VALUE`.
+- Tail logs: `railway logs`.
+- Status: `railway status`.
+
+Project: `ample-laughter` / environment `production` / service `sunny-electrosun` / region us-west2 / 1 replica. Volume `sunny-electrosun-volume` mounted at `/data`. Hobby plan (verify in Settings → Billing).
+
+**Local dev (PM2, optional)**:
 ```bash
-cd "/Users/sergeadaimy/Desktop/Claude Projects/Sunny-Whatsapp Account Manager"
 sudo npm install -g pm2
 pm2 start ecosystem.config.js
 pm2 save
 pm2 startup
-# Run the sudo command pm2 prints. Once.
 ```
 
-Useful PM2 commands:
-- `pm2 status` health snapshot.
-- `pm2 logs sunny` tail logs.
-- `pm2 restart sunny` after a code or `.env` change.
-- `pm2 stop sunny` emergency rollback to silence Sunny without uninstalling.
+`pm2 status`, `pm2 logs sunny`, `pm2 restart sunny`, `pm2 stop sunny`.
 
 ## Stakeholder-facing artifacts
 
-- `presentation/sunny-overview.html`: single-file illustrated brochure for ElectroSun management. Self-contained, print-ready, no external dependencies. Open in any browser, or print to PDF for sharing. Built with the frontend-design agent. Reflects the actual implemented behavior, not aspirational features.
+- `presentation/sunny-overview.html`: single-file illustrated brochure for ElectroSun management. Self-contained, print-ready, no external dependencies. Open in any browser, or print to PDF for sharing. Reflects actual implemented behavior, not aspirational features.
 
-## Cost guardrails (current and planned)
+## Cost guardrails
 
-- Haiku classification: about $0.0005 per message.
-- Sonnet reply: about $0.003 to $0.01 per reply (depends on history length and reply length).
-- Per 1,000 conversations roughly $5 to $15.
-- `DAILY_LLM_BUDGET_USD` is in `.env` and intended as a soft daily cap. Enforcement in `src/claude.js` is a TODO: before each Claude call, sum the day's token usage cost from a ledger (or from the Anthropic Usage API), and short-circuit to a holding message if over budget.
+- **Opus everywhere** (classifier + reply + teacher + owner_qa): ~$0.025-$0.05 per message, 5-10x Sonnet pricing. At 500 messages/day that's $15-25/day or $450-750/month. Brother needs to confirm appetite. Use `MODEL_*` env overrides to step back to Sonnet/Haiku selectively if budget tightens.
+- **Image vision** (Sonnet 4.6 path, kept as fallback): ~$0.01-$0.03 per image.
+- **Whisper transcription**: ~$0.006/minute (~$0.005-$0.01 per typical voice note).
+- **Storage**: ~200KB avg image, ~200MB/month at 1000 images. Volume is 1GB on Railway.
+- `DAILY_LLM_BUDGET_USD=20` enforced via `cost_tracker.isOverBudget`. Exceeding it short-circuits to fallback paths.
 
 ## When in doubt
 
@@ -670,3 +468,5 @@ Useful PM2 commands:
 - If a code change requires a new dependency, **ask first**.
 - If something looks like in-progress work or unfamiliar files, **investigate before deleting or overwriting**.
 - Treat Meta retries, Claude rate limits, and SMTP failures as expected events, log them, do not crash.
+- **Hard rule reminder**: before recommending or relying on a remembered fact (file path, function, key, URL), verify it still holds. The session-history file is a snapshot in time; the live code is authoritative.
+- **Local zombie check**: when reports/messages appear that the cloud DB has no record of, run `ps aux | grep node` BEFORE explaining cloud data. Local `npm start` processes can post via the same Meta credentials with stale env.

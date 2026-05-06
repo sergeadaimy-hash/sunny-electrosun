@@ -108,6 +108,8 @@ Do NOT escalate for ANY of these (the agent answers from general industry knowle
 - Custom design requests where the customer has not given exact load figures yet.
 - Greetings, ad responses, off-topic small talk.
 - Questions about Electro-Sun's segment ("do you serve hotels"). The agent can confirm segment from her own context.
+- **Confusion or clarification messages reacting to the agent's previous reply** ("for what?", "what is this message?", "what do you mean?", "I don't understand", "huh?", "explain", "come again", "you mean?", "ok?"). These are conversational repair, NOT silent_query and NOT hot_lead. Set needs_escalation: false. The agent rephrases its previous reply or asks a single clarifying question.
+- Short confused or off-balance reactions. The customer is asking the agent to clarify, not asking the team for a fact.
 
 **Otherwise** needs_escalation is false, escalation_type is null.
 

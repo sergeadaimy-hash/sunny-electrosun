@@ -51,8 +51,8 @@ const FALLBACK_CLASSIFICATION = {
   intent: 'other',
   language: 'english',
   confidence: 0,
-  needs_escalation: true,
-  escalation_type: 'silent_query',
+  needs_escalation: false,
+  escalation_type: null,
   lead_data: {
     name: null, location: null, use_case: null, load_estimate: null, timeline: null,
     products_asked_about: null, brand_preference: null, budget_mentioned: null
@@ -391,20 +391,31 @@ async function generateReply(history, message, contact, attachments = []) {
       }
     }
 
-    const customerAskedPrice = /\b(how\s+much|price|cost|naira|ngn|quotation|quote|rate|total|totals|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoice|proforma|how\s+many\s+naira)\b/i.test(String(message || ''));
+    const PRICE_ASK_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|totals?|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoices?|proformas?|how\s+many\s+naira)\b/i;
+    const currentAsked = PRICE_ASK_RE.test(String(message || ''));
+    let priorAsked = false;
+    if (Array.isArray(history)) {
+      const lastTwoUser = history.filter(m => m && m.role === 'user').slice(-2);
+      priorAsked = lastTwoUser.some(m => PRICE_ASK_RE.test(String(m.content || '')));
+    }
+    const customerAskedPrice = currentAsked || priorAsked;
     if (text && !customerAskedPrice) {
       const priceRegex = /\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*(?:M|m|k|K)?\s*NGN\b[)]?|\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*[Mm]\b[)]?|\s*\(\s*\d+(?:[.,]\d+)?\s*[kK]\s*\)|\s*\(\s*\d+(?:[.,]\d+)?\s*[Mm]\s*\)/g;
       const priceMatches = text.match(priceRegex) || [];
       if (priceMatches.length >= 1) {
         const stripped = text.replace(priceRegex, '').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
+        const hasDanglingLabel = /:\s*[.,;!?]/.test(stripped);
         logger.warn('claude.reply.prices_stripped', {
           contactId: contact?.id,
           customer_msg: String(message || '').slice(0, 100),
           original_reply: text.slice(0, 200),
           stripped_reply: stripped.slice(0, 200),
-          price_matches: priceMatches.length
+          price_matches: priceMatches.length,
+          dangling_label: hasDanglingLabel
         });
-        text = stripped || "Could you share more about your project so I can guide you better?";
+        text = (!stripped || hasDanglingLabel)
+          ? "Could you share more about your project so I can guide you better?"
+          : stripped;
       }
     }
 
