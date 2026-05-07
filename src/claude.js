@@ -505,14 +505,40 @@ async function generateReply(history, message, contact, attachments = [], option
     }
 
     if (text) {
+      const CATALOG_DUMP_RE = /\b(price\s*list|all\s+(your\s+)?(prices|costs|products|models|inverters|batteries|panels|stock|items|kits)|list\s+(all|everything|your\s+(products|prices|stock))|show\s+me\s+(all|everything)|everything\s+you\s+(have|sell|stock|carry|do)|what\s+do\s+you\s+(have|sell|stock|carry)|your\s+(full\s+|whole\s+)?catalog|send\s+(me\s+)?(your\s+)?(price\s+)?list|give\s+me\s+a\s+(price\s+)?list|complete\s+list|full\s+list|all\s+the\s+(prices|costs)|(how\s+much|what(?:'s|\s+is)\s+the\s+cost|cost)\s+for\s+(everything|all|the\s+whole\s+(thing|set|setup|system|catalog)))\b/i;
+      const customerWantsFullList = CATALOG_DUMP_RE.test(String(message || ''));
       const priceCount = security.countPricePatterns(text);
-      if (priceCount >= 5) {
+      if (customerWantsFullList && priceCount >= 3) {
         security.logSecurityEvent('catalog_enumeration_blocked', {
           contactId: contact?.id,
           price_count: priceCount,
-          original_reply: text.slice(0, 200)
+          original_reply: text.slice(0, 200),
+          reason: 'customer_asked_for_full_list'
         });
-        text = "Could you tell me which model or system size you need? I'll quote that one.";
+        text = "Could you tell me which model or system size you need? The team will quote that one.";
+      }
+    }
+
+    if (contact?.id && text) {
+      try {
+        const { getDb } = require('../db/init');
+        const db = getDb();
+        const lastOutbound = db.prepare(
+          `SELECT body FROM messages WHERE contact_id IS NULL OR conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
+           ORDER BY id DESC LIMIT 1`
+        ).get(contact.id);
+        if (lastOutbound && typeof lastOutbound.body === 'string') {
+          const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+          if (norm(lastOutbound.body) === norm(text)) {
+            logger.warn('claude.reply.post_override_duplicate_blocked', {
+              contactId: contact.id,
+              repeated_text: text.slice(0, 200)
+            });
+            text = "Could you clarify what specifically you need? The team will follow up with the right details.";
+          }
+        }
+      } catch (err) {
+        logger.warn('claude.reply.post_override_dup_check_fail', { message: err.message });
       }
     }
 
