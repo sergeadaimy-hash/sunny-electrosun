@@ -73,6 +73,56 @@ function pickHoldingReply(escalationType, customerMessage) {
   return SILENT_QUERY_REPLY;
 }
 
+function formatElapsed(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return 'just now';
+  const min = Math.round(ms / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  const rem = min % 60;
+  return rem ? `${h}h ${rem}m` : `${h}h`;
+}
+
+function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
+  if (isHot) {
+    return [
+      '# HOT lead handoff context (treat as authoritative)',
+      'The customer has expressed clear intent to proceed (pay, deposit, order, install, ready to buy).',
+      '',
+      'Voice rules in this state:',
+      '- Acknowledge their commitment in one short sentence, in the customer\'s own language.',
+      '- Confirm a specialist will reach out shortly with formal documents and figures.',
+      '- Use third person ("the specialist", "the team"). Do NOT use first-person stalls ("I will reach out", "let me confirm", "I will get back").',
+      '- Do NOT quote new prices or specs that were not already discussed in this conversation.',
+      '- Do NOT include any URL or phone number; the system appends the specialist contact link automatically.',
+      '- Two sentences max.'
+    ].join('\n');
+  }
+
+  const lines = ['# Awaiting expert input (treat as authoritative)'];
+  if (openPending) {
+    const createdMs = new Date(openPending.created_at).getTime();
+    const elapsed = formatElapsed(Date.now() - createdMs);
+    const original = String(openPending.customer_message_text || '').replace(/\s+/g, ' ').slice(0, 200);
+    lines.push(`There is an OPEN question already with the human team about: "${original}".`);
+    lines.push(`Wait time so far: ${elapsed}. The team has been pinged again about this customer\'s latest message.`);
+  } else if (escalationJustCreated) {
+    lines.push('This message has just been escalated to the human team. They have been pinged.');
+  } else {
+    lines.push('A specialist is being looped in on this question.');
+  }
+  lines.push('');
+  lines.push('Voice rules in this state:');
+  lines.push('- Acknowledge what the customer JUST wrote, in their own language and tone. React to their actual message; do not parrot a canned line.');
+  lines.push('- Confirm the team has the question and is working on it. Use third person ("the team", "the specialist"). Do NOT use first-person stalls ("I will check", "let me confirm", "I will revert", "I will get back to you").');
+  lines.push('- Do NOT invent prices, specs, install dates, or fixed turnaround times. Do not promise an exact callback time.');
+  lines.push('- If the customer asks "when?" or "any update?", be honest: "as soon as the team confirms" or similar. No invented ETAs.');
+  lines.push('- If the customer is frustrated about the wait, briefly acknowledge the wait without over-apologizing, then reassure.');
+  lines.push('- If the customer also asks something unrelated to the open query (sizing, location, general product info), answer that part directly from the catalog and your own knowledge.');
+  lines.push('- Two sentences max. No bullet lists. No catalog dumps. Vary phrasing across replies; do not send the exact same sentence twice in a row.');
+  return lines.join('\n');
+}
+
 function pickUnsupportedReply() {
   return UNSUPPORTED_REPLY;
 }
@@ -347,7 +397,7 @@ function enqueueCustomerMessage(contact, conversation, msg, imageAttachment, ima
   });
 }
 
-async function dispatchEscalation({ contact, conversation, classification, safeCombinedText, lastMsg, batchSize, source }) {
+async function notifyOwnerForEscalation({ contact, classification, safeCombinedText, lastMsg, batchSize, source }) {
   const escalationType = classification.escalation_type || 'silent_query';
 
   logEvent(contact.id, 'escalated', {
@@ -362,6 +412,7 @@ async function dispatchEscalation({ contact, conversation, classification, safeC
 
   if (openPending) {
     const followThrottle = security.checkFollowupThrottle(contact.id);
+    let ownerNotified = false;
     if (followThrottle.allowed) {
       const ownerPhone = process.env.OWNER_WHATSAPP;
       if (ownerPhone) {
@@ -375,6 +426,7 @@ async function dispatchEscalation({ contact, conversation, classification, safeC
           `REPLY to the original [QID:${openPending.id}] alert with the answer.`
         ].join('\n');
         await sendMessage(ownerPhone, followUp);
+        ownerNotified = true;
       }
       logger.info('handler.escalation.followup_to_open_query', {
         contactId: contact.id,
@@ -389,15 +441,7 @@ async function dispatchEscalation({ contact, conversation, classification, safeC
         cooldown_ms: followThrottle.cooldownMs
       });
     }
-
-    const holding = pickHoldingReply(escalationType, safeCombinedText);
-    const sendRes = await sendMessage(lastMsg.from, holding);
-    appendMessage(conversation.id, 'outbound', holding, {
-      whatsapp_message_id: sendRes.messageId,
-      intent: escalationType === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
-      language: classification.language
-    });
-    return true;
+    return { openPending, freshPendingId: null, ownerNotified, escalationType };
   }
 
   const escThrottle = security.checkEscalationThrottle(contact.id);
@@ -408,7 +452,7 @@ async function dispatchEscalation({ contact, conversation, classification, safeC
       cooldown_ms: escThrottle.cooldownMs,
       source: source || 'classifier'
     });
-    return false;
+    return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType, throttled: true };
   }
 
   let pendingQueryId = null;
@@ -426,14 +470,12 @@ async function dispatchEscalation({ contact, conversation, classification, safeC
     setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
   }
 
-  const holding = pickHoldingReply(escalationType, safeCombinedText);
-  const sendRes = await sendMessage(lastMsg.from, holding);
-  appendMessage(conversation.id, 'outbound', holding, {
-    whatsapp_message_id: sendRes.messageId,
-    intent: escalationType === 'hot_lead' ? 'hot_lead_handoff' : 'silent_query',
-    language: classification.language
-  });
-  return true;
+  return {
+    openPending: null,
+    freshPendingId: pendingQueryId,
+    ownerNotified: !!alertSendRes,
+    escalationType
+  };
 }
 
 async function processCustomerBatch(entry) {
@@ -490,35 +532,54 @@ async function processCustomerBatch(entry) {
     classification.escalation_type = null;
   }
 
+  let escResult = null;
   if (classification.needs_escalation) {
-    const dispatched = await dispatchEscalation({
+    escResult = await notifyOwnerForEscalation({
       contact: refreshedContact,
-      conversation,
       classification,
       safeCombinedText,
       lastMsg,
       batchSize: msgs.length,
       source: 'classifier'
     });
-    if (dispatched) return;
-    classification.needs_escalation = false;
-    classification.escalation_type = null;
+  }
+
+  const isHot = !!(classification.needs_escalation && classification.escalation_type === 'hot_lead');
+  const currentOpen = isHot ? null : getOpenPendingQueryForContact(contact.id);
+  let expertContext = null;
+  if (isHot) {
+    expertContext = buildExpertContext({ isHot: true });
+  } else if (currentOpen) {
+    expertContext = buildExpertContext({
+      openPending: currentOpen,
+      escalationJustCreated: !!(escResult && escResult.freshPendingId),
+      isHot: false
+    });
+  } else if (escResult && escResult.escalationType === 'silent_query' && (escResult.freshPendingId || escResult.ownerNotified)) {
+    expertContext = buildExpertContext({
+      openPending: null,
+      escalationJustCreated: true,
+      isHot: false
+    });
   }
 
   const replyMessage = safeCombinedText || '(customer sent attachments only, see images)';
-  const reply = await generateReply(priorHistory, replyMessage, refreshedContact, attachments);
+  const reply = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
+    expertContext
+  });
   if (!reply.ok || !reply.text) {
-    const fallback = pickHoldingReply('silent_query', safeCombinedText);
+    const fallback = pickHoldingReply(isHot ? 'hot_lead' : 'silent_query', safeCombinedText);
     const sendRes = await sendMessage(lastMsg.from, fallback);
     appendMessage(conversation.id, 'outbound', fallback, {
       whatsapp_message_id: sendRes.messageId,
+      intent: isHot ? 'hot_lead_handoff' : 'silent_query',
       language: classification.language
     });
     logger.warn('handler.reply_fallback_used', { contactId: contact.id, batch_size: msgs.length });
     return;
   }
 
-  if (!escalationsDisabled()) {
+  if (!escalationsDisabled() && !expertContext) {
     const stallHit = security.detectStallLanguage(reply.text);
     if (stallHit) {
       security.logSecurityEvent('stall_language_detected', {
@@ -531,41 +592,69 @@ async function processCustomerBatch(entry) {
         needs_escalation: true,
         escalation_type: 'silent_query'
       };
-      const dispatched = await dispatchEscalation({
+      const stallEsc = await notifyOwnerForEscalation({
         contact: refreshedContact,
-        conversation,
         classification: stallClassification,
         safeCombinedText,
         lastMsg,
         batchSize: msgs.length,
         source: 'stall_guard'
       });
-      if (dispatched) return;
-      const fallback = SILENT_QUERY_REPLY;
-      const sendRes = await sendMessage(lastMsg.from, fallback);
-      appendMessage(conversation.id, 'outbound', fallback, {
-        whatsapp_message_id: sendRes.messageId,
-        intent: 'silent_query',
-        language: classification.language
-      });
-      logger.warn('handler.stall_replaced_no_alert', {
-        contactId: contact.id,
-        pattern: stallHit.pattern
-      });
-      return;
+      const stallOpen = getOpenPendingQueryForContact(contact.id);
+      const stallContext = (stallOpen || stallEsc.freshPendingId || stallEsc.ownerNotified)
+        ? buildExpertContext({
+            openPending: stallOpen,
+            escalationJustCreated: !!stallEsc.freshPendingId,
+            isHot: false
+          })
+        : null;
+      if (stallContext) {
+        const reply2 = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
+          expertContext: stallContext
+        });
+        if (reply2.ok && reply2.text && !security.detectStallLanguage(reply2.text)) {
+          reply.text = reply2.text;
+          logger.info('handler.stall_regenerated_with_expert_context', {
+            contactId: contact.id,
+            chars: reply2.text.length
+          });
+        } else {
+          reply.text = 'Noted. The team is on it.';
+          logger.warn('handler.stall_regen_failed_used_generic_ack', {
+            contactId: contact.id,
+            pattern: stallHit.pattern
+          });
+        }
+      } else {
+        reply.text = 'Noted. The team is on it.';
+        logger.warn('handler.stall_replaced_no_alert', {
+          contactId: contact.id,
+          pattern: stallHit.pattern
+        });
+      }
     }
   }
 
-  const sendRes = await sendMessage(lastMsg.from, reply.text);
-  appendMessage(conversation.id, 'outbound', reply.text, {
+  let outboundText = reply.text;
+  if (isHot) {
+    const link = buildSpecialistLink(safeCombinedText);
+    if (link) {
+      outboundText = `${outboundText}\n\nDirect line to the specialist: ${link}`;
+    }
+  }
+
+  const sendRes = await sendMessage(lastMsg.from, outboundText);
+  appendMessage(conversation.id, 'outbound', outboundText, {
     whatsapp_message_id: sendRes.messageId,
-    intent: classification.intent,
+    intent: isHot ? 'hot_lead_handoff' : (expertContext ? 'silent_query_followup' : classification.intent),
     language: classification.language
   });
   logger.info('handler.batch.replied', {
     contactId: contact.id,
     batch_size: msgs.length,
-    reply_chars: reply.text.length
+    reply_chars: outboundText.length,
+    expert_context_used: !!expertContext,
+    is_hot: isHot
   });
 }
 

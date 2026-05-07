@@ -2,6 +2,34 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-05-07 morning Beirut — retire canned customer holding replies, route through LLM with expert-context block
+
+**The bug Serge surfaced (screenshot at 9:44 GMT+3).** Sunny TEST conversation. Yesterday Sunny had sent "Let me confirm the exact figure for 100 x Jinko 580W and revert shortly." (a stall the previous session was supposed to have caught). This morning the customer came back: "Hi" then "You didnt answer me" then "When?" then "It's been 1 day". Each of those messages got the SAME reply word-for-word: "A specialist will confirm the exact figure for you shortly." Three identical robot replies in a row, with zero acknowledgement of what the customer actually said. Serge's diagnosis: "he's not reacting to the message he receives, lots of weakness" and asked for the eternal solution.
+
+**Root cause.** The architecture itself, not a prompt-tuning miss. `dispatchEscalation` in `src/handler.js` had a hard-coded customer-side path: when an open `pending_queries` row existed (or after creating a fresh one), it ALWAYS sent `SILENT_QUERY_REPLY` / `HOT_LEAD_REPLY` to the customer regardless of the message they had just sent. The owner-ping side was correct (throttled follow-ups, fresh alerts), but the customer side was deaf. Yesterday's stall-guard fix had only attacked Sunny's invented stalls; it had reinforced the canned-line behavior instead of removing it. So when the customer pushed back ("When?", "It's been 1 day"), the classifier flagged each as `silent_query` (an open pending row exists), and dispatchEscalation parroted the same canned line every time.
+
+**Fix shipped (this commit).** Trust the LLM with constraints, instead of hard-coding outputs.
+
+Customer-side reply is now ALWAYS produced by `generateReply`, even when the conversation is in escalation:
+- New `options.expertContext` parameter on `src/claude.js > generateReply`. If set, it is pushed as a system block alongside the conversation-state block.
+- New `src/handler.js > buildExpertContext({ openPending, escalationJustCreated, isHot })` builds the block content per turn. Two variants:
+  - "# HOT lead handoff context": tells Sunny to acknowledge the commitment briefly, confirm a specialist will reach out, third person, no first-person stalls, no URLs (system appends the wa.me link automatically).
+  - "# Awaiting expert input": tells Sunny what the open query was about, how long the customer has been waiting (formatted "Xm" or "Yh Zm"), and the voice rules (react to the actual message, third person, no invented prices/ETAs, empathize with frustration without over-apologizing, two sentences max, vary phrasing across replies).
+- `dispatchEscalation` was renamed to `notifyOwnerForEscalation`. It now ONLY handles the owner side (follow-up ping for open pending or fresh alert + pending_queries row creation). Returns `{ openPending, freshPendingId, ownerNotified, escalationType, throttled }` so the caller knows what context to build.
+- `processCustomerBatch` was reworked: classify → call `notifyOwnerForEscalation` if needed → look up current open pending → build the appropriate `expertContext` (HOT block, awaiting-expert block, or null) → call `generateReply` with that context → run stall-guard → for HOT, append `\n\nDirect line to the specialist: <wa.me link>` to the LLM-produced text.
+- Stall-guard rewritten: now only runs on the no-escalation path (when `expertContext` is null and Sunny still produced a first-person stall). Triggers the same owner-side escalation flow, then re-calls `generateReply` with the freshly-built awaiting-expert block. If regeneration fails or still stalls, sends a single short generic ack ("Noted. The team is on it.") instead of the long canned `SILENT_QUERY_REPLY`. Logs `handler.stall_regenerated_with_expert_context` (success path) or `handler.stall_regen_failed_used_generic_ack` (deep fallback).
+
+`src/prompts/system.md` updates:
+- New top-level section "Dynamic context blocks the system may inject" documents the two block variants and their voice rules. Acts as a stable reference if the per-turn block is ever absent.
+- Old instructions that quoted the literal canned holding lines (lines 52, 138, 306, 326, 329, 418, 421, 430) were rewritten to point at the dynamic blocks. Removed Sunny's old guidance to send "Let me confirm the exact spec or price and get back to you in a few minutes." (that line is now exactly the kind of stall the regex catches).
+- Added concrete example exchanges for both block types, including the customer follow-up case ("It's been a day. → Understood, the wait is fair. The team has been pinged again about your 8kW figure...").
+
+`HOT_LEAD_REPLY` and `SILENT_QUERY_REPLY` constants stay in `src/handler.js` but are now only used as deep fallbacks (when `generateReply` itself errors out, e.g. Anthropic 5xx).
+
+**Files touched:** `src/claude.js`, `src/handler.js`, `src/prompts/system.md`, `CLAUDE.md`, `docs/session-history.md`. Smoke tests: `node -e "require('./src/handler'); require('./src/claude');"` loads clean.
+
+**Trade-off accepted.** The LLM has more freedom in the awaiting-expert path; in theory it could invent a price or fixed ETA. The existing guards still apply: price-strip (when customer didn't ask), prompt-leak detector, owner-number leak detector, phone-list-dump block, catalog-enumeration block, repeat-guard, trailing-question-strip, asterisk-censorship retry. The stall regex still runs as a final check on the no-escalation path. We accept this risk because the screenshot bug ("dumb robot parroting") was a hard launch-blocker per Serge's words.
+
 ## 2026-05-06 evening Beirut — re-page owner on follow-ups + stall-language guard
 
 **The bug Serge surfaced.** Screenshot of a real Sunny TEST conversation: customer asked "What options you have?" → Sunny invented "We typically stock Jinko 580W and 590W panels" (Jinko panel wattages are not in the catalog, Opus hallucinated). Customer asked for the cost of 100 pieces → Sunny escalated correctly with `SILENT_QUERY_REPLY` ("A specialist will confirm the exact figure for you shortly.") and the brother got the [QID:N] alert. So far so good. Then customer kept pushing ("Which specialist? Give me the cost... I need to know the cost"). The brother got NOTHING for any of these follow-ups, but the customer received three Opus-invented stall replies: "One of our sales engineers will reach out shortly with the figures.", "Let me confirm the exact figure for 100 units and get back to you shortly.", "Let me confirm the exact figure for 100 x Jinko 580W and revert shortly." Customer waited for someone who was never paged.

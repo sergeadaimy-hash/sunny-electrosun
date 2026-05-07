@@ -266,13 +266,14 @@ function buildConversationState(history, currentMessage) {
     '\n\nUSE THIS STATE: do not re-ask facts the customer already shared. Do not re-ask questions you have already asked. Address every customer ask listed above in your reply (combine into one short reply).';
 }
 
-async function generateReply(history, message, contact, attachments = []) {
+async function generateReply(history, message, contact, attachments = [], options = {}) {
   if (isOverBudget()) {
     logger.warn('claude.reply.budget_exceeded');
     return { ok: false, text: null, error: 'budget_exceeded' };
   }
 
   const isCasualGreeting = isGreetingMsg(message);
+  const expertContext = typeof options.expertContext === 'string' ? options.expertContext.trim() : '';
 
   const contextLines = [];
   if (!isCasualGreeting) {
@@ -322,6 +323,14 @@ async function generateReply(history, message, contact, attachments = []) {
         state_chars: stateBlock.length
       });
     }
+  }
+
+  if (expertContext) {
+    systemBlocks.push({ type: 'text', text: expertContext });
+    logger.info('claude.reply.expert_context_injected', {
+      contactId: contact?.id,
+      context_chars: expertContext.length
+    });
   }
 
   const effectiveHistory = isCasualGreeting ? [] : history;

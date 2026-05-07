@@ -4,7 +4,7 @@ This file is the working memory for Sunny. Read it before making any change. It 
 
 Detailed session-by-session changelog lives in `docs/session-history.md`. That file is the audit trail for "what shipped when and why"; this file is the always-true reference for what is currently in the codebase and what rules govern Sunny's behavior.
 
-## Current launch status (paused 2026-05-06 evening Beirut)
+## Current launch status (paused 2026-05-07 morning Beirut)
 
 Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud deploy) are closed. Phase B code work is closed: schema migration, 2-hour reports with HOT/WARM/COLD aggregations, silent-query workflow with reply-to routing, daily learning report, owner Q&A, knowledge ingestion, image vision, voice-note transcription, WhatsApp call auto-reply, conversation-state engine, multi-message debounce, orphan recovery on startup, code-level reply guards (price-strip, trailing-question-strip, repeat guard, wa.me link ban). Task #15 (48-hour soak) is the next user-driven launch step.
 
@@ -82,17 +82,25 @@ Single module exposing rate limits, length caps, injection-attempt detection, an
 - `security.truncateBatch(text)`: caps the combined debounced batch at 4000 chars (`MAX_COMBINED_BATCH_CHARS`). Logs `security.batch_truncated`.
 - `security.checkEscalationThrottle(contactId)`: at most one BRAND-NEW escalation alert per contact per 30 minutes (`ESCALATION_COOLDOWN_MS`). Defends specialist-spam attacks against the brother's WhatsApp. Logs `security.escalation_throttled`.
 - `security.checkFollowupThrottle(contactId)`: at most one FOLLOW-UP ping per contact per 5 minutes (`FOLLOWUP_COOLDOWN_MS`). Used by the open-pending-query path so the brother gets a heads-up when the same customer keeps pushing on an unresolved query, without flooding. Logs `security.followup_throttled`.
-- `dispatchEscalation` (in `src/handler.js`): single entry point for sending the customer holding reply + alerting the owner. Behavior:
-  1. If an open `pending_queries` row already exists for this contact (`getOpenPendingQueryForContact`), send a "Follow-up on [QID:N], same customer is still asking" message to the owner (throttled by `checkFollowupThrottle`), do NOT create a new pending_queries row, do NOT touch the main escalation throttle. The brother replies to the original [QID:N] alert.
-  2. If no open pending query, fall through to `checkEscalationThrottle`. If allowed, create the pending_queries row and send the regular alert. If throttled, return false so the caller falls back to a normal reply.
-  Reason: the original throttle silenced legitimate follow-up pings during an active query, so Sunny invented "let me check / will get back" stalls (see "stall guard" below). Opening this side channel keeps the throttle's anti-spam defense for fresh escalations while letting the brother see urgency rise on an already-known query.
+- `notifyOwnerForEscalation` (in `src/handler.js`, replaces the older `dispatchEscalation`): single entry point for OWNER-side notification. **No longer touches the customer reply.** Returns `{ openPending, freshPendingId, ownerNotified, escalationType, throttled }`. Behavior:
+  1. If an open `pending_queries` row already exists for this contact (`getOpenPendingQueryForContact`), send a "Follow-up on [QID:N], same customer is still asking" message to the owner (throttled by `checkFollowupThrottle`), do NOT create a new pending_queries row, do NOT touch the main escalation throttle.
+  2. If no open pending query, fall through to `checkEscalationThrottle`. If allowed, create the pending_queries row and send the regular alert.
+  The customer reply is now ALWAYS produced by `generateReply` with an `expertContext` block (see below), never by a hard-coded canned line. Reason: the old canned-reply behavior made Sunny look like a robot when customers pushed back on an open query ("When?", "It's been a day"); each follow-up got the same word-for-word "A specialist will confirm the exact figure for you shortly." reply. The new flow lets the LLM react to the actual customer message under tight constraints (third person, no first-person stalls, no invented prices/ETAs).
 
 **Output-side guards (in `src/claude.js > generateReply`):** see "Code-level reply guards" above, items 5-8.
 
-**Stall-language guard (in `src/handler.js > processCustomerBatch`):** after `generateReply` returns, before sending, `security.detectStallLanguage(reply.text)` checks for first-person stall patterns ("let me check / I'll confirm / will revert / will get back to you / one of our sales engineers will reach out / give me a moment"). If matched AND `DISABLE_ESCALATIONS=false`:
-- Force `escalation_type='silent_query'` and call `dispatchEscalation` with `source='stall_guard'`. The customer gets the canned `SILENT_QUERY_REPLY` and the brother gets a follow-up [QID:N] ping (or a fresh alert if no open query).
-- If the dispatch is blocked (no open query AND main throttle in cooldown), the reply is replaced with `SILENT_QUERY_REPLY` and no alert is sent. Logs `handler.stall_replaced_no_alert`.
-The canned replies themselves use third-person ("A specialist will confirm...") and are not matched. Reason: Opus sometimes invented "I'll check and get back" promises after the 30-min throttle blocked a re-escalation, leaving the customer hanging without the owner being notified.
+**Stall-language guard (in `src/handler.js > processCustomerBatch`):** after `generateReply` returns, before sending, `security.detectStallLanguage(reply.text)` checks for first-person stall patterns ("let me check / I'll confirm / will revert / will get back to you / one of our sales engineers will reach out / give me a moment"). The guard only runs when no `expertContext` was already injected (i.e. the LLM was on a normal reply path and stalled anyway). If matched AND `DISABLE_ESCALATIONS=false`:
+- Call `notifyOwnerForEscalation` with `escalation_type='silent_query'` and `source='stall_guard'` to ping the owner and create a pending_queries row (or follow up on an existing one).
+- Re-call `generateReply` with the freshly built `expertContext` ("Awaiting expert input" block). If the regenerated reply is stall-free, send it.
+- If regeneration fails or still stalls, send a single short generic ack: "Noted. The team is on it." Logs `handler.stall_regen_failed_used_generic_ack` or `handler.stall_replaced_no_alert`.
+Reason: previously the stall-guard fell back to the canned `SILENT_QUERY_REPLY`, which is the very behavior we are trying to eliminate. Now the guard re-runs the LLM under explicit awaiting-expert constraints; the canned line only appears as a final last-resort ack when the LLM keeps refusing to honor the block.
+
+**Expert context block (`buildExpertContext` in `src/handler.js`).** Built per turn, injected into `generateReply` as `options.expertContext`:
+- HOT lead variant: tells Sunny the customer is ready to commit; instructs a one-sentence acknowledgement, third-person handoff to specialist, no URLs (system appends the wa.me link automatically).
+- Awaiting-expert variant: lists the open pending query text, wait time so far ("3h 12m"), and voice rules (acknowledge what customer JUST wrote, third person, no first-person stalls, no invented prices/ETAs, empathize on frustration without over-apologizing, two sentences max, vary phrasing across replies).
+The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks the system may inject") so Sunny has a stable reference even if the per-turn block is somehow missing.
+
+**HOT-lead wa.me link**: for HOT escalations, `processCustomerBatch` appends `\n\nDirect line to the specialist: <wa.me link>` to the LLM-generated reply text just before send. The link is built from `SPECIALIST_DIRECT_LINK` env var; the LLM is explicitly instructed not to produce URLs.
 
 ### Kill switches and runtime overrides (Railway env vars)
 
