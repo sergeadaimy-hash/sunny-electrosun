@@ -765,6 +765,38 @@ async function processCustomerBatch(entry) {
   const HANDOFF_REPLY_RE = /\b((a|the|our|one\s+of\s+our)\s+(specialists?|engineers?|sales\s+representatives?|sales\s+reps?|team\s+members?|team)\s+(will|is)\s+(reach(ing)?\s+out|follow(ing)?\s+up|contact|be\s+in\s+touch|get\s+back|come\s+back|reconnect|provide|deliver|send|prepare|review|reach|confirm|call|connect)|account\s+details\s+and\s+(final\s+)?figures|formal\s+documents\s+and\s+(final\s+)?figures|reach\s+out\s+(shortly|soon)\s+with\s+(the\s+)?account|share\s+the\s+account|send\s+(you\s+)?the\s+account|(specialist|sales\s+team|team)\s+(will|is)\s+(handle|handling|process|processing|manage|managing)\s+(the\s+)?(payment|order|invoice))/i;
   const replyMentionsHandoff = HANDOFF_REPLY_RE.test(outboundText);
   const linkAlreadyInText = /https?:\/\/wa\.me\//i.test(outboundText);
+
+  if (replyMentionsHandoff && !escalationsDisabled()) {
+    const ownerAlreadyNotifiedThisTurn = !!(escResult && (escResult.ownerNotified || escResult.freshPendingId));
+    if (!ownerAlreadyNotifiedThisTurn) {
+      logger.info('handler.handoff_in_reply_owner_alert', {
+        contactId: contact.id,
+        had_expert_context: !!expertContext,
+        reply_preview: outboundText.slice(0, 200)
+      });
+      const handoffClassification = {
+        ...classification,
+        needs_escalation: true,
+        escalation_type: isHot ? 'hot_lead' : 'silent_query'
+      };
+      try {
+        await notifyOwnerForEscalation({
+          contact: refreshedContact,
+          classification: handoffClassification,
+          safeCombinedText,
+          lastMsg,
+          batchSize: msgs.length,
+          source: 'handoff_in_reply'
+        });
+      } catch (err) {
+        logger.warn('handler.handoff_in_reply_alert_fail', {
+          contactId: contact.id,
+          message: err.message
+        });
+      }
+    }
+  }
+
   if ((isHot || replyMentionsHandoff) && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);
     if (link) {
