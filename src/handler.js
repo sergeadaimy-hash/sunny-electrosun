@@ -679,10 +679,19 @@ async function processCustomerBatch(entry) {
   }
 
   let outboundText = reply.text;
-  if (isHot) {
+  const HANDOFF_REPLY_RE = /\b((a|the|our|one\s+of\s+our)\s+(specialists?|engineers?|sales\s+representatives?|sales\s+reps?|team\s+members?|team)\s+(will|is)\s+(reach(ing)?\s+out|follow(ing)?\s+up|contact|be\s+in\s+touch|get\s+back|come\s+back|reconnect|provide|deliver|send|prepare|review|reach|confirm|call|connect)|account\s+details\s+and\s+(final\s+)?figures|formal\s+documents\s+and\s+(final\s+)?figures|reach\s+out\s+(shortly|soon)\s+with\s+(the\s+)?account|share\s+the\s+account|send\s+(you\s+)?the\s+account|(specialist|sales\s+team|team)\s+(will|is)\s+(handle|handling|process|processing|manage|managing)\s+(the\s+)?(payment|order|invoice))/i;
+  const replyMentionsHandoff = HANDOFF_REPLY_RE.test(outboundText);
+  const linkAlreadyInText = /https?:\/\/wa\.me\//i.test(outboundText);
+  if ((isHot || replyMentionsHandoff) && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);
     if (link) {
       outboundText = `${outboundText}\n\nDirect line to the specialist: ${link}`;
+      if (!isHot) {
+        logger.info('handler.handoff_link_appended_no_hot', {
+          contactId: contact.id,
+          reply_preview: outboundText.slice(0, 200)
+        });
+      }
     }
   }
 
