@@ -280,7 +280,23 @@ async function notifyOwnerEscalation(contact, message, classification, pendingQu
       ? 'Reply directly to the customer in WhatsApp to take over.'
       : 'REPLY to THIS message with the answer. The team will deliver it to the customer automatically.'
   ];
-  return await sendMessage(ownerPhone, lines.join('\n'));
+  const alertText = lines.join('\n');
+  const sendRes = await sendMessage(ownerPhone, alertText);
+  try {
+    const ownerContact = getOrCreateContact(ownerPhone, null);
+    const ownerConv = getActiveConversation(ownerContact.id);
+    appendMessage(ownerConv.id, 'outbound', alertText, {
+      whatsapp_message_id: sendRes && sendRes.messageId,
+      intent: isHot ? 'escalation_alert_hot' : 'escalation_alert_silent',
+      language: 'english'
+    });
+  } catch (err) {
+    logger.warn('escalation.persist_owner_alert_fail', {
+      message: err.message,
+      qid: pendingQueryId
+    });
+  }
+  return sendRes;
 }
 
 async function handleOwnerReply(msg, pending) {
@@ -444,7 +460,21 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
           '',
           `REPLY to the original [QID:${openPending.id}] alert with the answer.`
         ].join('\n');
-        await sendMessage(ownerPhone, followUp);
+        const followSendRes = await sendMessage(ownerPhone, followUp);
+        try {
+          const ownerContact = getOrCreateContact(ownerPhone, null);
+          const ownerConv = getActiveConversation(ownerContact.id);
+          appendMessage(ownerConv.id, 'outbound', followUp, {
+            whatsapp_message_id: followSendRes && followSendRes.messageId,
+            intent: 'escalation_followup_ping',
+            language: 'english'
+          });
+        } catch (err) {
+          logger.warn('escalation.persist_owner_followup_fail', {
+            message: err.message,
+            qid: openPending.id
+          });
+        }
         ownerNotified = true;
       }
       logger.info('handler.escalation.followup_to_open_query', {
