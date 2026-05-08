@@ -325,11 +325,15 @@ async function generateReply(history, message, contact, attachments = [], option
     }
   }
 
-  if (expertContext) {
+  if (expertContext && !isCasualGreeting) {
     systemBlocks.push({ type: 'text', text: expertContext });
     logger.info('claude.reply.expert_context_injected', {
       contactId: contact?.id,
       context_chars: expertContext.length
+    });
+  } else if (expertContext && isCasualGreeting) {
+    logger.info('claude.reply.expert_context_suppressed_for_greeting', {
+      contactId: contact?.id
     });
   }
 

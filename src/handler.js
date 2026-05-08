@@ -113,13 +113,11 @@ function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
   }
   lines.push('');
   lines.push('Voice rules in this state:');
-  lines.push('- Acknowledge what the customer JUST wrote, in their own language and tone. React to their actual message; do not parrot a canned line.');
-  lines.push('- Confirm the team has the question and is working on it. Use third person ("the team", "the specialist"). Do NOT use first-person stalls ("I will check", "let me confirm", "I will revert", "I will get back to you").');
-  lines.push('- Do NOT invent prices, specs, install dates, or fixed turnaround times. Do not promise an exact callback time.');
-  lines.push('- If the customer asks "when?" or "any update?", be honest: "as soon as the team confirms" or similar. No invented ETAs.');
-  lines.push('- If the customer is frustrated about the wait, briefly acknowledge the wait without over-apologizing, then reassure.');
-  lines.push('- If the customer also asks something unrelated to the open query (sizing, location, general product info), answer that part directly from the catalog and your own knowledge.');
-  lines.push('- Two sentences max. No bullet lists. No catalog dumps. Vary phrasing across replies; do not send the exact same sentence twice in a row.');
+  lines.push('- First decide: is the customer FOLLOWING UP on the open query (e.g. "when?", "any update?", references the same product/quantity), or PIVOTING to a new topic (different product, different size, location, general info, asking for batteries when the open query was about panels)?');
+  lines.push('- IF FOLLOWING UP: acknowledge what they JUST wrote in their own language. Confirm the team has the question and is working on it. Use third person ("the team", "the specialist"). Do NOT use first-person stalls ("I will check", "let me confirm", "I will revert", "I will get back to you"). If they are frustrated, briefly acknowledge the wait without over-apologizing, then reassure. If asked "when?", be honest: "as soon as the team confirms".');
+  lines.push('- IF PIVOTING TO A NEW TOPIC: ANSWER THE NEW TOPIC DIRECTLY from your catalog and prompt knowledge. Do NOT just say "Noted" or "Noted on the batteries". Do NOT make the customer wait for the old query to resolve before helping them on a new question. Pair the answer with ONE qualifying question (e.g. "What capacity?", "Single or three phase?", "Home or business?"). If they ask about a category we sell ("I want batteries", "show me inverters"), mention what we carry without prices ("We have BOS-G 5.12kWh, BOS-A 7.68kWh, BOS-B Pro 16kWh, what capacity do you need?") or qualify their use case. Briefly mention the open query at the end ONLY if it is still relevant to what they just said; otherwise leave it alone, the team will reach out separately.');
+  lines.push('- Do NOT invent prices, specs, install dates, or fixed turnaround times.');
+  lines.push('- Two sentences max in either branch. No bullet lists. No catalog price dumps. Vary phrasing across replies; do not send the exact same sentence twice in a row.');
   return lines.join('\n');
 }
 
