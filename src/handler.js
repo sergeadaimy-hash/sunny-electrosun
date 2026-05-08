@@ -950,4 +950,117 @@ async function recoverOrphanedInbound(maxAgeMinutes = 10) {
   return { recovered };
 }
 
-module.exports = { handleInbound, extractMessages, recoverOrphanedInbound };
+async function answerPendingForContact(contactId) {
+  const { getDb } = require('../db/init');
+  const db = getDb();
+  const latest = db.prepare(`
+    SELECT m.id AS msg_id, m.body, m.whatsapp_message_id, m.timestamp,
+           c.id AS conversation_id, ct.phone, ct.name AS contact_name
+    FROM messages m
+    JOIN conversations c ON c.id = m.conversation_id
+    JOIN contacts ct ON ct.id = c.contact_id
+    WHERE c.contact_id = ?
+      AND m.direction = 'inbound'
+      AND NOT EXISTS (
+        SELECT 1 FROM messages m2
+        WHERE m2.conversation_id = m.conversation_id
+          AND m2.direction = 'outbound'
+          AND m2.timestamp > m.timestamp
+      )
+    ORDER BY m.timestamp DESC
+    LIMIT 1
+  `).get(contactId);
+
+  if (!latest) {
+    logger.info('handler.answer_pending.no_pending', { contactId });
+    return { processed: false };
+  }
+
+  try {
+    const synth = {
+      from: latest.phone,
+      profileName: latest.contact_name || null,
+      kind: 'text',
+      body: latest.body || '',
+      id: latest.whatsapp_message_id || `recovered:${latest.msg_id}`,
+      replyToId: null,
+      media: null
+    };
+    const contact = getOrCreateContact(synth.from, synth.profileName);
+    const conversation = getActiveConversation(contact.id);
+    enqueueCustomerMessage(contact, conversation, synth, null, null, synth.body);
+    logger.info('handler.answer_pending.queued', {
+      contactId,
+      conversationId: latest.conversation_id,
+      msgId: latest.msg_id
+    });
+    return { processed: true, queued_msg_id: latest.msg_id };
+  } catch (err) {
+    logger.error('handler.answer_pending.fail', { contactId, message: err.message });
+    return { processed: false, error: err.message };
+  }
+}
+
+async function autoReleaseStaleHumanConversations(thresholdMinutes = 15) {
+  const { getDb } = require('../db/init');
+  const db = getDb();
+  const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
+
+  const stale = db.prepare(`
+    SELECT c.id AS conversation_id, c.contact_id, c.human_handled_at,
+           (SELECT MAX(m.timestamp) FROM messages m
+            WHERE m.conversation_id = c.id
+              AND m.direction = 'outbound'
+              AND m.intent = 'human_manual_reply') AS last_human_reply_at,
+           (SELECT MAX(m.timestamp) FROM messages m
+            WHERE m.conversation_id = c.id
+              AND m.direction = 'inbound') AS last_inbound_at
+    FROM conversations c
+    WHERE c.human_handled = 1
+  `).all();
+
+  let released = 0;
+  for (const row of stale) {
+    const lastHumanAction = row.last_human_reply_at || row.human_handled_at;
+    if (!lastHumanAction || lastHumanAction >= cutoff) continue;
+
+    db.prepare('UPDATE conversations SET human_handled = 0, human_handled_at = NULL WHERE id = ?')
+      .run(row.conversation_id);
+    logEvent(row.contact_id, 'conversation_auto_released', {
+      conversationId: row.conversation_id,
+      last_human_action: lastHumanAction,
+      threshold_minutes: thresholdMinutes
+    });
+    logger.info('handler.auto_release.fired', {
+      conversationId: row.conversation_id,
+      contactId: row.contact_id,
+      last_human_action: lastHumanAction,
+      last_inbound: row.last_inbound_at,
+      threshold_minutes: thresholdMinutes
+    });
+
+    if (row.last_inbound_at && row.last_inbound_at > lastHumanAction) {
+      try {
+        await answerPendingForContact(row.contact_id);
+      } catch (err) {
+        logger.error('handler.auto_release.answer_fail', {
+          conversationId: row.conversation_id,
+          message: err.message
+        });
+      }
+    }
+    released++;
+  }
+  if (released > 0) {
+    logger.info('handler.auto_release.done', { released, threshold_minutes: thresholdMinutes });
+  }
+  return { released };
+}
+
+module.exports = {
+  handleInbound,
+  extractMessages,
+  recoverOrphanedInbound,
+  answerPendingForContact,
+  autoReleaseStaleHumanConversations
+};

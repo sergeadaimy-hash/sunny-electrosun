@@ -14,7 +14,7 @@ const {
   logEvent
 } = require('../src/memory');
 const { sendMessage } = require('../src/whatsapp');
-const { recoverOrphanedInbound } = require('../src/handler');
+const { recoverOrphanedInbound, answerPendingForContact } = require('../src/handler');
 const { getTodayStats, getBudgetCents } = require('../src/cost_tracker');
 const {
   listKnowledge,
@@ -196,6 +196,10 @@ router.post('/conversations/:id/release', (req, res) => {
   if (!conv) return res.status(404).json({ error: 'not found' });
   setConversationHandled(id, false);
   logEvent(conv.contact_id, 'conversation_returned_to_agent', { conversationId: id });
+  // Fire-and-forget: re-process the latest unanswered customer message so Sunny replies on release
+  answerPendingForContact(conv.contact_id).catch(err => {
+    console.error('release.answer_pending_fail', { contactId: conv.contact_id, message: err.message });
+  });
   res.json({ ok: true, conversation_id: id, human_handled: false });
 });
 

@@ -9,7 +9,7 @@ const logger = require('./src/utils/logger');
 const { initDb, DB_PATH } = require('./db/init');
 const webhookRouter = require('./src/webhook');
 const dashboardRouter = require('./api/dashboard');
-const { recoverOrphanedInbound } = require('./src/handler');
+const { recoverOrphanedInbound, autoReleaseStaleHumanConversations } = require('./src/handler');
 const {
   generateHourlyReport,
   generateDailyReport,
@@ -98,10 +98,25 @@ if (require.main === module) {
     }, 3000);
   });
 
+  // Customer-pipeline cron: auto-release stale human-handled conversations after 15 min idle.
+  // Runs regardless of DISABLE_NOTIFICATIONS because this is core inbox flow, not reporting.
+  const autoReleaseMinutes = parseInt(process.env.HUMAN_AUTO_RELEASE_MINUTES || '15', 10);
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const res = await autoReleaseStaleHumanConversations(autoReleaseMinutes);
+      if (res.released > 0) {
+        logger.info('cron.auto_release.done', res);
+      }
+    } catch (err) {
+      logger.error('cron.auto_release.error', { message: err.message });
+    }
+  });
+  logger.info('cron.auto_release.registered', { interval: '*/5 * * * *', threshold_minutes: autoReleaseMinutes });
+
   if (notificationsDisabled()) {
     logger.warn('cron.all_schedules_skipped_at_boot', {
       reason: 'DISABLE_NOTIFICATIONS=true',
-      note: 'No cron handlers will be registered for this container lifetime.'
+      note: 'Notification cron handlers (reports, window monitor) skipped. Customer-pipeline cron (auto-release) still active.'
     });
   } else {
     cron.schedule('0 */2 * * *', async () => {
