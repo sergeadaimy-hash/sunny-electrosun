@@ -5,6 +5,7 @@ const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { formatKnowledgeForPrompt } = require('./knowledge');
 const { formatCatalogForPrompt } = require('./catalog');
+const { formatDatasheetsForPrompt } = require('./datasheets');
 const security = require('./security');
 
 const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-opus-4-7';
@@ -311,6 +312,13 @@ async function generateReply(history, message, contact, attachments = [], option
   }
   if (knowledgeBlock) {
     systemBlocks.push({ type: 'text', text: knowledgeBlock, cache_control: { type: 'ephemeral' } });
+  }
+  let datasheetsBlock = '';
+  try { datasheetsBlock = formatDatasheetsForPrompt(); } catch (err) {
+    logger.warn('claude.reply.datasheets_load_fail', { message: err.message });
+  }
+  if (datasheetsBlock) {
+    systemBlocks.push({ type: 'text', text: datasheetsBlock, cache_control: { type: 'ephemeral' } });
   }
   if (contextBlock) systemBlocks.push({ type: 'text', text: contextBlock });
 

@@ -127,6 +127,22 @@ CREATE TABLE IF NOT EXISTS catalog_notes (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS datasheets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  label TEXT NOT NULL,
+  keywords TEXT NOT NULL DEFAULT '',
+  filename TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  meta_media_id TEXT,
+  meta_media_uploaded_at TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_datasheets_status ON datasheets(status);
 CREATE INDEX IF NOT EXISTS idx_catalog_section ON catalog_items(section);
 
 CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);

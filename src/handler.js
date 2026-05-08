@@ -17,7 +17,8 @@ const {
 } = require('./memory');
 const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
-const { sendMessage, downloadMedia } = require('./whatsapp');
+const { sendMessage, downloadMedia, uploadMediaToMeta, sendDocument } = require('./whatsapp');
+const datasheetsModule = require('./datasheets');
 const { DB_PATH } = require('../db/init');
 const { extractKnowledge, addKnowledgeEntry } = require('./knowledge');
 const { answerOwnerQuestion } = require('./owner_qa');
@@ -565,6 +566,58 @@ async function processCustomerBatch(entry) {
     : safeCombinedText;
 
   const classification = await runClassification(refreshedContact, priorHistory, classifierMessage);
+
+  // Datasheet request fast-path: if customer is asking for a datasheet/brochure/spec sheet
+  // AND we can match a stored datasheet by keyword, upload to Meta (cached) and send the document.
+  const DATASHEET_REQUEST_RE = /\b(data\s*sheet|datasheet|brochure|spec\s*sheet|specification\s*sheet|specs?\s*(sheet|pdf|file|document)|technical\s*(sheet|specs?)|product\s*(sheet|brochure|manual|guide|pdf)|user\s*(manual|guide))\b/i;
+  if (DATASHEET_REQUEST_RE.test(safeCombinedText)) {
+    try {
+      const recentText = (priorHistory || []).slice(-6).map(m => String(m.content || '')).join(' ');
+      const match = datasheetsModule.findDatasheetByQuery(safeCombinedText, recentText);
+      if (match && match.sheet) {
+        const sheet = match.sheet;
+        let mediaId = sheet.meta_media_id;
+        if (!datasheetsModule.isMetaMediaFresh(sheet)) {
+          mediaId = await uploadMediaToMeta(sheet.file_path, sheet.mime_type, sheet.filename);
+          datasheetsModule.setMetaMediaCache(sheet.id, mediaId);
+        }
+        const caption = `${sheet.label} — datasheet from Electro-Sun`;
+        const docRes = await sendDocument(lastMsg.from, mediaId, sheet.filename, caption);
+        if (docRes && docRes.ok) {
+          const noteText = `[Datasheet sent: ${sheet.label}]`;
+          appendMessage(conversation.id, 'outbound', noteText, {
+            whatsapp_message_id: docRes.messageId,
+            intent: 'datasheet_sent',
+            language: classification.language || 'english'
+          });
+          logger.info('handler.datasheet.sent', {
+            contactId: contact.id,
+            datasheet_id: sheet.id,
+            label: sheet.label,
+            score: match.score
+          });
+          return;
+        }
+        logger.warn('handler.datasheet.send_fail_fallback_to_text', {
+          contactId: contact.id,
+          datasheet_id: sheet.id,
+          status: docRes && docRes.status
+        });
+        // fall through to normal reply path so customer at least gets text
+      } else {
+        logger.info('handler.datasheet.no_match', {
+          contactId: contact.id,
+          message_preview: safeCombinedText.slice(0, 120)
+        });
+      }
+    } catch (err) {
+      logger.error('handler.datasheet.error', {
+        contactId: contact.id,
+        message: err.message
+      });
+      // fall through to normal reply
+    }
+  }
 
   if (handlerIsGreeting(combinedText)) {
     classification.needs_escalation = false;

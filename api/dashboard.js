@@ -15,6 +15,7 @@ const {
 } = require('../src/memory');
 const { sendMessage } = require('../src/whatsapp');
 const { recoverOrphanedInbound, answerPendingForContact } = require('../src/handler');
+const datasheetsModule = require('../src/datasheets');
 const { getTodayStats, getBudgetCents } = require('../src/cost_tracker');
 const {
   listKnowledge,
@@ -36,7 +37,7 @@ const {
 const router = express.Router();
 
 router.use((req, res, next) => {
-  const apiKey = req.get('X-API-Key');
+  const apiKey = req.get('X-API-Key') || (req.query && req.query.key);
   if (!process.env.API_KEY) {
     logger.warn('api.no_key_configured');
     return res.status(503).json({ error: 'API_KEY not configured on server' });
@@ -431,6 +432,70 @@ router.post('/recover-orphans', async (req, res) => {
   } catch (err) {
     logger.error('api.recover_orphans.fail', { message: err.message });
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/datasheets', (req, res) => {
+  try {
+    const includeArchived = String(req.query.archived || '') === '1';
+    const sheets = datasheetsModule.listDatasheets({ includeArchived });
+    res.json({ count: sheets.length, datasheets: sheets });
+  } catch (err) {
+    logger.error('api.datasheets.list.fail', { message: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/datasheets', express.json({ limit: '20mb' }), (req, res) => {
+  try {
+    const label = String(req.body?.label || '').trim();
+    const keywords = String(req.body?.keywords || '').trim();
+    const filename = String(req.body?.filename || '').trim();
+    const mimeType = String(req.body?.mime_type || '').trim();
+    const base64 = String(req.body?.base64 || '');
+    if (!label) return res.status(400).json({ error: 'label required' });
+    if (!filename) return res.status(400).json({ error: 'filename required' });
+    if (!mimeType) return res.status(400).json({ error: 'mime_type required' });
+    if (!base64) return res.status(400).json({ error: 'base64 file content required' });
+    const id = datasheetsModule.addDatasheet({ label, keywords, filename, base64, mimeType });
+    res.json({ ok: true, id });
+  } catch (err) {
+    logger.warn('api.datasheets.add.fail', { message: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/datasheets/:id', (req, res) => {
+  try {
+    const id = parseInt32(req.params.id, 0);
+    const updated = datasheetsModule.updateDatasheet(id, req.body || {});
+    res.json({ ok: true, datasheet: updated });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/datasheets/:id', (req, res) => {
+  try {
+    const id = parseInt32(req.params.id, 0);
+    const hard = String(req.query.hard || '') === '1';
+    const ok = datasheetsModule.deleteDatasheet(id, { hard });
+    res.json({ ok });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/datasheets/:id/download', (req, res) => {
+  try {
+    const id = parseInt32(req.params.id, 0);
+    const sheet = datasheetsModule.getDatasheetById(id);
+    if (!sheet) return res.status(404).json({ error: 'not found' });
+    res.setHeader('Content-Type', sheet.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'inline; filename="' + sheet.filename.replace(/"/g, '') + '"');
+    require('fs').createReadStream(sheet.file_path).pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
