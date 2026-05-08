@@ -45,6 +45,27 @@ const HOT_LEAD_REPLY = "Noted. A specialist will follow up with you shortly with
 const SILENT_QUERY_REPLY = "A specialist will confirm the exact figure for you shortly.";
 const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
 
+const WELCOME_REPLY = [
+  'Welcome to Electro-Sun Global Services',
+  '',
+  '*Abuja Address*',
+  '',
+  'Office: Sunset Place, 141 Adetokunbo Ademola Cres, Wuse 2, Abuja',
+  '',
+  'Warehouse address: Plot 816, Gidado Idriss Way, Idu Industrial Area, FCT Abuja',
+  '',
+  'Contact:',
+  'Charbel: 09068859213',
+  'Patrick: 07041328055',
+  '',
+  '*Lagos Address:*',
+  '',
+  'Guardian Newspapers Ltd.',
+  'RUTAM HOUSE',
+  'Apapa-Oshodi Expressway, Isolo, P.M.B 1217, Oshodi',
+  'Lagos, Nigeria.'
+].join('\n');
+
 const HANDLER_GREETING_RE = /^(hi+|hello+|hey+|hola|bonjour|salam|asalam|good\s+(morning|afternoon|evening|day)|gm|ga|ge|how\s+far|wetin\s+dey|sup|yo|howdy|greetings|hii?|test|testing)\b[\s!.?]*$/i;
 function handlerIsGreeting(text) {
   const t = String(text || '').trim();
@@ -519,6 +540,30 @@ async function processCustomerBatch(entry) {
     classification.needs_escalation = false;
     classification.escalation_type = null;
     if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
+
+    const hasPriorOutbound = Array.isArray(priorHistory) && priorHistory.some(m => m && m.role === 'assistant');
+    if (!hasPriorOutbound) {
+      try {
+        const sendRes = await sendMessage(lastMsg.from, WELCOME_REPLY);
+        appendMessage(conversation.id, 'outbound', WELCOME_REPLY, {
+          whatsapp_message_id: sendRes.messageId,
+          intent: 'welcome',
+          language: classification.language || 'english'
+        });
+        logger.info('handler.welcome_sent', {
+          contactId: contact.id,
+          phone: lastMsg.from,
+          chars: WELCOME_REPLY.length
+        });
+        return;
+      } catch (err) {
+        logger.error('handler.welcome_send_fail', {
+          contactId: contact.id,
+          phone: lastMsg.from,
+          message: err.message
+        });
+      }
+    }
   }
 
   if (escalationsDisabled() && classification.needs_escalation) {
