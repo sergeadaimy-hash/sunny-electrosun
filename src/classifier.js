@@ -21,6 +21,23 @@ function hasHotTrigger(text) {
   return HOT_TRIGGER_RE.test(text || '');
 }
 
+const AFFIRMATION_RE = /^(yes|yea+h?|yep+|yup+|sure|ok+|okay+|of\s+course|sounds\s+good|let'?s\s+(do\s+(it|that|this)|go|proceed)|go\s+ahead|absolutely|definitely|i'?m\s+ready|ready|please\s+do|do\s+it|alright|all\s+right|fine|cool|great|good|na'?am|aye|na'?am)[\s.!]*$/i;
+const HOT_PROMPT_FROM_SUNNY_RE = /\b(ready\s+to\s+pay|shall\s+(i|we)\s+send\s+(the\s+)?account|best\s+price.*(ready|pay)|are\s+you\s+ready\s+to|shall\s+(i|we)\s+(book|schedule|proceed)|want\s+to\s+(proceed|order|book)|happy\s+to\s+proceed|shall\s+we\s+(go\s+ahead|proceed)|confirm\s+(the\s+)?(order|payment)|proceed\s+with\s+(the\s+)?order|send\s+you\s+(the\s+)?account|payment\s+now)/i;
+
+function isAffirmationAfterHotPrompt(history, body) {
+  if (!Array.isArray(history) || history.length === 0) return false;
+  const trimmed = String(body || '').trim();
+  if (!trimmed || trimmed.length > 25) return false;
+  if (!AFFIRMATION_RE.test(trimmed)) return false;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (m && m.role === 'assistant') {
+      return HOT_PROMPT_FROM_SUNNY_RE.test(String(m.content || ''));
+    }
+  }
+  return false;
+}
+
 const CLARIFICATION_RE = /^(\??\s*)?(for\s+what|why|how|huh|what|wat|what\?+|what\s+is\s+this(\s+message)?|what\s+do\s+you\s+mean|i\s+don'?t\s+understand|i\s+don'?t\s+get\s+(it|that)|come\s+again|please\s+repeat|repeat|explain|you\s+mean|are\s+you\s+(serious|kidding|sure)|ok\??|okay\??|hmm+|eh+|abeg|sorry\??|pardon\??)[\s.?!]*$/i;
 
 function isClarificationMessage(text) {
@@ -55,6 +72,20 @@ async function runClassification(contact, history, message) {
 
   const result = await classify(history, message);
 
+  const affirmationToHotPrompt = isAffirmationAfterHotPrompt(history, body);
+  if (affirmationToHotPrompt) {
+    if (result.lead_temperature !== 'HOT' || !result.needs_escalation || result.escalation_type !== 'hot_lead') {
+      logger.info('classifier.affirmation_after_hot_prompt_promoted_to_hot', {
+        contactId: contact.id,
+        original_temp: result.lead_temperature,
+        message_preview: body.slice(0, 80)
+      });
+    }
+    result.lead_temperature = 'HOT';
+    result.needs_escalation = true;
+    result.escalation_type = 'hot_lead';
+  }
+
   if (result.lead_temperature === 'HOT' && !result.needs_escalation) {
     logger.warn('classifier.hot_without_escalation_demoted_to_warm', {
       contactId: contact.id,
@@ -64,7 +95,7 @@ async function runClassification(contact, history, message) {
     result.lead_temperature = 'WARM';
   }
 
-  if (result.lead_temperature === 'HOT' && !hasHotTrigger(body)) {
+  if (result.lead_temperature === 'HOT' && !hasHotTrigger(body) && !affirmationToHotPrompt) {
     logger.warn('classifier.hot_without_commitment_phrase_demoted', {
       contactId: contact.id,
       original_escalation_type: result.escalation_type,
