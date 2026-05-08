@@ -456,7 +456,18 @@ async function generateReply(history, message, contact, attachments = [], option
       const customerMsg = String(message || '').trim();
       const customerIsShortFactual = customerMsg.length > 0 && customerMsg.length <= 40 && !customerMsg.includes('?');
       const replyEndsWithQuestion = /\?\s*$/.test(text);
-      if (customerIsShortFactual && replyEndsWithQuestion) {
+      let sunnyJustAskedQuestion = false;
+      if (Array.isArray(history) && history.length > 0) {
+        for (let i = history.length - 1; i >= 0; i--) {
+          const m = history[i];
+          if (m && m.role === 'assistant') {
+            const lastAssistantText = String(m.content || '').trim();
+            sunnyJustAskedQuestion = /\?\s*$/.test(lastAssistantText);
+            break;
+          }
+        }
+      }
+      if (customerIsShortFactual && replyEndsWithQuestion && sunnyJustAskedQuestion) {
         const sentences = text.split(/(?<=[.!])\s+/);
         const nonQuestionSentences = sentences.filter(s => !/\?\s*$/.test(s));
         if (nonQuestionSentences.length > 0) {
