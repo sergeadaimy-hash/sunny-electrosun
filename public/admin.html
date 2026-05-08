@@ -270,6 +270,14 @@
     #view-inbox.active { display: grid; grid-template-columns: 360px 1fr; }
     #view-contacts.active { display: flex; flex-direction: column; }
     #view-knowledge.active { display: flex; flex-direction: column; }
+    #view-owner.active { display: flex; flex-direction: column; }
+    .owner-pane { display: flex; flex-direction: column; height: 100%; padding: 0; background: var(--cream-soft); }
+    .owner-header { padding: 16px 24px; background: #fff; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+    .owner-header .who { display: flex; flex-direction: column; }
+    .owner-header .who .name { font-weight: 600; font-size: 15px; }
+    .owner-header .who .phone { font-size: 13px; color: var(--ink-soft); margin-top: 2px; }
+    .owner-header .owner-stats { font-size: 13px; color: var(--ink-soft); }
+    .owner-messages { padding: 16px 24px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
     @media (max-width: 800px) {
       #view-inbox.active { grid-template-columns: 1fr; }
       .conversation-list { border-right: none; border-bottom: 1px solid var(--border); }
@@ -1289,6 +1297,7 @@
       <nav class="nav-tabs" id="nav-tabs">
         <button class="active" data-view="view-inbox">Inbox</button>
         <button data-view="view-contacts">Contacts</button>
+        <button data-view="view-owner">Owner Chat</button>
         <button data-view="view-knowledge">Knowledge</button>
       </nav>
     </div>
@@ -1321,6 +1330,21 @@
       <section class="conv-view-pane" id="conv-view">
         <div class="conv-empty" id="conv-empty">Select a conversation on the left.</div>
       </section>
+    </section>
+
+    <section id="view-owner" class="view">
+      <div class="owner-pane">
+        <div class="owner-header">
+          <div class="who">
+            <span class="name">Owner / Patrick</span>
+            <span class="phone" id="owner-phone-display">…</span>
+          </div>
+          <div class="owner-stats" id="owner-stats"></div>
+        </div>
+        <div class="messages owner-messages" id="owner-msg-list">
+          <div class="empty-list">Loading.</div>
+        </div>
+      </div>
     </section>
 
     <section id="view-knowledge" class="view">
@@ -1565,6 +1589,48 @@ function switchView(viewId) {
   if (viewId === 'view-knowledge' && !knowledgeLoaded) {
     loadKnowledge();
   }
+  if (viewId === 'view-owner') {
+    loadOwnerChat();
+  }
+}
+
+async function loadOwnerChat() {
+  const list = document.getElementById('owner-msg-list');
+  if (list && (!list.children.length || list.querySelector('.empty-list'))) {
+    list.innerHTML = '<div class="empty-list">Loading.</div>';
+  }
+  try {
+    const data = await apiFetch('/owner-chat?limit=200');
+    renderOwnerChat(data);
+  } catch (err) {
+    if (list) list.innerHTML = '<div class="empty-list">Error: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function renderOwnerChat(data) {
+  const phoneEl = document.getElementById('owner-phone-display');
+  const statsEl = document.getElementById('owner-stats');
+  const list = document.getElementById('owner-msg-list');
+  if (!list) return;
+
+  // Preserve scroll: stay pinned to bottom if already near it
+  const wasNearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+
+  const phone = data.contact && data.contact.phone ? data.contact.phone : '(no owner contact yet)';
+  if (phoneEl) phoneEl.textContent = phone;
+  const msgs = data.messages || [];
+  if (statsEl) statsEl.textContent = msgs.length + ' messages';
+
+  if (!msgs.length) {
+    list.innerHTML = '<div class="empty-list">No messages between Sunny and the owner yet. They will appear here as soon as Sunny pings the owner about a hot lead, silent query, follow-up, or daily report, or when the owner replies on WhatsApp.</div>';
+    return;
+  }
+  list.innerHTML = msgs.map(m => msgHtml(m)).join('');
+  requestAnimationFrame(() => {
+    if (wasNearBottom || msgs.length === 1) {
+      list.scrollTop = list.scrollHeight;
+    }
+  });
 }
 
 // CONTACTS
@@ -2082,6 +2148,9 @@ async function refreshAll() {
     }
     if (currentView === 'view-knowledge' && knowledgeLoaded) {
       loadKnowledge();
+    }
+    if (currentView === 'view-owner') {
+      loadOwnerChat();
     }
   } catch (err) {
     console.error('refresh failed', err);

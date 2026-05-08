@@ -248,6 +248,26 @@ router.get('/queries/pending', (req, res) => {
   res.json({ count: rows.length, pending: rows });
 });
 
+router.get('/owner-chat', (req, res) => {
+  const ownerPhone = process.env.OWNER_WHATSAPP;
+  if (!ownerPhone) return res.json({ contact: null, messages: [] });
+  const limit = parseInt32(req.query.limit, 200);
+  const db = getDb();
+  const contact = db.prepare('SELECT * FROM contacts WHERE phone = ? LIMIT 1').get(ownerPhone);
+  if (!contact) return res.json({ contact: null, messages: [] });
+  const rawMessages = db.prepare(`
+    SELECT m.id, m.conversation_id, m.direction, m.body, m.kind, m.intent,
+           m.created_at AS timestamp, m.media_path, m.media_mime
+    FROM messages m
+    JOIN conversations c ON c.id = m.conversation_id
+    WHERE c.contact_id = ?
+    ORDER BY m.id DESC
+    LIMIT ?
+  `).all(contact.id, limit);
+  rawMessages.reverse();
+  res.json({ contact, messages: rawMessages });
+});
+
 router.get('/budget/today', (req, res) => {
   const stats = getTodayStats();
   const budgetCents = getBudgetCents();
