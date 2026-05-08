@@ -256,8 +256,8 @@ router.get('/owner-chat', (req, res) => {
   const contact = db.prepare('SELECT * FROM contacts WHERE phone = ? LIMIT 1').get(ownerPhone);
   if (!contact) return res.json({ contact: null, messages: [] });
   const rawMessages = db.prepare(`
-    SELECT m.id, m.conversation_id, m.direction, m.body, m.kind, m.intent,
-           m.created_at AS timestamp, m.media_path, m.media_mime
+    SELECT m.id, m.conversation_id, m.direction, m.body, m.intent, m.language,
+           m.timestamp, m.media_path, m.media_mime
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
     WHERE c.contact_id = ?
