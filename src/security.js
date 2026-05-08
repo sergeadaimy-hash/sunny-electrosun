@@ -170,6 +170,10 @@ const STALL_PATTERNS = [
   /\b(get\s+back\s+to\s+you|will\s+revert|will\s+come\s+back\s+to\s+you|circle\s+back\s+with\s+you)/i,
   /\b(sales\s+engineers?|our\s+team|our\s+engineers?|our\s+sales|one\s+of\s+our\s+(sales\s+engineers?|engineers?|team))\s+will\s+(reach\s+out|contact|get\s+in\s+touch|follow\s+up|revert)/i,
   /\bgive\s+me\s+a\s+(moment|second|minute)/i,
+  /\b(a|the|our)\s+(specialist|engineer|team\s+member|sales\s+representative|sales\s+rep)\s+will\s+(reach\s+out|contact|follow\s+up|be\s+in\s+touch|get\s+back|come\s+back|revert|confirm|provide|deliver|send|prepare|reconfirm|update)/i,
+  /\b(the|our)\s+team\s+(will|is\s+going\s+to)\s+(confirm|provide|deliver|send|handle|reach\s+out|prepare|review|come\s+back|reconfirm|update|check|verify|finalise|finalize|finalising|finalizing|work\s+on|sort)/i,
+  /\b(the|our)\s+team\s+is\s+(checking|confirming|finalising|finalizing|reviewing|preparing|working\s+on|looking\s+into|sorting|verifying|on\s+it)/i,
+  /\b(a|the|our)\s+specialist\s+is\s+(checking|confirming|finalising|finalizing|reviewing|preparing|working\s+on|looking\s+into)/i,
 ];
 
 function detectStallLanguage(replyText) {

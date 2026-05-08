@@ -438,7 +438,7 @@ async function generateReply(history, message, contact, attachments = [], option
         const { getDb } = require('../db/init');
         const db = getDb();
         const lastOutbound = db.prepare(
-          `SELECT body FROM messages WHERE contact_id IS NULL OR conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
+          `SELECT body FROM messages WHERE direction = 'outbound' AND conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
            ORDER BY id DESC LIMIT 1`
         ).get(contact.id);
         if (lastOutbound && typeof lastOutbound.body === 'string') {
@@ -539,7 +539,7 @@ async function generateReply(history, message, contact, attachments = [], option
         const { getDb } = require('../db/init');
         const db = getDb();
         const lastOutbound = db.prepare(
-          `SELECT body FROM messages WHERE contact_id IS NULL OR conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
+          `SELECT body FROM messages WHERE direction = 'outbound' AND conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
            ORDER BY id DESC LIMIT 1`
         ).get(contact.id);
         if (lastOutbound && typeof lastOutbound.body === 'string') {
