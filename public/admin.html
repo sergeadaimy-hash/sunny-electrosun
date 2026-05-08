@@ -2212,6 +2212,20 @@ function renderConversationView(data, scrollToBottom) {
   const msgs = data.messages || [];
   const isHuman = !!conv.human_handled;
 
+  // Preserve in-flight reply-input state across the upcoming innerHTML rebuild
+  const existingInput = document.getElementById('reply-input');
+  const preservedText = existingInput ? existingInput.value : '';
+  const inputWasFocused = !!existingInput && document.activeElement === existingInput;
+  const preservedSelStart = inputWasFocused ? existingInput.selectionStart : null;
+  const preservedSelEnd = inputWasFocused ? existingInput.selectionEnd : null;
+  const existingMsgList = document.getElementById('msg-list');
+  const preservedScrollTop = existingMsgList ? existingMsgList.scrollTop : null;
+  const preservedScrollHeight = existingMsgList ? existingMsgList.scrollHeight : null;
+  const preservedClientHeight = existingMsgList ? existingMsgList.clientHeight : null;
+  const wasNearBottom = (preservedScrollTop != null && preservedScrollHeight != null && preservedClientHeight != null)
+    ? (preservedScrollHeight - preservedScrollTop - preservedClientHeight) < 80
+    : false;
+
   const tempPill = contact?.lead_temperature ? '<span class="pill ' + contact.lead_temperature.toLowerCase() + '">' + contact.lead_temperature + '</span>' : '';
   const catPill = contact?.category ? '<span class="pill">' + contact.category + '</span>' : '';
   const clientPill = contact?.client_type ? '<span class="pill">' + contact.client_type + '</span>' : '';
@@ -2242,12 +2256,30 @@ function renderConversationView(data, scrollToBottom) {
     '</div>'
   ].join('');
 
-  if (scrollToBottom) {
-    requestAnimationFrame(() => {
-      const list = document.getElementById('msg-list');
-      list.scrollTop = list.scrollHeight;
-    });
+  // Restore in-flight reply-input text + cursor + focus
+  const newInput = document.getElementById('reply-input');
+  if (newInput && preservedText) {
+    newInput.value = preservedText;
   }
+  if (newInput && inputWasFocused) {
+    newInput.focus();
+    if (preservedSelStart != null && preservedSelEnd != null) {
+      try { newInput.setSelectionRange(preservedSelStart, preservedSelEnd); } catch (_) {}
+    }
+  }
+
+  // Scroll handling: explicit scroll-to-bottom on first open / new message,
+  // otherwise restore prior scrollTop unless the user was already pinned near the bottom
+  // (in which case keep them pinned to the new bottom so they see fresh messages).
+  requestAnimationFrame(() => {
+    const list = document.getElementById('msg-list');
+    if (!list) return;
+    if (scrollToBottom || wasNearBottom) {
+      list.scrollTop = list.scrollHeight;
+    } else if (preservedScrollTop != null) {
+      list.scrollTop = preservedScrollTop;
+    }
+  });
 
   const handleBtnEl = document.getElementById('handle-btn');
   if (handleBtnEl) handleBtnEl.addEventListener('click', () => takeOver(conv.id));
