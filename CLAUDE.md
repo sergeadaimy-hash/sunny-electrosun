@@ -4,7 +4,7 @@ This file is the working memory for Sunny. Read it before making any change. It 
 
 Detailed session-by-session changelog lives in `docs/session-history.md`. That file is the audit trail for "what shipped when and why"; this file is the always-true reference for what is currently in the codebase and what rules govern Sunny's behavior.
 
-## Current launch status (paused 2026-05-07 morning Beirut)
+## Current launch status (paused 2026-05-08 evening Beirut)
 
 Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud deploy) are closed. Phase B code work is closed: schema migration, 2-hour reports with HOT/WARM/COLD aggregations, silent-query workflow with reply-to routing, daily learning report, owner Q&A, knowledge ingestion, image vision, voice-note transcription, WhatsApp call auto-reply, conversation-state engine, multi-message debounce, orphan recovery on startup, code-level reply guards (price-strip, trailing-question-strip, repeat guard, wa.me link ban). Task #15 (48-hour soak) is the next user-driven launch step.
 
@@ -12,19 +12,31 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud
 
 **Live state on Railway:**
 - URL: https://sunny-electrosun-production.up.railway.app
-- Volume `/data` mounts the SQLite DB at `/data/sunny.db` and media at `/data/media/`.
-- `OWNER_WHATSAPP=2347041328055` (brother). Verified via `/version` → `owner_whatsapp_tail: "8055"`.
-- `DISABLE_NOTIFICATIONS=true` (kill switch ON: cron schedules don't even register at boot). Customer chat still flows normally. Re-enable with `railway variables --set "DISABLE_NOTIFICATIONS=false"`.
+- Volume `/data` mounts the SQLite DB at `/data/sunny.db`, media at `/data/media/`, and datasheets at `/data/datasheets/`.
+- **NEW WABA `986225450549617`** ("Sunny-Electrosun"). Test WABA `1713234916358524` retired (Meta hard-locks test numbers to test WABAs; cannot be deleted). Migration completed 2026-05-08.
+- **NEW production phone `+234 913 055 4747`** (phone_number_id `1143874562134501`). `code_verification_status: VERIFIED`, `platform_type: CLOUD_API`, `quality_rating: GREEN`, `name_status: PENDING_REVIEW` (display name "ELECTROSUN" awaiting Meta review, does not block sending; customers see raw number until approved).
+- Cloud API registration PIN: `271828` (saved as `META_REGISTRATION_PIN` on Railway and local .env). Needed if Meta forces re-register.
+- Templates re-submitted under new WABA: `owner_hourly_report_en` id `26625377877146589` PENDING, `follow_up_24h_en` id `1722973542453762` PENDING.
+- `OWNER_WHATSAPP=2347041328055` (brother). Verified via `/version` → `owner_whatsapp_tail: "8055"`. **Important: brother must accept the chat from "Message Requests" the first time. Until accepted, alerts are delivered but sit in his Message Requests folder, not main chat list.**
+- `SPECIALIST_DIRECT_LINK=+234 704 132 8055` (brother's number, used for wa.me handoff link on HOT replies).
+- `DISABLE_NOTIFICATIONS=true` (kill switch ON: report crons don't register at boot). Customer pipeline + auto-release cron still active.
+- `OPENAI_API_KEY` provided 2026-05-08 but currently INVALID (HTTP 401 from Whisper). Need fresh key with billing credit OR full-access non-project key. Voice notes fall back to "[Customer sent a voice note that could not be transcribed]" until fixed.
 - All four model env defaults are `claude-opus-4-7` (classifier, reply, teacher, owner_qa).
-- `DAILY_LLM_BUDGET_USD=20` (raised from $5 to absorb Opus pricing).
+- `DAILY_LLM_BUDGET_USD=20`.
 - `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
+- `HUMAN_AUTO_RELEASE_MINUTES=15` (default; tunable).
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit per `git log`: `50729dd`.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit per `git log`: `7338652`.
 
 **Resume plan:**
-- Waiting on brother: pricing data for Sungrow / JA / Longi; Section 11 decisions (working hours, location tags, currency, default warranty/delivery copy, after-hours reply, competitor pricing doctrine); real WhatsApp business number (Task #17 full).
-- User-driven: Task #15 48-hour soak with 3-5 testers; re-check Meta template approval status (`node scripts/check_templates.js`).
-- Code nice-to-haves (not blocking): hot-lead alert with Haiku/Opus conversation summary; admin "approve to permanent fact" button on daily learning items; per-contact avatar color hashing; image inline rendering in admin; RAG-style fact retrieval if knowledge base exceeds the 500-fact cap; re-enable owner teaching from WhatsApp with intent disambiguation.
+- Brother needs to accept the Sunny chat from his WhatsApp Message Requests folder so alert notifications surface in his main chat list.
+- Fix OpenAI key: add billing credit at platform.openai.com, or generate fresh non-project key, then `railway variables --set "OPENAI_API_KEY=sk-..."` + `railway redeploy --yes`. Confirm via voice-note send to +234 913 055 4747; expect `transcribe.ok` log.
+- Brother to upload datasheets via admin → Knowledge → Datasheets tab (PDF/PNG/JPG/WEBP up to 15MB). Once uploaded, Sunny auto-attaches the matching file when customer asks for "datasheet" / "brochure" / "specs".
+- Brother's pending pricing data: Sungrow, JA, Longi, Jinko panels.
+- Section 11 decisions still pending (working hours, location tags, currency, default warranty/delivery copy, after-hours reply, competitor pricing doctrine).
+- Display name "ELECTROSUN" review with Meta (1-3 business days from 2026-05-08). After approval customers see "ELECTROSUN" instead of raw number.
+- Task #15 48-hour soak with 3-5 testers.
+- Code nice-to-haves: hot-lead alert with conversation summary; admin "approve to permanent fact" button on daily learning items; per-contact avatar color hashing; image inline rendering in admin; RAG-style fact retrieval if knowledge base exceeds the 500-fact cap; re-enable owner teaching from WhatsApp with intent disambiguation; rotate the OpenAI key currently exposed in chat transcript.
 
 ## Current operational rules and configuration
 
@@ -149,6 +161,16 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `src/handler.js` debounce queue | Per-contact in-memory queue, fires once per `MESSAGE_DEBOUNCE_MS` window. Persists each message to DB immediately for admin visibility. |
 | `src/handler.js > handleUnsupported` (legacy) | Polite "text only" fallback for unsupported message types. Voice notes now flow through transcribe instead. |
 | `src/handler.js` calls handler | When Meta delivers a `calls` webhook event, auto-sends "Hello, this number isn't monitored for voice calls. Please send a text message and the Electro-Sun team will respond." Throttled per-caller to once per hour. Logs `call_received`. Note: Meta's Calling API is in beta. |
+| `src/handler.js > WELCOME_REPLY` constant | Hardcoded multi-line welcome card with Abuja office + warehouse, Lagos office, Charbel + Patrick contact lines. Sent verbatim on the very first greeting from a new contact (greeting branch detects `priorHistory` has no prior assistant message). Bypasses Opus and all output guards because the card includes Patrick's number which would trip the owner-number-leak detector if generated by the LLM. Subsequent greetings in the same conversation fall through to normal Opus reply. |
+| `src/handler.js > answerPendingForContact(contactId)` | Finds the latest unanswered customer inbound for the contact and re-queues it through the normal debounce + classify + reply pipeline. Called by the manual `/release` endpoint AND by the auto-release cron when human_handled flips back to false. |
+| `src/handler.js > autoReleaseStaleHumanConversations(thresholdMinutes)` | Scans `human_handled=1` conversations, computes `max(human_handled_at, last_human_reply_at)`, releases any conversation idle past the threshold, fires `conversation_auto_released` event, and calls `answerPendingForContact` for the released contact. Cron: every 5 min outside the `DISABLE_NOTIFICATIONS` gate. Tunable via `HUMAN_AUTO_RELEASE_MINUTES` env var. |
+| `src/datasheets.js` (new) | Datasheet library. Files stored at `/data/datasheets/` on Railway volume. Schema: id, label, keywords, filename, file_path, mime_type, size_bytes, meta_media_id, meta_media_uploaded_at (Meta TTL 30 days; refresh after 25), status, created_at, updated_at. 15MB cap. Mime allow-list: pdf, png, jpeg, webp. Exposes `listDatasheets`, `getDatasheetById`, `addDatasheet` (base64 input), `updateDatasheet`, `deleteDatasheet` (soft archive default), `setMetaMediaCache`, `isMetaMediaFresh`, `findDatasheetByQuery` (token-overlap match against label+keywords), `formatDatasheetsForPrompt`. |
+| `src/whatsapp.js > uploadMediaToMeta(filePath, mimeType, filename)` | Multipart POST to `/<phone-id>/media`, returns Meta media_id (cached on the datasheet row). |
+| `src/whatsapp.js > sendDocument(to, mediaId, filename, caption)` | POST to `/messages` with type=document, native WhatsApp document message. |
+| `src/handler.js` datasheet fast-path | In `processCustomerBatch` after classification, before greeting/escalation: `DATASHEET_REQUEST_RE` detects "datasheet"/"brochure"/"spec sheet"/"specifications"/"manual"/"product sheet"/"product brochure"/"product manual"/"user guide" etc. Calls `findDatasheetByQuery(message, last 6 history turns)`. On match: uploads to Meta if not cached, sends document, appends `[Datasheet sent: <label>]` outbound row with `intent='datasheet_sent'`, returns early. Falls through to normal reply on no match or send failure. Logs `handler.datasheet.sent` / `handler.datasheet.no_match` / `handler.datasheet.send_fail_fallback_to_text`. |
+| `notifyOwnerEscalation` + follow-up ping in `notifyOwnerForEscalation` | Both branches now persist the outbound message to the owner's conversation via `appendMessage` (intents `escalation_alert_hot`, `escalation_alert_silent`, `escalation_followup_ping`). Owner Chat tab can render every Sunny→Owner message. Wrapped in try/catch so DB write failure logs `escalation.persist_owner_alert_fail` without breaking delivery. |
+| Admin `Owner Chat` tab + `GET /api/owner-chat?limit=N` | Read-only conversation thread of every message between Sunny and OWNER_WHATSAPP, including escalation alerts, follow-up pings, and the brother's replies. Renders with the same `msgHtml()` bubble component as the inbox. Auto-refreshes every 15s. |
+| Admin `Datasheets` sub-panel under Knowledge | Upload form (label + keywords + file), list with download/edit/archive per row. Client-side base64 encoding, 15MB pre-flight check, server-side mime allow-list. Auth supports `?key=` query param so the download link works directly from the browser. |
 
 ## Mission
 
