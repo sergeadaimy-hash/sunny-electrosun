@@ -21,7 +21,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud
 - `SPECIALIST_DIRECT_LINK=+234 704 132 8055` (brother's number, used for wa.me handoff link on HOT replies).
 - `DISABLE_NOTIFICATIONS=true` (kill switch ON: report crons don't register at boot). Customer pipeline + auto-release cron still active.
 - `OPENAI_API_KEY` provided 2026-05-08 but currently INVALID (HTTP 401 from Whisper). Need fresh key with billing credit OR full-access non-project key. Voice notes fall back to "[Customer sent a voice note that could not be transcribed]" until fixed.
-- All four model env defaults are `claude-opus-4-7` (classifier, reply, teacher, owner_qa).
+- Model assignments live on Railway (set 2026-05-09): `MODEL_REPLY=claude-opus-4-7` (customer-facing, where rule-following margin matters); `MODEL_CLASSIFIER`, `MODEL_TEACHER`, `MODEL_OWNER_QA` all set to `claude-sonnet-4-6` for ~50-60% cost reduction. Code-level fallback in `src/claude.js`/`src/knowledge.js`/`src/owner_qa.js` still defaults to `claude-opus-4-7` if any env override is removed. Plan: after Task #15 soak shows the new no-fake-team-paging and no-negotiation rules holding under load, consider flipping `MODEL_REPLY` to Sonnet too.
 - `DAILY_LLM_BUDGET_USD=20`.
 - `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
 - `HUMAN_AUTO_RELEASE_MINUTES=15` (default; tunable).
@@ -138,7 +138,7 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 
 ### Models, costs, and budget
 
-- All model defaults: `claude-opus-4-7` (classifier, reply, teacher, owner_qa).
+- Code-level fallback default: `claude-opus-4-7` for all four call sites. Live Railway env (since 2026-05-09): only `MODEL_REPLY` runs Opus; classifier, teacher, and owner_qa run `claude-sonnet-4-6`.
 - Cost reality on Opus: ~$0.025-$0.05 per message (vs ~$0.005 on Sonnet). At 500 messages/day that's $15-$25/day.
 - Opus pricing per million tokens (cents, in `src/cost_tracker.js`): in 1500 / out 7500 / cache_read 150 / cache_write 1875.
 - Sonnet pricing (kept for fallback): in 300 / out 1500 / cache_read 30 / cache_write 375.
