@@ -156,7 +156,7 @@ function formatDatasheetsForPrompt() {
     lines.push(`- ${s.label} [keywords: ${s.keywords || '(none)'}]`);
   }
   lines.push('');
-  lines.push('When a customer asks for a datasheet / brochure / spec sheet / specifications / manual / product sheet AND they have specified or you can infer which product, the system will automatically attach the matching PDF to your reply. Just acknowledge briefly ("Sending the datasheet now.") and continue. If no datasheet matches, say "I don\'t have a datasheet for that exact item; the team can email it across" instead of inventing one.');
+  lines.push('When a customer asks for a datasheet / brochure / spec sheet / specifications / manual / product sheet AND they have specified or you can infer which product, the system will automatically attach the matching PDF to your reply. Just acknowledge briefly ("Sending the datasheet now.") and continue. If no datasheet matches, say "I don\'t have a datasheet for that one yet" and ask the customer if they want a quick spec summary or to confirm the exact model. Do NOT promise to email anything; we do not send datasheets by email.');
   return lines.join('\n');
 }
 

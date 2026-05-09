@@ -24,7 +24,8 @@ const {
   deleteKnowledge,
   addKnowledgeEntry,
   findOverlapGroups,
-  getKnowledgeStats
+  getKnowledgeStats,
+  rejectLegacyFacts
 } = require('../src/knowledge');
 const {
   getCatalog,
@@ -336,6 +337,16 @@ router.post('/knowledge/refresh', (req, res) => {
       prompt_block_chars: stats.prompt_block_chars
     });
     res.json({ ok: true, refreshed_at: new Date().toISOString(), stats });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/knowledge/cleanup-legacy', (req, res) => {
+  try {
+    const result = rejectLegacyFacts();
+    const stats = getKnowledgeStats();
+    res.json({ ok: true, ...result, stats });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

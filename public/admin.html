@@ -1426,6 +1426,7 @@
           <span class="stats" id="know-stats">0 facts</span>
           <button class="btn" id="know-refresh-btn" title="Recheck what Sunny is loading from the knowledge base right now">Refresh memory</button>
           <button class="btn" id="know-overlaps-btn" title="Show facts that look like they cover the same topic, so you can clean them up">Show overlaps</button>
+          <button class="btn danger" id="know-cleanup-legacy-btn" title="One-click cleanup: marks every active fact tagged as a legacy import or 'past customer / past Q&A' as rejected so they stop polluting Sunny's prompt with old prices">Reject all legacy facts</button>
         </div>
         <div id="know-snapshot" class="know-snapshot" style="display:none"></div>
         <div id="know-overlaps" class="know-overlaps" style="display:none"></div>
@@ -1838,6 +1839,26 @@ document.getElementById('know-add-btn').addEventListener('click', addFact);
 
 document.getElementById('know-refresh-btn').addEventListener('click', refreshAgentMemory);
 document.getElementById('know-overlaps-btn').addEventListener('click', toggleOverlaps);
+document.getElementById('know-cleanup-legacy-btn').addEventListener('click', cleanupLegacyFacts);
+
+async function cleanupLegacyFacts() {
+  const ok = confirm('Reject every active fact that came from a legacy import or "past customer / past Q&A" entry?\n\nThis stops Sunny from quoting old prices like "Longi 650W = 130,000 NGN" from 2025 conversations. You can still see and re-activate them under Status: rejected.');
+  if (!ok) return;
+  const btn = document.getElementById('know-cleanup-legacy-btn');
+  btn.disabled = true;
+  btn.textContent = 'Cleaning.';
+  try {
+    const data = await apiFetch('/knowledge/cleanup-legacy', { method: 'POST', body: '{}' });
+    alert('Rejected ' + (data.rejected_count || 0) + ' legacy facts. Active facts now: ' + (data.stats?.active_count || 0) + '.');
+    await loadKnowledge();
+    await refreshAgentMemory();
+  } catch (err) {
+    alert('Cleanup failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Reject all legacy facts';
+  }
+}
 
 async function refreshAgentMemory() {
   const box = document.getElementById('know-snapshot');

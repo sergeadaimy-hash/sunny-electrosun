@@ -275,6 +275,40 @@ function findOverlapGroups() {
   return groups;
 }
 
+function rejectLegacyFacts() {
+  const db = getDb();
+  const ts = new Date().toISOString();
+  const candidates = db.prepare(
+    `SELECT id, source_message, extracted_fact, category FROM knowledge_entries
+     WHERE status = 'active'
+       AND (
+         source_message LIKE '%legacy conversation with%' OR
+         extracted_fact LIKE '%legacy conversation with%' OR
+         extracted_fact LIKE '%(source: legacy%' OR
+         extracted_fact LIKE '%Past customer (%' OR
+         extracted_fact LIKE '%Past Q&A on%' OR
+         extracted_fact LIKE '%(source: %20%5-%' OR
+         extracted_fact LIKE '%(source: %20%6-%'
+       )`
+  ).all();
+  let rejected = 0;
+  const update = db.prepare(
+    `UPDATE knowledge_entries SET status = 'rejected', rejected_at = ? WHERE id = ?`
+  );
+  const tx = db.transaction((rows) => {
+    for (const r of rows) {
+      update.run(ts, r.id);
+      rejected++;
+    }
+  });
+  tx(candidates);
+  logger.info('knowledge.legacy_facts_rejected', { count: rejected });
+  return {
+    rejected_count: rejected,
+    sample_ids: candidates.slice(0, 20).map(r => r.id)
+  };
+}
+
 function getKnowledgeStats() {
   const db = getDb();
   const counts = db.prepare(
@@ -308,5 +342,6 @@ module.exports = {
   deleteKnowledge,
   formatKnowledgeForPrompt,
   findOverlapGroups,
-  getKnowledgeStats
+  getKnowledgeStats,
+  rejectLegacyFacts
 };
