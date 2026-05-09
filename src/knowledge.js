@@ -94,11 +94,18 @@ function findDuplicateActive(text, category) {
   return null;
 }
 
-function addKnowledgeEntry({ sourceMessage, sourceMessageId, extractedFact, category, confidence, status = 'active', skipDedup = false }) {
+function addKnowledgeEntry({ sourceMessage, sourceMessageId, extractedFact, category, confidence, status = 'active', skipDedup = false, replaceIfDuplicate = false }) {
   const db = getDb();
-  if (!skipDedup && status === 'active') {
+  if (status === 'active' && !skipDedup) {
     const dup = findDuplicateActive(extractedFact, category);
-    if (dup) return dup.id;
+    if (dup) {
+      if (!replaceIfDuplicate) return dup.id;
+      const tsSup = new Date().toISOString();
+      db.prepare(
+        `UPDATE knowledge_entries SET status = 'superseded', rejected_at = ? WHERE id = ?`
+      ).run(tsSup, dup.id);
+      logger.info('knowledge.superseded', { old_id: dup.id, category: dup.category });
+    }
   }
   const ts = new Date().toISOString();
   const info = db.prepare(
@@ -187,6 +194,8 @@ function formatKnowledgeForPrompt() {
   const lines = [];
   lines.push('# Owner-taught knowledge (treat as authoritative)');
   lines.push('These facts were taught to you by the Electro-Sun team or imported from past conversations. Quote them directly when relevant. They override earlier general guidance if they conflict.');
+  lines.push('Facts inside each category are listed NEWEST FIRST. If two facts about the same product, brand, price, policy, or hours appear to conflict, the FIRST one (newest) is the truth and the older one is outdated. Use the newest one and ignore the older one.');
+  lines.push('STOCK AND AVAILABILITY: If any fact below mentions stock, availability, "in stock", "out of stock", "arriving", "next week", "ETA", or "coming soon" for a product, that fact OVERRIDES the catalog block above. The catalog tells you the SKU and the price; these facts tell you whether the item is actually available right now and when. Never tell a customer something is in stock if a fact below says it is out of stock or arriving later, and never invent an ETA the facts do not state.');
   lines.push('');
   const order = ['pricing', 'policy', 'product', 'sales', 'operations', 'warranty', 'customer', 'correction', 'other'];
   const seen = new Set();
@@ -210,6 +219,63 @@ function formatKnowledgeForPrompt() {
   return block;
 }
 
+function findOverlapGroups() {
+  const rows = getActiveKnowledge(PROMPT_FACT_CAP);
+  const buckets = new Map();
+  for (const r of rows) {
+    const norm = normaliseForDedup(r.extracted_fact);
+    if (!norm) continue;
+    const words = norm.split(' ').filter(Boolean).slice(0, 8).join(' ');
+    if (!words || words.length < 12) continue;
+    const key = `${r.category || 'other'}::${words}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(r);
+  }
+  const groups = [];
+  for (const [key, items] of buckets) {
+    if (items.length < 2) continue;
+    items.sort((a, b) => (b.id || 0) - (a.id || 0));
+    const [, prefix] = key.split('::');
+    groups.push({
+      category: items[0].category || 'other',
+      prefix,
+      newest_id: items[0].id,
+      count: items.length,
+      entries: items.map(it => ({
+        id: it.id,
+        extracted_fact: it.extracted_fact,
+        created_at: it.created_at,
+        is_newest: it.id === items[0].id
+      }))
+    });
+  }
+  groups.sort((a, b) => (b.newest_id || 0) - (a.newest_id || 0));
+  return groups;
+}
+
+function getKnowledgeStats() {
+  const db = getDb();
+  const counts = db.prepare(
+    `SELECT status, COUNT(*) AS n FROM knowledge_entries GROUP BY status`
+  ).all();
+  const byStatus = {};
+  for (const r of counts) byStatus[r.status] = r.n;
+  const lastActive = db.prepare(
+    `SELECT id, extracted_fact, category, created_at FROM knowledge_entries
+     WHERE status = 'active' ORDER BY id DESC LIMIT 1`
+  ).get();
+  const promptBlock = formatKnowledgeForPrompt();
+  return {
+    by_status: byStatus,
+    active_count: byStatus.active || 0,
+    superseded_count: byStatus.superseded || 0,
+    last_added: lastActive || null,
+    prompt_block_chars: promptBlock.length,
+    prompt_block_truncated: promptBlock.includes('[memory truncated to budget'),
+    overlap_groups: findOverlapGroups().length
+  };
+}
+
 module.exports = {
   extractKnowledge,
   addKnowledgeEntry,
@@ -218,5 +284,7 @@ module.exports = {
   setKnowledgeStatus,
   updateKnowledgeText,
   deleteKnowledge,
-  formatKnowledgeForPrompt
+  formatKnowledgeForPrompt,
+  findOverlapGroups,
+  getKnowledgeStats
 };

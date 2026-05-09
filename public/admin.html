@@ -478,6 +478,33 @@
       gap: 10px;
       background: var(--cream-soft);
     }
+    .know-snapshot, .know-overlaps {
+      margin: 0 22px 10px;
+      padding: 12px 14px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      color: var(--ink);
+    }
+    .know-snapshot h4, .know-overlaps h4 {
+      margin: 0 0 6px 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .know-overlap-group {
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      margin-top: 8px;
+    }
+    .know-overlap-group:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+    .know-overlap-item {
+      padding: 4px 0;
+      font-size: 12px;
+      color: var(--ink-soft, #555);
+    }
+    .know-overlap-item.newest { color: #0a7a2c; font-weight: 600; }
+    .know-overlap-item.older { text-decoration: line-through; opacity: 0.7; }
     .know-card {
       position: relative;
       background: var(--white);
@@ -1379,6 +1406,7 @@
               <option value="active">active</option>
               <option value="all">all</option>
               <option value="rejected">rejected</option>
+              <option value="superseded">superseded</option>
             </select>
           </label>
           <label>Category:
@@ -1396,7 +1424,11 @@
             </select>
           </label>
           <span class="stats" id="know-stats">0 facts</span>
+          <button class="btn" id="know-refresh-btn" title="Recheck what Sunny is loading from the knowledge base right now">Refresh memory</button>
+          <button class="btn" id="know-overlaps-btn" title="Show facts that look like they cover the same topic, so you can clean them up">Show overlaps</button>
         </div>
+        <div id="know-snapshot" class="know-snapshot" style="display:none"></div>
+        <div id="know-overlaps" class="know-overlaps" style="display:none"></div>
         <div class="know-add-row">
           <textarea id="know-new-text" placeholder="Add a fact manually... e.g. 'Working hours: Mon-Sat 9am to 6pm, closed Sunday'"></textarea>
           <select id="know-new-cat">
@@ -1804,6 +1836,83 @@ async function loadKnowledge() {
 
 document.getElementById('know-add-btn').addEventListener('click', addFact);
 
+document.getElementById('know-refresh-btn').addEventListener('click', refreshAgentMemory);
+document.getElementById('know-overlaps-btn').addEventListener('click', toggleOverlaps);
+
+async function refreshAgentMemory() {
+  const box = document.getElementById('know-snapshot');
+  const btn = document.getElementById('know-refresh-btn');
+  btn.disabled = true;
+  box.style.display = 'block';
+  box.innerHTML = '<p>Refreshing memory snapshot.</p>';
+  try {
+    const data = await apiFetch('/knowledge/refresh', { method: 'POST', body: '{}' });
+    const s = data.stats || {};
+    const last = s.last_added;
+    const lastLine = last
+      ? '<li>Last added: ' + escapeHtml((last.extracted_fact || '').slice(0, 120)) + ' <small>(' + escapeHtml(last.created_at || '') + ')</small></li>'
+      : '<li>Last added: (none yet)</li>';
+    const truncWarn = s.prompt_block_truncated
+      ? '<li style="color:#b35100"><strong>Memory was truncated to fit the prompt budget.</strong> Reduce facts or raise the cap.</li>'
+      : '';
+    box.innerHTML = [
+      '<h4>Memory snapshot</h4>',
+      '<ul>',
+      '<li>Active facts loaded into Sunny: <strong>' + (s.active_count || 0) + '</strong></li>',
+      '<li>Superseded (auto-archived because a newer fact replaced them): <strong>' + (s.superseded_count || 0) + '</strong></li>',
+      '<li>Overlapping fact groups: <strong>' + (s.overlap_groups || 0) + '</strong></li>',
+      '<li>Prompt block size: <strong>' + (s.prompt_block_chars || 0) + '</strong> chars</li>',
+      lastLine,
+      truncWarn,
+      '</ul>',
+      '<p><small>Sunny pulls a fresh copy of these facts on every reply. The newest fact in each category wins on conflicts.</small></p>'
+    ].join('');
+  } catch (err) {
+    box.innerHTML = '<p>Error: ' + escapeHtml(err.message) + '</p>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+let overlapsVisible = false;
+async function toggleOverlaps() {
+  const box = document.getElementById('know-overlaps');
+  const btn = document.getElementById('know-overlaps-btn');
+  if (overlapsVisible) {
+    box.style.display = 'none';
+    overlapsVisible = false;
+    btn.textContent = 'Show overlaps';
+    return;
+  }
+  overlapsVisible = true;
+  btn.textContent = 'Hide overlaps';
+  box.style.display = 'block';
+  box.innerHTML = '<p>Loading.</p>';
+  try {
+    const data = await apiFetch('/knowledge/overlaps');
+    const groups = data.groups || [];
+    if (!groups.length) {
+      box.innerHTML = '<h4>Overlapping facts</h4><p>No overlaps detected. Sunny is reading clean facts.</p>';
+      return;
+    }
+    const lines = ['<h4>Overlapping facts (' + groups.length + ' groups)</h4>'];
+    lines.push('<p><small>Each group covers the same topic. Sunny will use the <strong>newest</strong> one (top, green) and ignore the older ones. Open the older entries below and reject them if you want them gone for good.</small></p>');
+    for (const g of groups) {
+      lines.push('<div class="know-overlap-group">');
+      lines.push('<div><strong>' + escapeHtml(g.category) + '</strong> &middot; <small>"' + escapeHtml(g.prefix) + '."</small></div>');
+      for (const e of g.entries) {
+        const cls = e.is_newest ? 'newest' : 'older';
+        const tag = e.is_newest ? ' [newest, in use]' : ' [older, ignored]';
+        lines.push('<div class="know-overlap-item ' + cls + '">#' + e.id + tag + ' &middot; ' + escapeHtml(e.extracted_fact) + '</div>');
+      }
+      lines.push('</div>');
+    }
+    box.innerHTML = lines.join('');
+  } catch (err) {
+    box.innerHTML = '<p>Error: ' + escapeHtml(err.message) + '</p>';
+  }
+}
+
 async function addFact() {
   const textEl = document.getElementById('know-new-text');
   const catEl = document.getElementById('know-new-cat');
@@ -1923,7 +2032,7 @@ function dsRowHtml(r) {
     '    <div class="ds-stats">' + escapeHtml(r.filename) + ' • ' + sizeKb + ' KB • ' + escapeHtml(r.mime_type) + ' • ' + escapeHtml(r.status) + '.' + meta + '</div>',
     '  </div>',
     '  <div class="ds-actions">',
-    '    <a class="btn" href="/api/datasheets/' + r.id + '/download?key=' + encodeURIComponent(localStorage.getItem("apiKey") || "") + '" target="_blank" rel="noopener">Download</a>',
+    '    <a class="btn" href="/api/datasheets/' + r.id + '/download?key=' + encodeURIComponent(apiKey || "") + '" target="_blank" rel="noopener">Download</a>',
     '    <button class="btn" data-ds-action="rename">Edit</button>',
     '    <button class="btn danger" data-ds-action="archive">Archive</button>',
     '  </div>',

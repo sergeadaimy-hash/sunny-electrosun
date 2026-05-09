@@ -22,7 +22,9 @@ const {
   setKnowledgeStatus,
   updateKnowledgeText,
   deleteKnowledge,
-  addKnowledgeEntry
+  addKnowledgeEntry,
+  findOverlapGroups,
+  getKnowledgeStats
 } = require('../src/knowledge');
 const {
   getCatalog,
@@ -301,9 +303,42 @@ router.post('/knowledge', (req, res) => {
     extractedFact: text,
     category,
     confidence: 100,
-    status: 'active'
+    status: 'active',
+    replaceIfDuplicate: true
   });
   res.json({ ok: true, id });
+});
+
+router.get('/knowledge/overlaps', (req, res) => {
+  try {
+    const groups = findOverlapGroups();
+    res.json({ count: groups.length, groups });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/knowledge/stats', (req, res) => {
+  try {
+    const stats = getKnowledgeStats();
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/knowledge/refresh', (req, res) => {
+  try {
+    const stats = getKnowledgeStats();
+    logger.info('api.knowledge.refresh', {
+      active_count: stats.active_count,
+      overlap_groups: stats.overlap_groups,
+      prompt_block_chars: stats.prompt_block_chars
+    });
+    res.json({ ok: true, refreshed_at: new Date().toISOString(), stats });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/knowledge/:id/status', (req, res) => {

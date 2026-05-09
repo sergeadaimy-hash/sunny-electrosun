@@ -264,6 +264,9 @@ async function notifyOwnerEscalation(contact, message, classification, pendingQu
     ? `HOT LEAD, action needed now.${tag}`
     : `Lead query, please confirm.${tag}`;
 
+  const customerWaLink = contact.phone
+    ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}`
+    : null;
   const lines = [
     header,
     `Contact: ${contact.name || 'unknown'} (${contact.phone})`,
@@ -281,6 +284,10 @@ async function notifyOwnerEscalation(contact, message, classification, pendingQu
       ? 'Reply directly to the customer in WhatsApp to take over.'
       : 'REPLY to THIS message with the answer. The team will deliver it to the customer automatically.'
   ];
+  if (customerWaLink) {
+    lines.push('');
+    lines.push(`Open chat with customer: ${customerWaLink}`);
+  }
   const alertText = lines.join('\n');
   const sendRes = await sendMessage(ownerPhone, alertText);
   try {
@@ -452,7 +459,10 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
     if (followThrottle.allowed) {
       const ownerPhone = process.env.OWNER_WHATSAPP;
       if (ownerPhone) {
-        const followUp = [
+        const followCustomerWaLink = contact.phone
+          ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}`
+          : null;
+        const followUpLines = [
           `Follow-up on [QID:${openPending.id}], same customer is still asking.`,
           `Contact: ${contact.name || 'unknown'} (${contact.phone})`,
           '',
@@ -460,7 +470,12 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
           safeCombinedText,
           '',
           `REPLY to the original [QID:${openPending.id}] alert with the answer.`
-        ].join('\n');
+        ];
+        if (followCustomerWaLink) {
+          followUpLines.push('');
+          followUpLines.push(`Open chat with customer: ${followCustomerWaLink}`);
+        }
+        const followUp = followUpLines.join('\n');
         const followSendRes = await sendMessage(ownerPhone, followUp);
         try {
           const ownerContact = getOrCreateContact(ownerPhone, null);
@@ -573,7 +588,21 @@ async function processCustomerBatch(entry) {
   if (DATASHEET_REQUEST_RE.test(safeCombinedText)) {
     try {
       const recentText = (priorHistory || []).slice(-6).map(m => String(m.content || '')).join(' ');
-      const match = datasheetsModule.findDatasheetByQuery(safeCombinedText, recentText);
+      const productsAsked = String(refreshedContact.products_asked_about || '');
+      const brandPref = String(refreshedContact.brand_preference || '');
+      const enrichedHistory = [recentText, productsAsked, brandPref].filter(Boolean).join(' ');
+      let match = datasheetsModule.findDatasheetByQuery(safeCombinedText, enrichedHistory);
+      if (!match) {
+        // Fallback: if only one active datasheet exists, send it; otherwise let the LLM ask which product.
+        const allSheets = datasheetsModule.listDatasheets();
+        if (allSheets.length === 1) {
+          match = { sheet: allSheets[0], score: 0 };
+          logger.info('handler.datasheet.single_sheet_fallback', {
+            contactId: contact.id,
+            datasheet_id: allSheets[0].id
+          });
+        }
+      }
       if (match && match.sheet) {
         const sheet = match.sheet;
         let mediaId = sheet.meta_media_id;
@@ -581,7 +610,7 @@ async function processCustomerBatch(entry) {
           mediaId = await uploadMediaToMeta(sheet.file_path, sheet.mime_type, sheet.filename);
           datasheetsModule.setMetaMediaCache(sheet.id, mediaId);
         }
-        const caption = `${sheet.label} — datasheet from Electro-Sun`;
+        const caption = `${sheet.label}, datasheet from Electro-Sun`;
         const docRes = await sendDocument(lastMsg.from, mediaId, sheet.filename, caption);
         if (docRes && docRes.ok) {
           const noteText = `[Datasheet sent: ${sheet.label}]`;
