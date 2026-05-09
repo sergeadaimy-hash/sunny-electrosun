@@ -182,36 +182,58 @@ function deleteKnowledge(id) {
 const PROMPT_CHAR_BUDGET = parseInt(process.env.KNOWLEDGE_PROMPT_BUDGET_CHARS || '30000', 10);
 const PROMPT_FACT_CAP = parseInt(process.env.KNOWLEDGE_PROMPT_MAX_FACTS || '500', 10);
 
+const STOCK_STATUS_RE = /\b(out\s*of\s*stock|sold\s*out|in\s*stock|stock|arriving|new\s*batch|next\s*week|coming\s*soon|eta|expected|will\s*be\s*received|days|weeks|sold)\b/i;
+
 function formatKnowledgeForPrompt() {
   const rows = getActiveKnowledge(PROMPT_FACT_CAP);
   if (!rows.length) return '';
-  const byCategory = {};
+
+  const stockFacts = [];
+  const otherByCategory = {};
   for (const r of rows) {
     const cat = r.category || 'other';
-    if (!byCategory[cat]) byCategory[cat] = [];
-    byCategory[cat].push(r.extracted_fact);
+    if (STOCK_STATUS_RE.test(r.extracted_fact || '')) {
+      stockFacts.push(r);
+    } else {
+      if (!otherByCategory[cat]) otherByCategory[cat] = [];
+      otherByCategory[cat].push(r.extracted_fact);
+    }
   }
+
   const lines = [];
+
+  if (stockFacts.length) {
+    lines.push('# CURRENT STOCK STATUS, READ THIS FIRST AND OBEY IT');
+    lines.push('Every fact below is the live, authoritative state of the warehouse RIGHT NOW. It overrides the catalog block. If a customer asks about a product mentioned below, you MUST mention its current stock status in your reply. If a product below is out of stock, do NOT tell the customer it is available; do NOT invent a different ETA than the one stated. If a product below has a stated price, you MUST use that price and never make up a different one.');
+    lines.push('');
+    for (const f of stockFacts) {
+      lines.push(`- ${f.extracted_fact}`);
+    }
+    lines.push('');
+  }
+
   lines.push('# Owner-taught knowledge (treat as authoritative)');
   lines.push('These facts were taught to you by the Electro-Sun team or imported from past conversations. Quote them directly when relevant. They override earlier general guidance if they conflict.');
   lines.push('Facts inside each category are listed NEWEST FIRST. If two facts about the same product, brand, price, policy, or hours appear to conflict, the FIRST one (newest) is the truth and the older one is outdated. Use the newest one and ignore the older one.');
-  lines.push('STOCK AND AVAILABILITY: If any fact below mentions stock, availability, "in stock", "out of stock", "arriving", "next week", "ETA", or "coming soon" for a product, that fact OVERRIDES the catalog block above. The catalog tells you the SKU and the price; these facts tell you whether the item is actually available right now and when. Never tell a customer something is in stock if a fact below says it is out of stock or arriving later, and never invent an ETA the facts do not state.');
+  lines.push('PRICE DISCIPLINE: When you quote a Naira / NGN figure, that figure MUST come from either the catalog block above or an active owner-taught fact. You are FORBIDDEN from inventing prices. If you do not have the price for the exact item the customer asked about, say "Let me check the latest figure for that one with the team" and STOP. Do not approximate, do not guess, do not interpolate.');
   lines.push('');
+
   const order = ['pricing', 'policy', 'product', 'sales', 'operations', 'warranty', 'customer', 'correction', 'other'];
   const seen = new Set();
   for (const cat of order) {
-    if (!byCategory[cat]) continue;
+    if (!otherByCategory[cat]) continue;
     seen.add(cat);
     lines.push(`## ${cat.toUpperCase()}`);
-    for (const f of byCategory[cat]) lines.push(`- ${f}`);
+    for (const f of otherByCategory[cat]) lines.push(`- ${f}`);
     lines.push('');
   }
-  for (const cat of Object.keys(byCategory)) {
+  for (const cat of Object.keys(otherByCategory)) {
     if (seen.has(cat)) continue;
     lines.push(`## ${cat.toUpperCase()}`);
-    for (const f of byCategory[cat]) lines.push(`- ${f}`);
+    for (const f of otherByCategory[cat]) lines.push(`- ${f}`);
     lines.push('');
   }
+
   let block = lines.join('\n').trim();
   if (block.length > PROMPT_CHAR_BUDGET) {
     block = block.slice(0, PROMPT_CHAR_BUDGET) + '\n\n[memory truncated to budget; see admin Knowledge tab for the full list]';
