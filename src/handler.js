@@ -42,9 +42,11 @@ function extForMime(mime) {
   return 'bin';
 }
 
-const HOT_LEAD_REPLY = "Noted. A specialist will follow up with you shortly with the formal documents and final figures.";
-const SILENT_QUERY_REPLY = "A specialist will confirm the exact figure for you shortly.";
+const HOT_LEAD_REPLY = "Noted. The team will follow up with you shortly with the formal documents and final figures.";
+const SILENT_QUERY_REPLY = "Noted. The team will get back to you shortly.";
 const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
+
+const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '15', 10);
 
 const WELCOME_REPLY = [
   'Welcome to Electro-Sun Global Services',
@@ -723,14 +725,43 @@ async function processCustomerBatch(entry) {
     expertContext
   });
   if (!reply.ok || !reply.text) {
+    try {
+      const { getDb } = require('../db/init');
+      const db = getDb();
+      const recent = db.prepare(
+        `SELECT body, created_at FROM messages
+           WHERE direction = 'outbound'
+             AND intent IN ('silent_query','hot_lead_handoff','fallback_ack')
+             AND conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
+           ORDER BY id DESC LIMIT 1`
+      ).get(contact.id);
+      if (recent) {
+        const ageMs = Date.now() - new Date(recent.created_at).getTime();
+        if (Number.isFinite(ageMs) && ageMs < FALLBACK_DEDUP_MINUTES * 60 * 1000) {
+          logger.warn('handler.reply_fallback_suppressed_recent_duplicate', {
+            contactId: contact.id,
+            age_ms: ageMs,
+            error: reply.error || null
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      logger.warn('handler.reply_fallback_dedup_check_fail', { message: err.message });
+    }
+
     const fallback = pickHoldingReply(isHot ? 'hot_lead' : 'silent_query', safeCombinedText);
     const sendRes = await sendMessage(lastMsg.from, fallback);
     appendMessage(conversation.id, 'outbound', fallback, {
       whatsapp_message_id: sendRes.messageId,
-      intent: isHot ? 'hot_lead_handoff' : 'silent_query',
+      intent: isHot ? 'hot_lead_handoff' : 'fallback_ack',
       language: classification.language
     });
-    logger.warn('handler.reply_fallback_used', { contactId: contact.id, batch_size: msgs.length });
+    logger.warn('handler.reply_fallback_used', {
+      contactId: contact.id,
+      batch_size: msgs.length,
+      error: reply.error || null
+    });
     return;
   }
 
