@@ -48,6 +48,17 @@ const UNSUPPORTED_REPLY = "This number receives text messages only. Please type 
 
 const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '15', 10);
 
+const CASUAL_CONFIRM_RE = /^(o+k+(ay|ey|wy)?|alright|noted|got\s*it|sure|fine|cool|nice|great|perfect|thanks|thank\s*you|tnx|ty|appreciate(d)?|cheers|no\s*problem|np|👍|🙏|❤️|✅|done|gotcha|sounds\s*good|sg|👌|🆗|all\s*good|yep|yup|y(ea+|ah+)|alright\s*then|great\s*thanks|thanks\s*a\s*lot|much\s*appreciated|noted\s*thanks|hmm+|h+mm|interesting|hmm+\s*interesting|wow|really|i\s*see|isee|oh|aha|ahaa|ahh|right|wow\s*ok|ok\s*cool|ok\s*sure|sure\s*thing)[.!?,\s]*$/i;
+const PRODUCT_KEYWORDS_RE = /\b(kw|kva|kwh|panel|panels|battery|batteries|inverter|inverters|deye|jinko|ja|longi|sungrow|huawei|bos|hv|lv|hybrid|off\s*grid|on\s*grid|three\s*phase|single\s*phase|naira|ngn|price|cost|how\s*much|stock|available|quotation|invoice|proforma|brochure|datasheet|spec|kit|system)\b/i;
+function isCasualConfirmation(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  if (t.length > 40) return false;
+  if (CASUAL_CONFIRM_RE.test(t)) return true;
+  if (t.length <= 30 && !/\?/.test(t) && !PRODUCT_KEYWORDS_RE.test(t)) return true;
+  return false;
+}
+
 const WELCOME_REPLY = [
   'Welcome to Electro-Sun Global Services',
   '',
@@ -123,25 +134,25 @@ function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
     ].join('\n');
   }
 
-  const lines = ['# Awaiting expert input (treat as authoritative)'];
+  const lines = ['# Background context (DO NOT mention unless the customer explicitly references it)'];
   if (openPending) {
-    const createdMs = new Date(openPending.created_at).getTime();
-    const elapsed = formatElapsed(Date.now() - createdMs);
     const original = String(openPending.customer_message_text || '').replace(/\s+/g, ' ').slice(0, 200);
-    lines.push(`There is an OPEN question already with the human team about: "${original}".`);
-    lines.push(`Wait time so far: ${elapsed}. The team has been pinged again about this customer\'s latest message.`);
+    lines.push(`There is a separate, unrelated question with the team about: "${original}". The team is handling that one offline. It is NOT your job to remind the customer about it.`);
   } else if (escalationJustCreated) {
-    lines.push('This message has just been escalated to the human team. They have been pinged.');
+    lines.push('A separate handoff to the team has just been triggered. Do NOT mention it in your reply.');
   } else {
-    lines.push('A specialist is being looped in on this question.');
+    lines.push('A separate handoff to the team is in progress. Do NOT mention it in your reply.');
   }
   lines.push('');
-  lines.push('Voice rules in this state:');
-  lines.push('- First decide: is the customer FOLLOWING UP on the open query (e.g. "when?", "any update?", references the same product/quantity), or PIVOTING to a new topic (different product, different size, location, general info, asking for batteries when the open query was about panels)?');
-  lines.push('- IF FOLLOWING UP: acknowledge what they JUST wrote in their own language. Confirm the team has the question and is working on it. Use third person ("the team", "the specialist"). Do NOT use first-person stalls ("I will check", "let me confirm", "I will revert", "I will get back to you"). If they are frustrated, briefly acknowledge the wait without over-apologizing, then reassure. If asked "when?", be honest: "as soon as the team confirms".');
-  lines.push('- IF PIVOTING TO A NEW TOPIC: ANSWER THE NEW TOPIC DIRECTLY from your catalog and prompt knowledge. Do NOT just say "Noted" or "Noted on the batteries". Do NOT make the customer wait for the old query to resolve before helping them on a new question. Pair the answer with ONE qualifying question (e.g. "What capacity?", "Single or three phase?", "Home or business?"). If they ask about a category we sell ("I want batteries", "show me inverters"), mention what we carry without prices ("We have BOS-G 5.12kWh, BOS-A 7.68kWh, BOS-B Pro 16kWh, what capacity do you need?") or qualify their use case. Briefly mention the open query at the end ONLY if it is still relevant to what they just said; otherwise leave it alone, the team will reach out separately.');
-  lines.push('- Do NOT invent prices, specs, install dates, or fixed turnaround times.');
-  lines.push('- Two sentences max in either branch. No bullet lists. No catalog price dumps. Vary phrasing across replies; do not send the exact same sentence twice in a row.');
+  lines.push('How to reply RIGHT NOW:');
+  lines.push('- Read the customer\'s CURRENT message and respond to THAT.');
+  lines.push('- ANSWER directly from the catalog and the owner-taught knowledge facts. Stock status, prices, and product options are in those blocks. Use them.');
+  lines.push('- Do NOT say "the team will reach out", "the team will follow up", "the team is on it", "the specialist will confirm", "we will share the figure shortly", "we will get back to you", or any variant. Those phrases are BANNED in this turn.');
+  lines.push('- Do NOT echo back invented quantities, model numbers, prices, or order sizes (for example "100-unit order") that the customer has NOT actually said in their messages. If a prior outbound message of yours mentioned such a thing without the customer saying it, that was a mistake and you must NOT repeat it. Re-read the customer\'s actual messages to find what they actually want.');
+  lines.push('- If the customer\'s current message is a casual remark or filler ("hmm", "interesting", "ok", "noted"), reply with one short phrase (e.g. "Got it.") and stop.');
+  lines.push('- Only mention the separate handoff if the customer explicitly asks about its status (for example "any update?", "still waiting", "when will I hear back").');
+  lines.push('- No URLs. No phone numbers. No wa.me links.');
+  lines.push('- Maximum two short sentences. No bullet lists. No price-list dumps. Vary phrasing across replies.');
   return lines.join('\n');
 }
 
@@ -689,8 +700,10 @@ async function processCustomerBatch(entry) {
     classification.escalation_type = null;
   }
 
+  const customerIsCasualConfirm = isCasualConfirmation(safeCombinedText);
+
   let escResult = null;
-  if (classification.needs_escalation) {
+  if (classification.needs_escalation && !customerIsCasualConfirm) {
     escResult = await notifyOwnerForEscalation({
       contact: refreshedContact,
       classification,
@@ -699,12 +712,29 @@ async function processCustomerBatch(entry) {
       batchSize: msgs.length,
       source: 'classifier'
     });
+  } else if (classification.needs_escalation && customerIsCasualConfirm) {
+    logger.info('handler.escalation_suppressed_casual_confirm', {
+      contactId: contact.id,
+      message_preview: safeCombinedText.slice(0, 80)
+    });
   }
 
-  const isHot = !!(classification.needs_escalation && classification.escalation_type === 'hot_lead');
+  const isHot = !!(classification.needs_escalation && classification.escalation_type === 'hot_lead' && !customerIsCasualConfirm);
   const currentOpen = isHot ? null : getOpenPendingQueryForContact(contact.id);
   let expertContext = null;
-  if (isHot) {
+  if (customerIsCasualConfirm) {
+    expertContext = [
+      '# Casual confirmation context (treat as authoritative)',
+      'The customer just sent a short acknowledgement (e.g. "ok", "thanks", "no problem", "got it", "alright").',
+      '',
+      'Voice rules in this state:',
+      '- Reply with ONE short phrase only: "Got it." OR "Noted." OR a single matching emoji like 👍.',
+      '- Do NOT mention prices, quantities, the team, the specialist, the catalog, stock, follow-ups, or any handoff.',
+      '- Do NOT include any URL, phone number, or wa.me link.',
+      '- Do NOT bring up earlier topics in this conversation. The customer is closing a thread, not opening one.',
+      '- Maximum length: 6 words.'
+    ].join('\n');
+  } else if (isHot) {
     expertContext = buildExpertContext({ isHot: true });
   } else if (currentOpen) {
     expertContext = buildExpertContext({
@@ -857,16 +887,10 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  if ((isHot || replyMentionsHandoff) && !linkAlreadyInText) {
+  if (isHot && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);
     if (link) {
       outboundText = `${outboundText}\n\nDirect line to the specialist: ${link}`;
-      if (!isHot) {
-        logger.info('handler.handoff_link_appended_no_hot', {
-          contactId: contact.id,
-          reply_preview: outboundText.slice(0, 200)
-        });
-      }
     }
   }
 

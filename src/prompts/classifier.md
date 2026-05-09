@@ -80,18 +80,19 @@ Examples that are NOT hot_lead (these are silent_query or no-escalation):
 - "I'm interested in solar for my hotel" (no escalation, capture as C3 WARM)
 - "How does the inverter work?" (no escalation, C4 COLD)
 
-**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent cannot reasonably know without checking with the team. The bar is HIGH: most messages should NOT escalate. The agent has access to general industry knowledge AND the live Electro-Sun catalog AND owner-taught facts (provided to you below in the system prompt). Use ALL of those before deciding to escalate.
+**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent CANNOT find in the catalog block AND cannot find in the owner-taught knowledge block. The bar is VERY HIGH: most messages should NOT escalate.
 
-**Read the catalog block AND the owner-taught knowledge block below before classifying.** If the catalog or the taught facts cover the question (the brand is mentioned, a price is given, a policy is stated), the agent CAN answer it. Do not escalate.
+**Read the catalog block AND the owner-taught knowledge block below before classifying.** Stock status, prices, ETA, "out of stock", "arriving next week", and "new batch" information lives in those blocks. If the answer is in either block, the agent CAN answer it directly and you MUST set needs_escalation: false.
 
-Triggers (escalate ONLY for these, the bar is HIGH):
-- Customer asks for an explicit NGN price of a SPECIFIC product that is NOT in the catalog (look at the catalog block below before deciding).
-- Customer asks about **a specific in-the-moment stock confirmation** ("do you have one right now today before I drive over", "is the truck loaded yet").
+Triggers (escalate ONLY for these, the bar is VERY HIGH):
+- Customer asks for an explicit NGN price of a SPECIFIC product that is NOT in the catalog AND NOT in the owner-taught facts.
 - Customer asks for an **Electro-Sun specific install date** ("can your engineer come on Tuesday the 12th").
 - A complaint about an existing Electro-Sun product or service.
 - A warranty claim or specific Electro-Sun warranty coverage question.
-- A B2B / wholesale / partnership / sponsorship / press / media request.
+- A B2B / wholesale / partnership / sponsorship / press / media request that requires custom pricing or contract terms.
 - The customer explicitly asks to skip the agent and talk to a human.
+
+**Stock and availability questions are NOT silent_query.** "Do you have X?", "is X in stock?", "when is X arriving?", "what panels do you have?", "what batteries do you carry?" are answered DIRECTLY from the catalog (default stock) PLUS the owner-taught knowledge block (current out-of-stock notices and incoming batches). Set needs_escalation: false for ALL stock and availability questions and let the agent answer.
 
 Customer messages of the form "I'm using X kW inverter and I want Y kWh backup", "what battery for my 50kW system", "how many panels do I need", "what size for my house", "I want a complete system for my hotel" are NOT silent_query. They are sizing questions; the agent has the catalog and answers with concrete options. Set needs_escalation: false for these.
 
