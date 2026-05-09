@@ -1232,10 +1232,105 @@ async function autoReleaseStaleHumanConversations(thresholdMinutes = 15) {
   return { released };
 }
 
+async function retryFallbackReplies({ maxAgeMinutes = 120 } = {}) {
+  const { getDb } = require('../db/init');
+  const db = getDb();
+  const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
+
+  const badOutbounds = db.prepare(`
+    SELECT m.id AS bad_id, m.conversation_id, m.timestamp AS bad_at, m.intent,
+           c.contact_id, ct.phone, ct.name AS contact_name, c.human_handled
+    FROM messages m
+    JOIN conversations c ON c.id = m.conversation_id
+    JOIN contacts ct ON ct.id = c.contact_id
+    WHERE m.direction = 'outbound'
+      AND m.intent IN ('silent_query','fallback_ack','hot_lead_handoff')
+      AND m.timestamp >= ?
+    ORDER BY m.timestamp ASC
+  `).all(cutoff);
+
+  const seenContacts = new Set();
+  let queued = 0;
+  let skipped = 0;
+  const details = [];
+
+  for (const row of badOutbounds) {
+    if (seenContacts.has(row.contact_id)) {
+      skipped++;
+      continue;
+    }
+    seenContacts.add(row.contact_id);
+
+    if (row.human_handled) {
+      skipped++;
+      details.push({ contactId: row.contact_id, skipped: 'human_handled' });
+      continue;
+    }
+
+    const inbound = db.prepare(`
+      SELECT id, body, whatsapp_message_id, timestamp
+      FROM messages
+      WHERE conversation_id = ?
+        AND direction = 'inbound'
+        AND timestamp <= ?
+      ORDER BY timestamp DESC
+      LIMIT 1
+    `).get(row.conversation_id, row.bad_at);
+
+    if (!inbound) {
+      skipped++;
+      details.push({ contactId: row.contact_id, skipped: 'no_inbound_before_bad_reply' });
+      continue;
+    }
+
+    try {
+      const synth = {
+        from: row.phone,
+        profileName: row.contact_name || null,
+        kind: 'text',
+        body: inbound.body || '',
+        id: inbound.whatsapp_message_id || `recovered:${inbound.id}`,
+        replyToId: null,
+        media: null
+      };
+      const contact = getOrCreateContact(synth.from, synth.profileName);
+      const conversation = getActiveConversation(contact.id);
+      enqueueCustomerMessage(contact, conversation, synth, null, null, synth.body);
+      queued++;
+      details.push({
+        contactId: row.contact_id,
+        bad_intent: row.intent,
+        retried_inbound_id: inbound.id
+      });
+    } catch (err) {
+      skipped++;
+      logger.warn('handler.retry_fallback.queue_fail', {
+        contactId: row.contact_id,
+        message: err.message
+      });
+    }
+  }
+
+  logger.info('handler.retry_fallback.done', {
+    max_age_minutes: maxAgeMinutes,
+    bad_outbound_count: badOutbounds.length,
+    contacts_queued: queued,
+    skipped
+  });
+
+  return {
+    bad_outbound_count: badOutbounds.length,
+    contacts_queued: queued,
+    skipped,
+    details
+  };
+}
+
 module.exports = {
   handleInbound,
   extractMessages,
   recoverOrphanedInbound,
   answerPendingForContact,
-  autoReleaseStaleHumanConversations
+  autoReleaseStaleHumanConversations,
+  retryFallbackReplies
 };

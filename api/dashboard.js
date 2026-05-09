@@ -14,7 +14,7 @@ const {
   logEvent
 } = require('../src/memory');
 const { sendMessage } = require('../src/whatsapp');
-const { recoverOrphanedInbound, answerPendingForContact } = require('../src/handler');
+const { recoverOrphanedInbound, answerPendingForContact, retryFallbackReplies } = require('../src/handler');
 const datasheetsModule = require('../src/datasheets');
 const { getTodayStats, getBudgetCents } = require('../src/cost_tracker');
 const {
@@ -466,6 +466,17 @@ router.post('/recover-orphans', async (req, res) => {
     res.json({ ok: true, minutes, ...result });
   } catch (err) {
     logger.error('api.recover_orphans.fail', { message: err.message });
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/retry-fallbacks', async (req, res) => {
+  const minutes = parseInt(req.query.minutes || req.body?.minutes || '120', 10);
+  try {
+    const result = await retryFallbackReplies({ maxAgeMinutes: minutes });
+    res.json({ ok: true, minutes, ...result });
+  } catch (err) {
+    logger.error('api.retry_fallbacks.fail', { message: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
