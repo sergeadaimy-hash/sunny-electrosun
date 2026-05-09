@@ -2415,15 +2415,30 @@ function escapeHtml(s) {
 
 // CONVERSATION DETAIL
 
+let selectionToken = 0;
+
 async function selectConversation(id) {
+  if (currentConversationId === id) return;
   currentConversationId = id;
+  selectionToken += 1;
+  const myToken = selectionToken;
   renderConversations();
-  await loadConversationDetail(id, true);
+  // Immediate placeholder so the pane visibly changes the moment you click,
+  // instead of waiting for the round-trip to /api/conversations/:id.
+  const root = document.getElementById('conv-view');
+  if (root) {
+    root.innerHTML = '<div class="empty-pane" style="padding:24px;color:#7a8088;">Loading conversation...</div>';
+  }
+  await loadConversationDetail(id, true, myToken);
 }
 
-async function loadConversationDetail(id, scrollToBottom) {
+async function loadConversationDetail(id, scrollToBottom, token) {
   try {
     const data = await apiFetch('/conversations/' + id);
+    // Drop the response if the user has since clicked another conversation
+    // or if a refresh fired for a different active id.
+    if (typeof token === 'number' && token !== selectionToken) return;
+    if (currentConversationId !== id) return;
     renderConversationView(data, scrollToBottom);
   } catch (err) {
     console.error('load conversation failed', err);

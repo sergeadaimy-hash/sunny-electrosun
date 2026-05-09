@@ -745,7 +745,7 @@ async function processCustomerBatch(entry) {
             chars: reply2.text.length
           });
         } else {
-          reply.text = 'Noted. The team is on it.';
+          reply.text = 'Noted. Will share the figure once confirmed.';
           logger.warn('handler.stall_regen_failed_used_generic_ack', {
             contactId: contact.id,
             pattern: stallHit.pattern

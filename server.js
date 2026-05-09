@@ -28,7 +28,7 @@ app.use('/webhook', express.json({
   verify: (req, res, buf) => { req.rawBody = buf; }
 }));
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 app.get('/health', (req, res) => {
   res.json({
@@ -64,8 +64,14 @@ app.get('/admin', (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  logger.error('express.error', { message: err.message, stack: err.stack });
+  logger.error('express.error', { message: err.message, type: err.type, status: err.status, stack: err.stack });
   if (res.headersSent) return;
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'file too large', limit: err.limit, length: err.length });
+  }
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'invalid JSON body' });
+  }
   res.status(500).json({ error: 'internal' });
 });
 
