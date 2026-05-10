@@ -325,6 +325,18 @@ function tokenize(text) {
     .filter(t => t.length > 1);
 }
 
+// Pull out size tokens like "80", "12.5" from "80kw", "80kW", "12kw", "80k",
+// "80kva", "16kwh". Returns the bare numbers as a Set of strings.
+function extractSizeNumbers(text) {
+  const out = new Set();
+  if (!text) return out;
+  const re = /\b(\d+(?:\.\d+)?)\s*(?:kw|kva|kwh|k)\b/gi;
+  let m;
+  const s = String(text);
+  while ((m = re.exec(s)) !== null) out.add(m[1]);
+  return out;
+}
+
 function findItemDatasheetByQuery(message, recentText = '') {
   const db = getDb();
   const items = db.prepare(`
@@ -335,10 +347,31 @@ function findItemDatasheetByQuery(message, recentText = '') {
   `).all();
   if (!items.length) return null;
 
+  // Size match is the hard gate. If the customer message names a specific size
+  // ("80kw", "12.5kva", "16kwh"), only items with that same size in their model
+  // or notes are candidates. This stops "80kw datasheet" from falling back to
+  // the 50kW item just because it's the only one with a PDF attached.
+  const querySizes = extractSizeNumbers(message);
+  let candidates = items;
+  if (querySizes.size > 0) {
+    candidates = items.filter(it => {
+      const itemSizes = extractSizeNumbers(
+        [it.brand, it.model, it.notes].filter(Boolean).join(' ')
+      );
+      for (const q of querySizes) {
+        if (itemSizes.has(q)) return true;
+      }
+      return false;
+    });
+    if (!candidates.length) return null; // no matching size, do NOT fall back
+  }
+
+  // Among the candidates, rank by ordinary token overlap (brand, model, notes,
+  // section) for the tie-breaker.
   const queryTokens = new Set(tokenize(message + ' ' + recentText));
   let best = null;
   let bestScore = 0;
-  for (const it of items) {
+  for (const it of candidates) {
     const itemTokens = tokenize([it.brand, it.model, it.notes, it.section].filter(Boolean).join(' '));
     let score = 0;
     for (const t of itemTokens) {
@@ -349,8 +382,15 @@ function findItemDatasheetByQuery(message, recentText = '') {
       best = it;
     }
   }
-  if (bestScore >= 1) return { item: best, score: bestScore };
-  if (items.length === 1) return { item: items[0], score: 0 };
+
+  // If the customer named a size and exactly one candidate matched it, send
+  // that one even if the token score is 0 (e.g. "send the 80kw datasheet").
+  if (best) return { item: best, score: bestScore };
+  if (querySizes.size > 0 && candidates.length === 1) {
+    return { item: candidates[0], score: 0 };
+  }
+  // No size given AND no token match. Don't guess. Return null so the LLM
+  // handles the request in text instead of sending a possibly-wrong PDF.
   return null;
 }
 
