@@ -42,8 +42,8 @@ function extForMime(mime) {
   return 'bin';
 }
 
-const HOT_LEAD_REPLY = "Noted. The team will follow up with you shortly with the formal documents and final figures.";
-const SILENT_QUERY_REPLY = "Noted. The team will get back to you shortly.";
+const HOT_LEAD_REPLY = "Noted. To proceed, you can continue directly with our specialist on WhatsApp. They have the formal documents and final figures.";
+const SILENT_QUERY_REPLY = "Noted. The team will get back to you shortly. In the meantime, you can also reach our specialist on WhatsApp.";
 const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
 
 const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '15', 10);
@@ -100,12 +100,10 @@ function buildSpecialistLink(customerMessage) {
 }
 
 function pickHoldingReply(escalationType, customerMessage) {
-  if (escalationType === 'hot_lead') {
-    const link = buildSpecialistLink(customerMessage);
-    if (link) return HOT_LEAD_REPLY + `\n\nDirect line to the specialist: ${link}`;
-    return HOT_LEAD_REPLY;
-  }
-  return SILENT_QUERY_REPLY;
+  const base = escalationType === 'hot_lead' ? HOT_LEAD_REPLY : SILENT_QUERY_REPLY;
+  const link = buildSpecialistLink(customerMessage);
+  if (link) return base + `\n\nDirect line to the specialist: ${link}`;
+  return base;
 }
 
 function formatElapsed(ms) {
@@ -810,7 +808,12 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  if (isHot && !linkAlreadyInText) {
+  // Append the specialist (owner) wa.me link to any reply where the customer
+  // is in HOT-lead handoff OR Sunny couldn't fully answer (silent_query). This
+  // gives the customer a direct path to the team in both cases. Skip when the
+  // LLM already produced a wa.me link or when classification didn't escalate.
+  const escalatedThisTurn = !!(classification.needs_escalation && classification.escalation_type);
+  if (escalatedThisTurn && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);
     if (link) {
       outboundText = `${outboundText}\n\nDirect line to the specialist: ${link}`;
