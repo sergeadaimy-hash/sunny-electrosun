@@ -2059,10 +2059,9 @@ async function loadBrain() {
 }
 
 const PROMPT_FILES = [
-  { name: 'system', label: 'Reply agent — Sunny\'s master prompt (system.md)', helper: 'Identity, voice, hard rules, engineering rules, locations. This is the single biggest lever on Sunny\'s behaviour.' },
-  { name: 'classifier', label: 'Classifier (classifier.md)', helper: 'Decides HOT vs silent_query vs normal. JSON schema rules.' },
-  { name: 'teacher', label: 'Owner teaching (teacher.md)', helper: 'Extracts facts from owner DMs. Currently not used end-to-end since live facts panel was retired.' },
-  { name: 'owner_qa', label: 'Owner Q&A (owner_qa.md)', helper: 'Used when the brother messages Sunny directly with questions about the data.' }
+  { name: 'system', label: 'Reply agent — Sunny\'s master prompt (system.md)', helper: 'Identity, voice, hard rules, engineering rules, locations. This is the single biggest lever on Sunny\'s behaviour. Edit this to change how Sunny answers customers.' },
+  { name: 'classifier', label: 'Classifier (classifier.md)', helper: 'How Sunny understands and categorizes the incoming customer message. Decides HOT vs silent_query vs normal reply. Strict JSON output rules.' },
+  { name: 'owner_qa', label: 'Owner Q&A (owner_qa.md)', helper: 'Used when you (the owner) WhatsApp Sunny directly with questions about the business data.' }
 ];
 
 function renderRules(rules) {

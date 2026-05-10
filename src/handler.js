@@ -20,7 +20,7 @@ const { generateReply } = require('./claude');
 const { sendMessage, downloadMedia, uploadMediaToMeta, sendDocument } = require('./whatsapp');
 const warehouse = require('./warehouse');
 const { DB_PATH } = require('../db/init');
-const { extractKnowledge, addKnowledgeEntry } = require('./knowledge');
+// owner teaching retired 2026-05-10: owner edits master prompt directly via admin Rules editor
 const { answerOwnerQuestion } = require('./owner_qa');
 const { transcribeAudio } = require('./transcribe');
 const security = require('./security');

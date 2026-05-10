@@ -80,28 +80,28 @@ Examples that are NOT hot_lead (these are silent_query or no-escalation):
 - "I'm interested in solar for my hotel" (no escalation, capture as C3 WARM)
 - "How does the inverter work?" (no escalation, C4 COLD)
 
-**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent CANNOT find in the catalog block AND cannot find in the owner-taught knowledge block. The bar is VERY HIGH: most messages should NOT escalate.
+**Silent query (escalation_type = "silent_query").** Set this ONLY when the customer is asking for an Electro-Sun specific fact that the agent CANNOT find in the **Warehouse Stock block**. The bar is VERY HIGH: most messages should NOT escalate.
 
-**Read the catalog block AND the owner-taught knowledge block below before classifying.** Stock status, prices, ETA, "out of stock", "arriving next week", and "new batch" information lives in those blocks. If the answer is in either block, the agent CAN answer it directly and you MUST set needs_escalation: false.
+**Read the Warehouse Stock block below before classifying.** Stock status (in_stock, out_of_stock, incoming), per-warehouse quantities (Abuja and Lagos separately), prices, ETA dates, and "coming" notes all live in that block. If the answer is there, the agent CAN answer it directly and you MUST set needs_escalation: false.
 
 Triggers (escalate ONLY for these, the bar is VERY HIGH):
-- Customer asks for an explicit NGN price of a SPECIFIC product that is NOT in the catalog AND NOT in the owner-taught facts.
+- Customer asks for an explicit NGN price of a SPECIFIC product that is NOT listed in the Warehouse Stock block.
 - Customer asks for an **Electro-Sun specific install date** ("can your engineer come on Tuesday the 12th").
 - A complaint about an existing Electro-Sun product or service.
 - A warranty claim or specific Electro-Sun warranty coverage question.
 - A B2B / wholesale / partnership / sponsorship / press / media request that requires custom pricing or contract terms.
 - The customer explicitly asks to skip the agent and talk to a human.
 
-**Stock and availability questions are NOT silent_query.** "Do you have X?", "is X in stock?", "when is X arriving?", "what panels do you have?", "what batteries do you carry?" are answered DIRECTLY from the catalog (default stock) PLUS the owner-taught knowledge block (current out-of-stock notices and incoming batches). Set needs_escalation: false for ALL stock and availability questions and let the agent answer.
+**Stock and availability questions are NOT silent_query.** "Do you have X?", "is X in stock?", "when is X arriving?", "what panels do you have?", "what batteries do you carry?" are answered DIRECTLY from the Warehouse Stock block (which lists every item with separate state for Abuja and Lagos plus ETA dates for incoming batches). Set needs_escalation: false for ALL stock and availability questions and let the agent answer.
 
-Customer messages of the form "I'm using X kW inverter and I want Y kWh backup", "what battery for my 50kW system", "how many panels do I need", "what size for my house", "I want a complete system for my hotel" are NOT silent_query. They are sizing questions; the agent has the catalog and answers with concrete options. Set needs_escalation: false for these.
+Customer messages of the form "I'm using X kW inverter and I want Y kWh backup", "what battery for my 50kW system", "how many panels do I need", "what size for my house", "I want a complete system for my hotel" are NOT silent_query. They are sizing questions; the agent has the Warehouse Stock block and answers with concrete options. Set needs_escalation: false for these.
 
 Location, branch, office, address, pickup, warehouse, where-are-you questions are NEVER silent_query. The agent has the full Abuja and Lagos office addresses baked into its system prompt and ALWAYS answers them directly. Set needs_escalation: false for these.
 
-Do NOT escalate for ANY of these (the agent answers from general industry knowledge plus catalog plus taught facts):
+Do NOT escalate for ANY of these (the agent answers from general industry knowledge plus the Warehouse Stock block):
 - "Do you have X" or "do you carry X" availability questions for any product, accessory, or component (DC cables, AC cables, MC4 connectors, fuses, breakers, surge protectors, mounting, batteries, panels, inverters of any size). The agent says yes if it is a normal solar component and asks the customer to share specifics so the team can confirm exact stock.
 - Sizing questions for ANY wattage or kVA, even very large ones (40kW, 100kW, 200kW etc). The agent gives general guidance, asks for the load profile, and offers to refer to a project specialist if it is industrial scale.
-- Brand questions for any brand even if not in the catalog. The agent shares general industry context (Deye is the most common in Nigeria, Sungrow tier 1, Huawei premium, Jinko panels are tier 1 etc). The agent says we may be able to source it on request.
+- Brand questions for any brand even if not listed in Warehouse Stock. The agent shares general industry context (Deye is the most common in Nigeria, Sungrow tier 1, Huawei premium, Jinko panels are tier 1 etc). The agent says we may be able to source it on request.
 - Price RANGES or market context ("roughly how much does a 5kVA system cost in Nigeria"). General range with the caveat that the team confirms the exact figure for the customer's situation.
 - General questions about how solar works, what brands exist, what panel types are common, what an inverter does, the difference between hybrid and off-grid.
 - General sizing questions ("what size for a 3 bedroom house", "what kVA do I need for an AC and a fridge").
