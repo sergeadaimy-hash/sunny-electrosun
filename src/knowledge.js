@@ -184,8 +184,16 @@ const PROMPT_FACT_CAP = parseInt(process.env.KNOWLEDGE_PROMPT_MAX_FACTS || '500'
 
 const STOCK_STATUS_RE = /\b(out\s*of\s*stock|sold\s*out|in\s*stock|stock|arriving|new\s*batch|next\s*week|coming\s*soon|eta|expected|will\s*be\s*received|days|weeks|sold)\b/i;
 
+const LEGACY_FACT_RE = /(legacy\s+conversation\s+with|past\s+customer\s*\(|past\s+q&a\s+on|\(source:\s*[^)]*20\d\d-\d\d-\d\d\s*\))/i;
+function isLegacyFact(row) {
+  const sm = String(row.source_message || '');
+  const ef = String(row.extracted_fact || '');
+  return LEGACY_FACT_RE.test(sm) || LEGACY_FACT_RE.test(ef);
+}
+
 function formatKnowledgeForPrompt() {
-  const rows = getActiveKnowledge(PROMPT_FACT_CAP);
+  const allRows = getActiveKnowledge(PROMPT_FACT_CAP);
+  const rows = allRows.filter(r => !isLegacyFact(r));
   if (!rows.length) return '';
 
   const stockFacts = [];

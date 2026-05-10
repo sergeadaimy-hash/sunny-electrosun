@@ -95,6 +95,13 @@ function notificationsDisabled() {
 
 if (require.main === module) {
   startupSanityChecks();
+  try {
+    const { rejectLegacyFacts } = require('./src/knowledge');
+    const result = rejectLegacyFacts();
+    logger.info('server.legacy_fact_cleanup', { rejected: result.rejected_count });
+  } catch (err) {
+    logger.warn('server.legacy_fact_cleanup_fail', { message: err.message });
+  }
   const server = app.listen(PORT, () => {
     logger.info('server.listen', { port: PORT, notifications_disabled: notificationsDisabled() });
     setTimeout(() => {
