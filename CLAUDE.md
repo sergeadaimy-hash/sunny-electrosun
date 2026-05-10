@@ -4,9 +4,20 @@ This file is the working memory for Sunny. Read it before making any change. It 
 
 Detailed session-by-session changelog lives in `docs/session-history.md`. That file is the audit trail for "what shipped when and why"; this file is the always-true reference for what is currently in the codebase and what rules govern Sunny's behavior.
 
-## Current launch status (paused 2026-05-08 evening Beirut)
+## Current launch status (rebuild in progress, 2026-05-10 evening Beirut)
 
-Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud deploy) are closed. Phase B code work is closed: schema migration, 2-hour reports with HOT/WARM/COLD aggregations, silent-query workflow with reply-to routing, daily learning report, owner Q&A, knowledge ingestion, image vision, voice-note transcription, WhatsApp call auto-reply, conversation-state engine, multi-message debounce, orphan recovery on startup, code-level reply guards (price-strip, trailing-question-strip, repeat guard, wa.me link ban). Task #15 (48-hour soak) is the next user-driven launch step.
+Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud deploy) are closed.
+
+**Session of 2026-05-10 is doing the agent-redesign rebuild** (per `docs/archive/agent-redesign-roadmap-2026-05-09.md`). Latest commit on origin/main: `88d5a84`. What changed since `7338652`:
+
+1. **Warehouse Stock** is now the single source of truth for stock + price + datasheets. New top-level admin tab with per-item Abuja/Lagos panels (state in_stock/incoming/out_of_stock, quantity +/-, coming note, ETA date) and a per-item datasheet PDF upload. `formatWarehouseForPrompt()` replaces the catalog block in Sunny's prompt. Catalog table preserved but its prompt block is no longer injected.
+2. **Knowledge tab stripped** to two sub-panels: **Rules** (editable per-prompt textareas with Save = git commit+push via GitHub Contents API, Deploy = Railway GraphQL `serviceInstanceRedeploy`) and **Models & config**. Live facts, Catalog, Datasheets sub-panels and the owner-DM teaching path retired. `teacher.md` dropped from the editor. Doctrine now lives entirely inside `system.md`.
+3. **system.md restructured into 19 single-purpose sections** (407 lines, down from 621). Sections are: 1 Identity, 2 Posture, 3 Voice and tone, 4 Reply length and rhythm, 5 Pricing rules, 6 Negotiation forbidden, 7 Stock and availability, 8 Solar engineering, 9 Locations/pickup/delivery, 10 Escalation, 11 Dynamic context blocks, 12 Conversation state, 13 Multi-idea + anti-repeat, 14 How to read the customer, 15 Industry knowledge, 16 Worked examples, 17 Hard nevers, 18 Punctuation, 19 When unsure. Each section is editable independently from admin.
+4. **Voice softened** to "warm Lagos salesman" tone. Brief acknowledgements ("Got it", "Glad to help", "Sure") explicitly allowed. Empty hype + AI-speak still banned. Reply-length cap loosened from "max 2 sentences" to "1 to 3 sentences with one optional follow-up question." Code-level trailing-question guard now fires only on pure acknowledgements (ok/noted/thanks/emoji), not on factual answers like "30kwh" or "Lagos".
+5. **Stock quantity privacy.** Section 7 rule + section 17 hard never: the per-warehouse unit count in the Warehouse Stock block is INTERNAL ONLY. Default reply for stock questions is "in stock" / "out of stock" / "incoming, ETA <date>" with no numbers. Quantity is shared ONLY when the customer's requested quantity exceeds available stock (to gate the deal).
+6. **Datasheet matcher gates on customer-named size.** `findItemDatasheetByQuery` extracts numeric size tokens ("80kw", "12.5kva", "16kwh") and requires the warehouse item to share that size before matching. Legacy single-item fallback removed. If the requested datasheet isn't attached, Sunny falls through to a text reply rather than sending the wrong PDF.
+7. **Owner alerts pared to HOT-only.** `notifyOwnerForEscalation` returns early for anything that isn't `escalation_type='hot_lead'`. No silent_query pings, no follow-up alerts, no stall-guard pings, no QID tags, no pending_queries row creation. Alert format simplified to 4 lines: header + customer name/phone + their last message verbatim + customer wa.me link.
+8. **Customer-side wa.me link** is auto-appended on BOTH hot_lead and silent_query escalations (previously HOT-only). So the customer always has a one-tap path to reach the owner via `SPECIALIST_DIRECT_LINK`.
 
 **Phase 5 is cloud-first** (Railway production). PM2 + named tunnel are no longer in the production path; PM2 stays in the repo as a local-dev fallback only. See `memory/project_cloud_first_decision.md`.
 
@@ -26,7 +37,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud
 - `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
 - `HUMAN_AUTO_RELEASE_MINUTES=15` (default; tunable).
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit per `git log`: `7338652`.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit on origin/main: `88d5a84` (2026-05-10 evening Beirut).
 
 **Resume plan:**
 - Brother needs to accept the Sunny chat from his WhatsApp Message Requests folder so alert notifications surface in his main chat list.
