@@ -264,43 +264,32 @@ function extractMessages(payload) {
   return out;
 }
 
-async function notifyOwnerEscalation(contact, message, classification, pendingQueryId) {
+async function notifyOwnerEscalation(contact, message, classification) {
   const ownerPhone = process.env.OWNER_WHATSAPP;
   if (!ownerPhone) {
     logger.warn('escalation.no_owner_phone');
     return null;
   }
 
-  const isHot = classification.escalation_type === 'hot_lead';
-  const tag = pendingQueryId ? ` [QID:${pendingQueryId}]` : '';
-  const header = isHot
-    ? `HOT LEAD, action needed now.${tag}`
-    : `Lead query, please confirm.${tag}`;
-
+  // 2026-05-10: HOT lead alerts only. No silent_query, no follow-up pings, no QID tags.
+  // Format is intentionally minimal: header + customer name/phone + one-line commitment
+  // (their last message verbatim) + wa.me link.
   const customerWaLink = contact.phone
     ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}`
     : null;
+
   const lines = [
-    header,
-    `Contact: ${contact.name || 'unknown'} (${contact.phone})`,
-    `Category: ${classification.category || 'unsorted'}`,
-    `Temperature: ${classification.lead_temperature || 'unknown'}`,
-    `Client type: ${classification.client_type || 'unknown'}`,
-    `Intent: ${classification.intent}`,
-    `Confidence: ${classification.confidence}`,
-    `Location: ${contact.location || 'unknown'}`,
+    'HOT LEAD, customer is ready to pay.',
+    `Customer: ${contact.name || 'unknown'} (${contact.phone})`,
     '',
-    'Customer message:',
-    message,
-    '',
-    isHot
-      ? 'Reply directly to the customer in WhatsApp to take over.'
-      : 'REPLY to THIS message with the answer. The team will deliver it to the customer automatically.'
+    'Their message:',
+    message
   ];
   if (customerWaLink) {
     lines.push('');
     lines.push(`Open chat with customer: ${customerWaLink}`);
   }
+
   const alertText = lines.join('\n');
   const sendRes = await sendMessage(ownerPhone, alertText);
   try {
@@ -308,14 +297,11 @@ async function notifyOwnerEscalation(contact, message, classification, pendingQu
     const ownerConv = getActiveConversation(ownerContact.id);
     appendMessage(ownerConv.id, 'outbound', alertText, {
       whatsapp_message_id: sendRes && sendRes.messageId,
-      intent: isHot ? 'escalation_alert_hot' : 'escalation_alert_silent',
+      intent: 'escalation_alert_hot',
       language: 'english'
     });
   } catch (err) {
-    logger.warn('escalation.persist_owner_alert_fail', {
-      message: err.message,
-      qid: pendingQueryId
-    });
+    logger.warn('escalation.persist_owner_alert_fail', { message: err.message });
   }
   return sendRes;
 }
@@ -456,71 +442,33 @@ function enqueueCustomerMessage(contact, conversation, msg, imageAttachment, ima
 async function notifyOwnerForEscalation({ contact, classification, safeCombinedText, lastMsg, batchSize, source }) {
   const escalationType = classification.escalation_type || 'silent_query';
 
+  // 2026-05-10: ONLY HOT lead (customer-ready-to-pay) pages the owner. Silent
+  // query and stall-guard escalations no longer ping. The owner asked for one
+  // signal he cares about: "this customer wants to buy now."
+  if (escalationType !== 'hot_lead') {
+    logger.info('handler.escalation.owner_ping_skipped_not_hot', {
+      contactId: contact.id,
+      escalation_type: escalationType,
+      source: source || 'classifier'
+    });
+    logEvent(contact.id, 'escalated', {
+      intent: classification.intent,
+      escalation_type: escalationType,
+      confidence: classification.confidence,
+      batch_size: batchSize,
+      source: source || 'classifier',
+      owner_notified: false
+    });
+    return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType };
+  }
+
   logEvent(contact.id, 'escalated', {
     intent: classification.intent,
-    escalation_type: escalationType,
+    escalation_type: 'hot_lead',
     confidence: classification.confidence,
     batch_size: batchSize,
     source: source || 'classifier'
   });
-
-  const openPending = getOpenPendingQueryForContact(contact.id);
-
-  if (openPending) {
-    const followThrottle = security.checkFollowupThrottle(contact.id);
-    let ownerNotified = false;
-    if (followThrottle.allowed) {
-      const ownerPhone = process.env.OWNER_WHATSAPP;
-      if (ownerPhone) {
-        const followCustomerWaLink = contact.phone
-          ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}`
-          : null;
-        const followUpLines = [
-          `Follow-up on [QID:${openPending.id}], same customer is still asking.`,
-          `Contact: ${contact.name || 'unknown'} (${contact.phone})`,
-          '',
-          'New customer message:',
-          safeCombinedText,
-          '',
-          `REPLY to the original [QID:${openPending.id}] alert with the answer.`
-        ];
-        if (followCustomerWaLink) {
-          followUpLines.push('');
-          followUpLines.push(`Open chat with customer: ${followCustomerWaLink}`);
-        }
-        const followUp = followUpLines.join('\n');
-        const followSendRes = await sendMessage(ownerPhone, followUp);
-        try {
-          const ownerContact = getOrCreateContact(ownerPhone, null);
-          const ownerConv = getActiveConversation(ownerContact.id);
-          appendMessage(ownerConv.id, 'outbound', followUp, {
-            whatsapp_message_id: followSendRes && followSendRes.messageId,
-            intent: 'escalation_followup_ping',
-            language: 'english'
-          });
-        } catch (err) {
-          logger.warn('escalation.persist_owner_followup_fail', {
-            message: err.message,
-            qid: openPending.id
-          });
-        }
-        ownerNotified = true;
-      }
-      logger.info('handler.escalation.followup_to_open_query', {
-        contactId: contact.id,
-        query_id: openPending.id,
-        source: source || 'classifier'
-      });
-    } else {
-      security.logSecurityEvent('followup_throttled', {
-        contactId: contact.id,
-        query_id: openPending.id,
-        last_at: followThrottle.lastAt,
-        cooldown_ms: followThrottle.cooldownMs
-      });
-    }
-    return { openPending, freshPendingId: null, ownerNotified, escalationType };
-  }
 
   const escThrottle = security.checkEscalationThrottle(contact.id);
   if (!escThrottle.allowed) {
@@ -530,29 +478,16 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
       cooldown_ms: escThrottle.cooldownMs,
       source: source || 'classifier'
     });
-    return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType, throttled: true };
+    return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType: 'hot_lead', throttled: true };
   }
 
-  let pendingQueryId = null;
-  if (escalationType === 'silent_query') {
-    pendingQueryId = createPendingQuery({
-      contactId: contact.id,
-      customerMessageId: lastMsg.id,
-      customerMessageText: safeCombinedText,
-      classifierIntent: classification.intent
-    });
-  }
-
-  const alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification, pendingQueryId);
-  if (pendingQueryId && alertSendRes?.messageId) {
-    setPendingQueryAlertId(pendingQueryId, alertSendRes.messageId);
-  }
+  const alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification);
 
   return {
     openPending: null,
-    freshPendingId: pendingQueryId,
+    freshPendingId: null,
     ownerNotified: !!alertSendRes,
-    escalationType
+    escalationType: 'hot_lead'
   };
 }
 
