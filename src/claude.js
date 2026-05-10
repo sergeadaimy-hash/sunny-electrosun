@@ -442,22 +442,16 @@ async function generateReply(history, message, contact, attachments = [], option
       }
     }
 
+    // Trailing-question guard, loosened 2026-05-10: only strip when the customer
+    // sent a PURE acknowledgement ("ok", "noted", "thanks", emoji-only) and Sunny
+    // is piling on another question. Factual answers like "30kwh" or "Lagos" are
+    // allowed to receive a natural follow-up question (warmer salesman tone).
     if (text) {
       const customerMsg = String(message || '').trim();
-      const customerIsShortFactual = customerMsg.length > 0 && customerMsg.length <= 40 && !customerMsg.includes('?');
+      const PURE_ACK_RE = /^(o+k+(ay|ey|wy)?|alright|noted|got\s*it|sure|fine|cool|nice|thanks|thank\s*you|tnx|ty|appreciate(d)?|cheers|no\s*problem|np|👍|🙏|❤️|✅|done|gotcha|sounds\s*good|sg|👌|🆗|all\s*good|yep|yup|y(ea+|ah+))[\s.!?,]*$/i;
+      const customerIsPureAck = customerMsg.length > 0 && PURE_ACK_RE.test(customerMsg);
       const replyEndsWithQuestion = /\?\s*$/.test(text);
-      let sunnyJustAskedQuestion = false;
-      if (Array.isArray(history) && history.length > 0) {
-        for (let i = history.length - 1; i >= 0; i--) {
-          const m = history[i];
-          if (m && m.role === 'assistant') {
-            const lastAssistantText = String(m.content || '').trim();
-            sunnyJustAskedQuestion = /\?\s*$/.test(lastAssistantText);
-            break;
-          }
-        }
-      }
-      if (customerIsShortFactual && replyEndsWithQuestion && sunnyJustAskedQuestion) {
+      if (customerIsPureAck && replyEndsWithQuestion) {
         const sentences = text.split(/(?<=[.!])\s+/);
         const nonQuestionSentences = sentences.filter(s => !/\?\s*$/.test(s));
         if (nonQuestionSentences.length > 0) {
@@ -465,6 +459,7 @@ async function generateReply(history, message, contact, attachments = [], option
           logger.warn('claude.reply.trailing_question_stripped', {
             contactId: contact?.id,
             customer_msg: customerMsg.slice(0, 80),
+            reason: 'pure_ack_received',
             original_reply: text.slice(0, 200),
             stripped_reply: stripped.slice(0, 200)
           });
