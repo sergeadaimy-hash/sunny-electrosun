@@ -270,6 +270,7 @@
     #view-inbox.active { display: grid; grid-template-columns: 360px 1fr; }
     #view-contacts.active { display: flex; flex-direction: column; }
     #view-knowledge.active { display: flex; flex-direction: column; }
+    #view-warehouse.active { display: flex; flex-direction: column; }
     #view-owner.active { display: flex; flex-direction: column; }
     .owner-pane { display: flex; flex-direction: column; height: 100%; padding: 0; background: var(--cream-soft); }
     .owner-header { padding: 16px 24px; background: #fff; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
@@ -729,6 +730,61 @@
       color: var(--muted);
       padding: 4px 0 8px;
       max-width: 70ch;
+    }
+    .rules-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 4px;
+    }
+    .rules-toolbar h2 { margin: 0; flex: 1; }
+    .rules-status, .prompt-status {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .rules-status.ok, .prompt-status.ok { color: var(--green); }
+    .rules-status.warn, .prompt-status.warn { color: #b45309; }
+    .rules-status.err, .prompt-status.err { color: #b91c1c; }
+    .prompt-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+    }
+    .prompt-card h3 {
+      margin: 0 0 4px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+    .prompt-editor {
+      width: 100%;
+      min-height: 280px;
+      max-height: 720px;
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.5;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+      color: var(--ink);
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .prompt-editor:focus {
+      outline: none;
+      border-color: var(--green);
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+    }
+    .prompt-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
     }
     .ds-form { display: grid; gap: 10px; max-width: 720px; margin: 8px 0 12px; }
     .ds-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
@@ -1284,6 +1340,207 @@
 
     /* ============================ SELECTION ============================ */
     ::selection { background: rgba(31, 122, 71, 0.18); color: var(--ink); }
+    /* Warehouse Stock */
+    #view-warehouse {
+      padding: 24px 28px;
+      overflow-y: auto;
+      gap: 18px;
+    }
+    .wh-toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+    .wh-toolbar h2 { margin: 0; font-size: 18px; font-weight: 600; }
+    .wh-toolbar .stats { color: var(--faint); font-size: 13px; }
+    .wh-add-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .wh-add-card label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--faint);
+    }
+    .wh-add-card input, .wh-add-card select {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 13px;
+      background: white;
+    }
+    @media (max-width: 1100px) {
+      .wh-add-card { grid-template-columns: repeat(3, 1fr); }
+    }
+    .wh-section { margin-top: 6px; }
+    .wh-section h3 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+    .wh-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+    }
+    .wh-item-head {
+      display: grid;
+      grid-template-columns: 1.2fr 1.6fr 1fr 1fr 1.4fr auto;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .wh-item-head input, .wh-item-head select {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 13px;
+      background: white;
+    }
+    .wh-item-head .row-actions { display: flex; gap: 6px; }
+    .wh-locations {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 900px) {
+      .wh-item-head { grid-template-columns: 1fr 1fr; }
+      .wh-locations { grid-template-columns: 1fr; }
+    }
+    .wh-loc {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: #fbfbfd;
+    }
+    .wh-loc-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .wh-loc-name {
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .wh-loc.in_stock .wh-loc-name { color: var(--green); }
+    .wh-loc.incoming .wh-loc-name { color: #b45309; }
+    .wh-loc.out_of_stock .wh-loc-name { color: var(--faint); }
+    .wh-state-row {
+      display: flex;
+      gap: 10px;
+      font-size: 12px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .wh-state-row label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: white;
+    }
+    .wh-state-row label.active.in_stock { border-color: var(--green); color: var(--green); background: #ecfdf5; }
+    .wh-state-row label.active.incoming { border-color: #f59e0b; color: #b45309; background: #fffbeb; }
+    .wh-state-row label.active.out_of_stock { border-color: var(--faint); color: var(--ink); background: #f3f4f6; }
+    .wh-state-row input { display: none; }
+    .wh-qty-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .wh-qty-row label { font-size: 12px; color: var(--faint); min-width: 36px; }
+    .wh-qty-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .wh-qty-btn:hover { background: #f3f4f6; }
+    .wh-qty-input {
+      width: 60px;
+      text-align: center;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+    .wh-note-row, .wh-eta-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 12px;
+      color: var(--faint);
+      margin-bottom: 6px;
+    }
+    .wh-note-row input, .wh-eta-row input {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 8px;
+      font-size: 13px;
+      background: white;
+    }
+    .wh-loc .btn { margin-top: 4px; }
+    .wh-datasheet {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--border);
+    }
+    .wh-ds-head {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+    .wh-ds-label { font-size: 12px; color: var(--faint); }
+    .wh-ds-attached { font-size: 13px; color: var(--green); font-weight: 600; }
+    .wh-ds-empty { font-size: 13px; color: var(--faint); }
+    .wh-ds-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .wh-ds-actions input[type="file"] {
+      font-size: 12px;
+      max-width: 220px;
+    }
+    .wh-ds-status { font-size: 12px; color: var(--faint); }
+    .wh-ds-status.err { color: #b91c1c; }
+    .wh-empty {
+      padding: 30px;
+      text-align: center;
+      color: var(--faint);
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+    }
   </style>
 </head>
 <body>
@@ -1341,6 +1598,7 @@
         <button class="active" data-view="view-inbox">Inbox</button>
         <button data-view="view-contacts">Contacts</button>
         <button data-view="view-owner">Owner Chat</button>
+        <button data-view="view-warehouse">Warehouse Stock</button>
         <button data-view="view-knowledge">Knowledge</button>
       </nav>
     </div>
@@ -1390,100 +1648,52 @@
       </div>
     </section>
 
+    <section id="view-warehouse" class="view">
+      <div class="wh-toolbar">
+        <h2>Warehouse Stock</h2>
+        <span class="stats" id="wh-stats">Loading.</span>
+        <button class="btn" id="wh-refresh-btn">Refresh</button>
+      </div>
+      <p class="brain-readonly-hint">Single source of truth for item availability. Sunny answers stock questions ("do you have X?", "is it in stock?", "when is it arriving?") from this list. Each item tracks the Abuja warehouse and the Lagos warehouse separately. Edits save instantly.</p>
+
+      <div class="wh-section">
+        <h3>Add a new item</h3>
+        <div class="wh-add-card">
+          <label>Section
+            <input id="wh-new-section" placeholder="panels, inverters, batteries..." />
+          </label>
+          <label>Brand
+            <input id="wh-new-brand" placeholder="Deye, BOS, Longi..." />
+          </label>
+          <label>Model
+            <input id="wh-new-model" placeholder="30K-HT3, BOS-G 5.12kWh..." />
+          </label>
+          <label>Price (NGN, optional)
+            <input id="wh-new-price" type="number" placeholder="6200000" />
+          </label>
+          <label>Notes (optional)
+            <input id="wh-new-notes" placeholder="HV, three-phase, ..." />
+          </label>
+          <label>&nbsp;
+            <button class="btn primary" id="wh-add-btn">Add item</button>
+          </label>
+        </div>
+      </div>
+
+      <div id="wh-list">
+        <div class="wh-empty">Loading.</div>
+      </div>
+    </section>
+
     <section id="view-knowledge" class="view">
       <nav class="know-subnav" id="know-subnav">
-        <button class="active" data-know-panel="panel-facts">Live facts</button>
-        <button data-know-panel="panel-rules">Rules</button>
-        <button data-know-panel="panel-catalog">Catalog</button>
-        <button data-know-panel="panel-datasheets">Datasheets</button>
+        <button class="active" data-know-panel="panel-rules">Rules</button>
         <button data-know-panel="panel-config">Models &amp; config</button>
       </nav>
 
-      <section id="panel-facts" class="know-panel active">
-        <div class="know-toolbar">
-          <label>Status:
-            <select id="know-status">
-              <option value="active">active</option>
-              <option value="all">all</option>
-              <option value="rejected">rejected</option>
-              <option value="superseded">superseded</option>
-            </select>
-          </label>
-          <label>Category:
-            <select id="know-category">
-              <option value="">all</option>
-              <option value="pricing">pricing</option>
-              <option value="policy">policy</option>
-              <option value="product">product</option>
-              <option value="sales">sales</option>
-              <option value="operations">operations</option>
-              <option value="warranty">warranty</option>
-              <option value="customer">customer</option>
-              <option value="correction">correction</option>
-              <option value="other">other</option>
-            </select>
-          </label>
-          <span class="stats" id="know-stats">0 facts</span>
-          <button class="btn" id="know-refresh-btn" title="Recheck what Sunny is loading from the knowledge base right now">Refresh memory</button>
-          <button class="btn" id="know-overlaps-btn" title="Show facts that look like they cover the same topic, so you can clean them up">Show overlaps</button>
-          <button class="btn danger" id="know-cleanup-legacy-btn" title="One-click cleanup: marks every active fact tagged as a legacy import or 'past customer / past Q&A' as rejected so they stop polluting Sunny's prompt with old prices">Reject all legacy facts</button>
-        </div>
-        <div id="know-snapshot" class="know-snapshot" style="display:none"></div>
-        <div id="know-overlaps" class="know-overlaps" style="display:none"></div>
-        <div class="know-add-row">
-          <textarea id="know-new-text" placeholder="Add a fact manually... e.g. 'Working hours: Mon-Sat 9am to 6pm, closed Sunday'"></textarea>
-          <select id="know-new-cat">
-            <option value="other">other</option>
-            <option value="pricing">pricing</option>
-            <option value="policy">policy</option>
-            <option value="product">product</option>
-            <option value="sales">sales</option>
-            <option value="operations">operations</option>
-            <option value="warranty">warranty</option>
-            <option value="customer">customer</option>
-            <option value="correction">correction</option>
-          </select>
-          <button class="btn primary" id="know-add-btn">Add fact</button>
-        </div>
-        <div class="know-list" id="know-list">
-          <div class="know-empty">Loading.</div>
-        </div>
-      </section>
-
-      <section id="panel-rules" class="know-panel">
+      <section id="panel-rules" class="know-panel active">
         <div class="brain-section" id="rules-body">
           <p class="brain-readonly-hint">Loading.</p>
-        </div>
-      </section>
-
-      <section id="panel-catalog" class="know-panel">
-        <div class="brain-section" id="catalog-body">
-          <p class="brain-readonly-hint">Loading.</p>
-        </div>
-      </section>
-
-      <section id="panel-datasheets" class="know-panel">
-        <div class="brain-section">
-          <h3 class="brain-h3">Upload a datasheet</h3>
-          <p class="brain-readonly-hint">PDF, PNG, JPG, or WEBP up to 15MB. Sunny will send the matching file to a customer when they ask for a "datasheet", "brochure", "spec sheet", "specs", or "manual" and the keywords match.</p>
-          <div class="ds-form">
-            <label>Label
-              <input type="text" id="ds-label" placeholder="e.g. Deye 12kW Hybrid Datasheet" />
-            </label>
-            <label>Keywords (comma or space separated, used to match customer queries)
-              <input type="text" id="ds-keywords" placeholder="e.g. Deye, 12kW, hybrid, inverter, single phase" />
-            </label>
-            <label>File
-              <input type="file" id="ds-file" accept=".pdf,application/pdf,image/png,image/jpeg,image/jpg,image/webp" />
-            </label>
-            <button class="btn primary" id="ds-upload-btn">Upload</button>
-            <span id="ds-upload-status" class="ds-status"></span>
-          </div>
-        </div>
-
-        <div class="brain-section">
-          <h3 class="brain-h3">Stored datasheets</h3>
-          <div id="datasheets-list" class="ds-list"><p class="brain-readonly-hint">Loading.</p></div>
         </div>
       </section>
 
@@ -1570,6 +1780,7 @@ let allContacts = [];
 let contactsLoaded = false;
 let knowledgeLoaded = false;
 let brainLoaded = false;
+let warehouseLoaded = false;
 
 // API HELPERS
 
@@ -1663,6 +1874,9 @@ function switchView(viewId) {
   }
   if (viewId === 'view-knowledge' && !knowledgeLoaded) {
     loadKnowledge();
+  }
+  if (viewId === 'view-warehouse' && !warehouseLoaded) {
+    loadWarehouse();
   }
   if (viewId === 'view-owner') {
     loadOwnerChat();
@@ -1812,192 +2026,14 @@ async function openContactConversation(contactId) {
   }
 }
 
-// KNOWLEDGE
+// KNOWLEDGE (rules + config only — facts/catalog/datasheets retired)
 
 async function loadKnowledge() {
-  const list = document.getElementById('know-list');
-  list.innerHTML = '<div class="know-empty">Loading.</div>';
-  try {
-    const status = document.getElementById('know-status').value;
-    const category = document.getElementById('know-category').value;
-    const params = new URLSearchParams();
-    if (status && status !== 'all') params.set('status', status);
-    if (category) params.set('category', category);
-    const data = await apiFetch('/knowledge?' + params.toString());
-    knowledgeLoaded = true;
-    renderKnowledge(data.entries || []);
-  } catch (err) {
-    list.innerHTML = '<div class="know-empty">Error: ' + escapeHtml(err.message) + '</div>';
-  }
+  knowledgeLoaded = true;
+  await loadBrain();
 }
 
-['know-status', 'know-category'].forEach(id => {
-  document.getElementById(id).addEventListener('change', loadKnowledge);
-});
-
-document.getElementById('know-add-btn').addEventListener('click', addFact);
-
-document.getElementById('know-refresh-btn').addEventListener('click', refreshAgentMemory);
-document.getElementById('know-overlaps-btn').addEventListener('click', toggleOverlaps);
-document.getElementById('know-cleanup-legacy-btn').addEventListener('click', cleanupLegacyFacts);
-
-async function cleanupLegacyFacts() {
-  const ok = confirm('Reject every active fact that came from a legacy import or "past customer / past Q&A" entry?\n\nThis stops Sunny from quoting old prices like "Longi 650W = 130,000 NGN" from 2025 conversations. You can still see and re-activate them under Status: rejected.');
-  if (!ok) return;
-  const btn = document.getElementById('know-cleanup-legacy-btn');
-  btn.disabled = true;
-  btn.textContent = 'Cleaning.';
-  try {
-    const data = await apiFetch('/knowledge/cleanup-legacy', { method: 'POST', body: '{}' });
-    alert('Rejected ' + (data.rejected_count || 0) + ' legacy facts. Active facts now: ' + (data.stats?.active_count || 0) + '.');
-    await loadKnowledge();
-    await refreshAgentMemory();
-  } catch (err) {
-    alert('Cleanup failed: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Reject all legacy facts';
-  }
-}
-
-async function refreshAgentMemory() {
-  const box = document.getElementById('know-snapshot');
-  const btn = document.getElementById('know-refresh-btn');
-  btn.disabled = true;
-  box.style.display = 'block';
-  box.innerHTML = '<p>Refreshing memory snapshot.</p>';
-  try {
-    const data = await apiFetch('/knowledge/refresh', { method: 'POST', body: '{}' });
-    const s = data.stats || {};
-    const last = s.last_added;
-    const lastLine = last
-      ? '<li>Last added: ' + escapeHtml((last.extracted_fact || '').slice(0, 120)) + ' <small>(' + escapeHtml(last.created_at || '') + ')</small></li>'
-      : '<li>Last added: (none yet)</li>';
-    const truncWarn = s.prompt_block_truncated
-      ? '<li style="color:#b35100"><strong>Memory was truncated to fit the prompt budget.</strong> Reduce facts or raise the cap.</li>'
-      : '';
-    box.innerHTML = [
-      '<h4>Memory snapshot</h4>',
-      '<ul>',
-      '<li>Active facts loaded into Sunny: <strong>' + (s.active_count || 0) + '</strong></li>',
-      '<li>Superseded (auto-archived because a newer fact replaced them): <strong>' + (s.superseded_count || 0) + '</strong></li>',
-      '<li>Overlapping fact groups: <strong>' + (s.overlap_groups || 0) + '</strong></li>',
-      '<li>Prompt block size: <strong>' + (s.prompt_block_chars || 0) + '</strong> chars</li>',
-      lastLine,
-      truncWarn,
-      '</ul>',
-      '<p><small>Sunny pulls a fresh copy of these facts on every reply. The newest fact in each category wins on conflicts.</small></p>'
-    ].join('');
-  } catch (err) {
-    box.innerHTML = '<p>Error: ' + escapeHtml(err.message) + '</p>';
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-let overlapsVisible = false;
-async function toggleOverlaps() {
-  const box = document.getElementById('know-overlaps');
-  const btn = document.getElementById('know-overlaps-btn');
-  if (overlapsVisible) {
-    box.style.display = 'none';
-    overlapsVisible = false;
-    btn.textContent = 'Show overlaps';
-    return;
-  }
-  overlapsVisible = true;
-  btn.textContent = 'Hide overlaps';
-  box.style.display = 'block';
-  box.innerHTML = '<p>Loading.</p>';
-  try {
-    const data = await apiFetch('/knowledge/overlaps');
-    const groups = data.groups || [];
-    if (!groups.length) {
-      box.innerHTML = '<h4>Overlapping facts</h4><p>No overlaps detected. Sunny is reading clean facts.</p>';
-      return;
-    }
-    const lines = ['<h4>Overlapping facts (' + groups.length + ' groups)</h4>'];
-    lines.push('<p><small>Each group covers the same topic. Sunny will use the <strong>newest</strong> one (top, green) and ignore the older ones. Open the older entries below and reject them if you want them gone for good.</small></p>');
-    for (const g of groups) {
-      lines.push('<div class="know-overlap-group">');
-      lines.push('<div><strong>' + escapeHtml(g.category) + '</strong> &middot; <small>"' + escapeHtml(g.prefix) + '."</small></div>');
-      for (const e of g.entries) {
-        const cls = e.is_newest ? 'newest' : 'older';
-        const tag = e.is_newest ? ' [newest, in use]' : ' [older, ignored]';
-        lines.push('<div class="know-overlap-item ' + cls + '">#' + e.id + tag + ' &middot; ' + escapeHtml(e.extracted_fact) + '</div>');
-      }
-      lines.push('</div>');
-    }
-    box.innerHTML = lines.join('');
-  } catch (err) {
-    box.innerHTML = '<p>Error: ' + escapeHtml(err.message) + '</p>';
-  }
-}
-
-async function addFact() {
-  const textEl = document.getElementById('know-new-text');
-  const catEl = document.getElementById('know-new-cat');
-  const text = textEl.value.trim();
-  if (!text) return;
-  try {
-    await apiFetch('/knowledge', {
-      method: 'POST',
-      body: JSON.stringify({ text, category: catEl.value })
-    });
-    textEl.value = '';
-    await loadKnowledge();
-  } catch (err) {
-    alert('Add failed: ' + err.message);
-  }
-}
-
-function renderKnowledge(entries) {
-  document.getElementById('know-stats').textContent = entries.length + ' fact' + (entries.length === 1 ? '' : 's');
-  const list = document.getElementById('know-list');
-  if (!entries.length) {
-    list.innerHTML = '<div class="know-empty">No facts in this view yet. Send Sunny a WhatsApp message to teach him, or add one manually above.</div>';
-    return;
-  }
-  list.innerHTML = entries.map(knowCardHtml).join('');
-  list.querySelectorAll('[data-action]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const id = parseInt(btn.closest('.know-card').dataset.id, 10);
-      const action = btn.dataset.action;
-      handleKnowAction(id, action, btn.closest('.know-card'));
-    });
-  });
-}
-
-function knowCardHtml(e) {
-  const statusPill = e.status === 'active'
-    ? '<span class="pill active">ACTIVE</span>'
-    : (e.status === 'rejected' ? '<span class="pill rejected">REJECTED</span>' : '<span class="pill pending">PENDING</span>');
-  const catPill = e.category ? '<span class="pill cat">' + escapeHtml(e.category) + '</span>' : '';
-  const conf = (typeof e.confidence === 'number') ? '<span class="pill cat">conf ' + e.confidence + '</span>' : '';
-  const created = e.created_at ? '<span class="pill cat">' + shortTime(e.created_at) + '</span>' : '';
-  const isRejected = e.status === 'rejected';
-
-  const buttons = [];
-  buttons.push('<button class="btn" data-action="edit">Edit</button>');
-  if (e.status !== 'active') buttons.push('<button class="btn primary" data-action="activate">Approve</button>');
-  if (e.status !== 'rejected') buttons.push('<button class="btn danger" data-action="reject">Reject</button>');
-  buttons.push('<button class="btn" data-action="delete">Delete</button>');
-
-  const sourceBlock = e.source_message && e.source_message !== '(added manually via admin)'
-    ? '<div class="source">' + escapeHtml(e.source_message.slice(0, 240)) + (e.source_message.length > 240 ? '...' : '') + '</div>'
-    : '';
-
-  return [
-    '<div class="know-card' + (isRejected ? ' rejected' : '') + '" data-id="' + e.id + '">',
-    '<div class="head">' + statusPill + catPill + conf + created + '</div>',
-    '<div class="body" data-body>' + escapeHtml(e.extracted_fact) + '</div>',
-    sourceBlock,
-    '<div class="actions">' + buttons.join('') + '</div>',
-    '</div>'
-  ].join('');
-}
-
-// KNOWLEDGE SUB-NAV
+// KNOWLEDGE SUB-NAV (rules + config only)
 
 document.querySelectorAll('#know-subnav button').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -2006,132 +2042,15 @@ document.querySelectorAll('#know-subnav button').forEach(btn => {
     document.querySelectorAll('#view-knowledge .know-panel').forEach(p => {
       p.classList.toggle('active', p.id === target);
     });
-    if (target !== 'panel-facts' && target !== 'panel-datasheets' && !brainLoaded) {
-      loadBrain();
-    }
-    if (target === 'panel-datasheets') {
-      loadDatasheets();
-    }
-  });
-});
-
-async function loadDatasheets() {
-  const list = document.getElementById('datasheets-list');
-  if (!list) return;
-  list.innerHTML = '<p class="brain-readonly-hint">Loading.</p>';
-  try {
-    const data = await apiFetch('/datasheets');
-    renderDatasheets(data.datasheets || []);
-  } catch (err) {
-    list.innerHTML = '<p class="brain-readonly-hint">Error: ' + escapeHtml(err.message) + '</p>';
-  }
-}
-
-function renderDatasheets(rows) {
-  const list = document.getElementById('datasheets-list');
-  if (!rows.length) {
-    list.innerHTML = '<p class="brain-readonly-hint">No datasheets yet. Upload one above to get Sunny started.</p>';
-    return;
-  }
-  list.innerHTML = rows.map(r => dsRowHtml(r)).join('');
-  list.querySelectorAll('[data-ds-action]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = parseInt(btn.closest('.ds-row').dataset.id, 10);
-      handleDsAction(id, btn.dataset.dsAction);
-    });
-  });
-}
-
-function dsRowHtml(r) {
-  const sizeKb = Math.round((r.size_bytes || 0) / 1024);
-  const meta = r.meta_media_id ? ' Meta cached.' : ' Not yet uploaded to Meta.';
-  return [
-    '<div class="ds-row" data-id="' + r.id + '">',
-    '  <div class="ds-meta">',
-    '    <div class="ds-label">' + escapeHtml(r.label) + '</div>',
-    '    <div class="ds-keywords">' + escapeHtml(r.keywords || '(no keywords set)') + '</div>',
-    '    <div class="ds-stats">' + escapeHtml(r.filename) + ' • ' + sizeKb + ' KB • ' + escapeHtml(r.mime_type) + ' • ' + escapeHtml(r.status) + '.' + meta + '</div>',
-    '  </div>',
-    '  <div class="ds-actions">',
-    '    <a class="btn" href="/api/datasheets/' + r.id + '/download?key=' + encodeURIComponent(apiKey || "") + '" target="_blank" rel="noopener">Download</a>',
-    '    <button class="btn" data-ds-action="rename">Edit</button>',
-    '    <button class="btn danger" data-ds-action="archive">Archive</button>',
-    '  </div>',
-    '</div>'
-  ].join('');
-}
-
-async function handleDsAction(id, action) {
-  try {
-    if (action === 'rename') {
-      const label = prompt('New label?');
-      if (label === null) return;
-      const keywords = prompt('Keywords (comma or space separated)?');
-      if (keywords === null) return;
-      await apiFetch('/datasheets/' + id, { method: 'POST', body: JSON.stringify({ label, keywords }) });
-      await loadDatasheets();
-    } else if (action === 'archive') {
-      if (!confirm('Archive this datasheet? Sunny will stop sending it to customers.')) return;
-      await apiFetch('/datasheets/' + id, { method: 'DELETE' });
-      await loadDatasheets();
-    }
-  } catch (err) {
-    alert('Action failed: ' + err.message);
-  }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const btn = document.getElementById('ds-upload-btn');
-  if (!btn) return;
-  btn.addEventListener('click', async () => {
-    const labelEl = document.getElementById('ds-label');
-    const keywordsEl = document.getElementById('ds-keywords');
-    const fileEl = document.getElementById('ds-file');
-    const status = document.getElementById('ds-upload-status');
-    const label = (labelEl.value || '').trim();
-    const keywords = (keywordsEl.value || '').trim();
-    const file = fileEl.files && fileEl.files[0];
-    status.className = 'ds-status';
-    status.textContent = '';
-    if (!label) { status.textContent = 'Label required'; status.className = 'ds-status err'; return; }
-    if (!file) { status.textContent = 'Pick a file'; status.className = 'ds-status err'; return; }
-    if (file.size > 15 * 1024 * 1024) { status.textContent = 'File too large (max 15MB)'; status.className = 'ds-status err'; return; }
-    status.textContent = 'Uploading.';
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const base64 = btoa(binary);
-      await apiFetch('/datasheets', {
-        method: 'POST',
-        body: JSON.stringify({
-          label,
-          keywords,
-          filename: file.name,
-          mime_type: file.type || 'application/octet-stream',
-          base64
-        })
-      });
-      status.textContent = 'Uploaded.';
-      status.className = 'ds-status ok';
-      labelEl.value = '';
-      keywordsEl.value = '';
-      fileEl.value = '';
-      loadDatasheets();
-    } catch (err) {
-      status.textContent = 'Failed: ' + err.message;
-      status.className = 'ds-status err';
-    }
+    if (!brainLoaded) loadBrain();
   });
 });
 
 async function loadBrain() {
   try {
-    const [brain, catalog] = await Promise.all([apiFetch('/brain'), apiFetch('/catalog')]);
+    const brain = await apiFetch('/brain');
     brainLoaded = true;
     renderRules(brain.rules || {});
-    renderCatalog(catalog || { items: [], notes: [] });
     renderConfig(brain.config || {}, brain.models || {});
   } catch (err) {
     document.getElementById('rules-body').innerHTML =
@@ -2139,167 +2058,117 @@ async function loadBrain() {
   }
 }
 
-async function reloadCatalog() {
-  try {
-    const catalog = await apiFetch('/catalog');
-    renderCatalog(catalog);
-  } catch (err) {
-    alert('Failed to reload catalog: ' + err.message);
-  }
-}
+const PROMPT_FILES = [
+  { name: 'system', label: 'Reply agent — Sunny\'s master prompt (system.md)', helper: 'Identity, voice, hard rules, engineering rules, locations. This is the single biggest lever on Sunny\'s behaviour.' },
+  { name: 'classifier', label: 'Classifier (classifier.md)', helper: 'Decides HOT vs silent_query vs normal. JSON schema rules.' },
+  { name: 'teacher', label: 'Owner teaching (teacher.md)', helper: 'Extracts facts from owner DMs. Currently not used end-to-end since live facts panel was retired.' },
+  { name: 'owner_qa', label: 'Owner Q&A (owner_qa.md)', helper: 'Used when the brother messages Sunny directly with questions about the data.' }
+];
 
 function renderRules(rules) {
   const root = document.getElementById('rules-body');
   const blocks = [];
-  blocks.push('<h2>System prompts</h2>');
-  blocks.push('<p class="brain-readonly-hint">These prompts are injected into the LLM at every turn. Read-only here. To change, edit the matching file in src/prompts/ and push a commit.</p>');
-  blocks.push('<h3>Reply agent (system.md)</h3><pre>' + escapeHtml(rules.system || '(missing)') + '</pre>');
-  blocks.push('<h3>Classifier (classifier.md)</h3><pre>' + escapeHtml(rules.classifier || '(missing)') + '</pre>');
-  blocks.push('<h3>Owner teaching (teacher.md)</h3><pre>' + escapeHtml(rules.teacher || '(missing)') + '</pre>');
-  root.innerHTML = blocks.join('');
-}
-
-function renderCatalog(catalog) {
-  const root = document.getElementById('catalog-body');
-  const items = (catalog && catalog.items) || [];
-  const notes = (catalog && catalog.notes) || [];
-
-  const bySection = {};
-  for (const it of items) {
-    if (!bySection[it.section]) bySection[it.section] = [];
-    bySection[it.section].push(it);
-  }
-  const sections = Object.keys(bySection).sort();
-
-  const blocks = [];
-  blocks.push('<h2>Product catalog</h2>');
-  blocks.push('<p class="brain-readonly-hint">Edits save instantly and take effect on the next customer reply.</p>');
-
-  blocks.push('<div class="catalog-section">');
-  blocks.push('<h3>Add a new item</h3>');
-  blocks.push('<div class="catalog-add-row">');
-  blocks.push('<input id="cat-new-section" placeholder="section (e.g. inverters)">');
-  blocks.push('<input id="cat-new-brand" placeholder="brand">');
-  blocks.push('<input id="cat-new-model" placeholder="model">');
-  blocks.push('<input id="cat-new-price" type="number" placeholder="price NGN">');
-  blocks.push('<select id="cat-new-stock"><option value="1">in stock</option><option value="0">check team</option></select>');
-  blocks.push('<input id="cat-new-notes" placeholder="notes (optional)">');
-  blocks.push('<button class="btn primary" id="cat-new-btn">Add</button>');
+  blocks.push('<div class="rules-toolbar">');
+  blocks.push('<h2>Master prompts</h2>');
+  blocks.push('<button class="btn primary" id="rules-deploy-btn" title="Force a Railway redeploy so the live container restarts and re-reads the saved prompts.">Deploy to live</button>');
+  blocks.push('<span id="rules-deploy-status" class="rules-status"></span>');
   blocks.push('</div>');
-  blocks.push('</div>');
+  blocks.push('<p class="brain-readonly-hint">Edit any prompt below and press <strong>Save</strong>. Save writes the file, commits and pushes to GitHub if a token is configured, and Sunny picks up the new prompt on the very next customer message. Press <strong>Deploy to live</strong> to also force a Railway redeploy (needed when changing config or for a fully clean restart).</p>');
 
-  if (!sections.length) {
-    blocks.push('<p class="brain-readonly-hint">No items yet. Use the form above to add the first one.</p>');
-  }
-
-  for (const section of sections) {
-    const list = bySection[section];
-    blocks.push('<div class="catalog-section">');
-    blocks.push('<h3>' + escapeHtml(section.toUpperCase()) + '</h3>');
-    blocks.push('<table class="catalog-table"><thead><tr>'
-      + '<th>Brand</th>'
-      + '<th>Model</th>'
-      + '<th>Price NGN</th>'
-      + '<th>Stock</th>'
-      + '<th>Notes</th>'
-      + '<th></th>'
-      + '</tr></thead><tbody>');
-    for (const it of list) {
-      blocks.push('<tr data-cat-row="' + it.id + '">'
-        + '<td><input data-field="brand" value="' + escapeHtml(it.brand || '') + '"></td>'
-        + '<td><input data-field="model" value="' + escapeHtml(it.model || '') + '"></td>'
-        + '<td><input class="price-input" data-field="price_ngn" type="number" value="' + (it.price_ngn ?? '') + '"></td>'
-        + '<td><select data-field="in_stock"><option value="1"' + (it.in_stock ? ' selected' : '') + '>in stock</option><option value="0"' + (!it.in_stock ? ' selected' : '') + '>check team</option></select></td>'
-        + '<td><input data-field="notes" value="' + escapeHtml(it.notes || '') + '"></td>'
-        + '<td class="row-actions"><button class="btn primary" data-cat-action="save">Save</button><button class="btn danger" data-cat-action="delete">Delete</button></td>'
-        + '</tr>');
-    }
-    blocks.push('</tbody></table>');
+  for (const f of PROMPT_FILES) {
+    const content = rules[f.name] || '';
+    blocks.push('<div class="prompt-card" data-prompt-name="' + f.name + '">');
+    blocks.push('<h3>' + escapeHtml(f.label) + '</h3>');
+    blocks.push('<p class="brain-readonly-hint">' + escapeHtml(f.helper) + '</p>');
+    blocks.push('<textarea class="prompt-editor" data-prompt-textarea spellcheck="false">' + escapeHtml(content) + '</textarea>');
+    blocks.push('<div class="prompt-actions">');
+    blocks.push('<button class="btn primary" data-prompt-action="save">Save</button>');
+    blocks.push('<button class="btn" data-prompt-action="revert" title="Discard your edits and reload the file from the server.">Revert</button>');
+    blocks.push('<span class="prompt-status" data-prompt-status></span>');
+    blocks.push('</div>');
     blocks.push('</div>');
   }
 
-  blocks.push('<div class="catalog-section">');
-  blocks.push('<h3>Catalog notes</h3>');
-  blocks.push('<p class="brain-readonly-hint">These appear at the bottom of the catalog block in Sunny\'s system prompt.</p>');
-  blocks.push('<ul class="notes-list" id="catalog-notes-list">');
-  for (const n of notes) {
-    blocks.push('<li data-note-id="' + n.id + '">'
-      + '<div class="text">' + escapeHtml(n.text) + '</div>'
-      + '<button class="btn danger" data-note-action="delete">Delete</button>'
-      + '</li>');
-  }
-  blocks.push('</ul>');
-  blocks.push('<div class="notes-add">');
-  blocks.push('<textarea id="cat-new-note" placeholder="Add a catalog note..."></textarea>');
-  blocks.push('<button class="btn primary" id="cat-new-note-btn">Add note</button>');
-  blocks.push('</div>');
-  blocks.push('</div>');
-
   root.innerHTML = blocks.join('');
-  bindCatalogHandlers(root);
+  bindRulesHandlers(root);
 }
 
-function bindCatalogHandlers(root) {
-  const addBtn = root.querySelector('#cat-new-btn');
-  if (addBtn) addBtn.addEventListener('click', addCatalogItem);
+function bindRulesHandlers(root) {
+  const deployBtn = root.querySelector('#rules-deploy-btn');
+  if (deployBtn) deployBtn.addEventListener('click', deployRules);
 
-  root.querySelectorAll('[data-cat-row]').forEach(row => {
-    row.querySelectorAll('[data-cat-action]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = parseInt(row.dataset.catRow, 10);
-        const action = btn.dataset.catAction;
-        if (action === 'save') saveCatalogRow(id, row);
-        if (action === 'delete') deleteCatalogRow(id);
-      });
-    });
+  root.querySelectorAll('[data-prompt-name]').forEach(card => {
+    const name = card.dataset.promptName;
+    card.querySelector('[data-prompt-action="save"]').addEventListener('click', () => savePrompt(name, card));
+    card.querySelector('[data-prompt-action="revert"]').addEventListener('click', () => revertPrompt(name, card));
   });
-
-  root.querySelectorAll('[data-note-id]').forEach(li => {
-    li.querySelector('[data-note-action="delete"]').addEventListener('click', () => {
-      const id = parseInt(li.dataset.noteId, 10);
-      deleteCatalogNote(id);
-    });
-  });
-
-  const addNoteBtn = root.querySelector('#cat-new-note-btn');
-  if (addNoteBtn) addNoteBtn.addEventListener('click', addCatalogNote);
 }
 
-async function addCatalogItem() {
-  const body = {
-    section: document.getElementById('cat-new-section').value.trim(),
-    brand: document.getElementById('cat-new-brand').value.trim(),
-    model: document.getElementById('cat-new-model').value.trim(),
-    price_ngn: document.getElementById('cat-new-price').value || null,
-    in_stock: document.getElementById('cat-new-stock').value === '1',
-    notes: document.getElementById('cat-new-notes').value.trim() || null
-  };
-  if (!body.section || !body.brand || !body.model) {
-    alert('Section, brand, and model are required.');
-    return;
-  }
+async function savePrompt(name, card) {
+  const ta = card.querySelector('[data-prompt-textarea]');
+  const status = card.querySelector('[data-prompt-status]');
+  const btn = card.querySelector('[data-prompt-action="save"]');
+  status.className = 'prompt-status';
+  status.textContent = 'Saving.';
+  btn.disabled = true;
   try {
-    await apiFetch('/catalog/items', { method: 'POST', body: JSON.stringify(body) });
-    await reloadCatalog();
+    const data = await apiFetch('/prompts/' + name, {
+      method: 'POST',
+      body: JSON.stringify({ content: ta.value })
+    });
+    if (data.committed) {
+      status.className = 'prompt-status ok';
+      status.textContent = 'Saved + pushed to git. Sunny is now using the new prompt.';
+    } else if (data.git_error) {
+      status.className = 'prompt-status warn';
+      status.textContent = 'Saved locally only (git push failed: ' + (data.git_error || 'no token') + '). Will be lost on next redeploy.';
+    } else {
+      status.className = 'prompt-status warn';
+      status.textContent = 'Saved locally. Set GITHUB_TOKEN to make edits persist across redeploys.';
+    }
   } catch (err) {
-    alert('Add failed: ' + err.message);
+    status.className = 'prompt-status err';
+    status.textContent = 'Save failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
   }
 }
 
-async function saveCatalogRow(id, row) {
-  const body = {};
-  row.querySelectorAll('[data-field]').forEach(el => {
-    const field = el.dataset.field;
-    let v = el.value;
-    if (field === 'price_ngn') v = v === '' ? null : Number(v);
-    if (field === 'in_stock') v = v === '1';
-    body[field] = v;
-  });
+async function revertPrompt(name, card) {
+  if (!confirm('Discard your edits and reload from the server?')) return;
   try {
-    await apiFetch('/catalog/items/' + id, { method: 'POST', body: JSON.stringify(body) });
-    flashRow(row);
+    const brain = await apiFetch('/brain');
+    const fresh = (brain.rules && brain.rules[name]) || '';
+    card.querySelector('[data-prompt-textarea]').value = fresh;
+    const status = card.querySelector('[data-prompt-status]');
+    status.className = 'prompt-status ok';
+    status.textContent = 'Reverted to saved version.';
   } catch (err) {
-    alert('Save failed: ' + err.message);
+    alert('Revert failed: ' + err.message);
+  }
+}
+
+async function deployRules() {
+  const btn = document.getElementById('rules-deploy-btn');
+  const status = document.getElementById('rules-deploy-status');
+  if (!confirm('Trigger a Railway redeploy now? The container will restart in 30-60s.')) return;
+  btn.disabled = true;
+  status.className = 'rules-status';
+  status.textContent = 'Triggering redeploy.';
+  try {
+    const data = await apiFetch('/prompts/deploy', { method: 'POST', body: '{}' });
+    if (data.ok) {
+      status.className = 'rules-status ok';
+      status.textContent = data.message || 'Deploy triggered.';
+    } else {
+      status.className = 'rules-status warn';
+      status.textContent = data.message || 'Deploy not configured.';
+    }
+  } catch (err) {
+    status.className = 'rules-status err';
+    status.textContent = 'Deploy failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -2307,39 +2176,6 @@ function flashRow(row) {
   const original = row.style.backgroundColor;
   row.style.backgroundColor = 'rgba(16, 185, 129, 0.2)';
   setTimeout(() => { row.style.backgroundColor = original; }, 600);
-}
-
-async function deleteCatalogRow(id) {
-  if (!confirm('Delete this item permanently?')) return;
-  try {
-    await apiFetch('/catalog/items/' + id, { method: 'DELETE' });
-    await reloadCatalog();
-  } catch (err) {
-    alert('Delete failed: ' + err.message);
-  }
-}
-
-async function addCatalogNote() {
-  const ta = document.getElementById('cat-new-note');
-  const text = ta.value.trim();
-  if (!text) return;
-  try {
-    await apiFetch('/catalog/notes', { method: 'POST', body: JSON.stringify({ text }) });
-    ta.value = '';
-    await reloadCatalog();
-  } catch (err) {
-    alert('Add failed: ' + err.message);
-  }
-}
-
-async function deleteCatalogNote(id) {
-  if (!confirm('Delete this note?')) return;
-  try {
-    await apiFetch('/catalog/notes/' + id, { method: 'DELETE' });
-    await reloadCatalog();
-  } catch (err) {
-    alert('Delete failed: ' + err.message);
-  }
 }
 
 function formatNgn(n) {
@@ -2378,39 +2214,6 @@ function renderConfig(config, models) {
   root.innerHTML = html;
 }
 
-async function handleKnowAction(id, action, card) {
-  try {
-    if (action === 'activate') {
-      await apiFetch('/knowledge/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: 'active' }) });
-      await loadKnowledge();
-    } else if (action === 'reject') {
-      await apiFetch('/knowledge/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: 'rejected' }) });
-      await loadKnowledge();
-    } else if (action === 'delete') {
-      if (!confirm('Delete this fact permanently?')) return;
-      await apiFetch('/knowledge/' + id, { method: 'DELETE' });
-      await loadKnowledge();
-    } else if (action === 'edit') {
-      const bodyEl = card.querySelector('[data-body]');
-      const original = bodyEl.textContent;
-      const ta = document.createElement('textarea');
-      ta.className = 'edit';
-      ta.value = original;
-      bodyEl.replaceWith(ta);
-      ta.focus();
-      const actions = card.querySelector('.actions');
-      actions.innerHTML = '<button class="btn primary" data-action="save-edit">Save</button><button class="btn" data-action="cancel-edit">Cancel</button>';
-      actions.querySelector('[data-action="save-edit"]').addEventListener('click', async () => {
-        await apiFetch('/knowledge/' + id + '/edit', { method: 'POST', body: JSON.stringify({ text: ta.value.trim() }) });
-        await loadKnowledge();
-      });
-      actions.querySelector('[data-action="cancel-edit"]').addEventListener('click', () => loadKnowledge());
-    }
-  } catch (err) {
-    alert(action + ' failed: ' + err.message);
-  }
-}
-
 // REFRESH
 
 async function refreshAll() {
@@ -2432,8 +2235,8 @@ async function refreshAll() {
     if (currentView === 'view-contacts' && contactsLoaded) {
       loadContacts();
     }
-    if (currentView === 'view-knowledge' && knowledgeLoaded) {
-      loadKnowledge();
+    if (currentView === 'view-knowledge' && brainLoaded) {
+      loadBrain();
     }
     if (currentView === 'view-owner') {
       loadOwnerChat();
@@ -2719,6 +2522,335 @@ async function sendReply(id) {
   } finally {
     sendBtn.disabled = false;
     sendBtn.textContent = 'Send';
+  }
+}
+
+// WAREHOUSE STOCK
+
+const WH_LOCATIONS = ['abuja', 'lagos'];
+const WH_STATES = [
+  { value: 'in_stock', label: 'In stock' },
+  { value: 'incoming', label: 'Incoming' },
+  { value: 'out_of_stock', label: 'Out of stock' }
+];
+
+async function loadWarehouse() {
+  try {
+    const data = await apiFetch('/warehouse');
+    warehouseLoaded = true;
+    renderWarehouse(data.items || []);
+  } catch (err) {
+    document.getElementById('wh-list').innerHTML =
+      '<div class="wh-empty">Error loading warehouse: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function renderWarehouse(items) {
+  const root = document.getElementById('wh-list');
+  const stats = document.getElementById('wh-stats');
+
+  if (!items.length) {
+    stats.textContent = '0 items';
+    root.innerHTML = '<div class="wh-empty">No items yet. Use the form above to add the first one.</div>';
+    bindWarehouseTopHandlers();
+    return;
+  }
+
+  let inStockTotal = 0;
+  for (const it of items) {
+    for (const loc of WH_LOCATIONS) {
+      const s = it.stock && it.stock[loc];
+      if (s && s.state === 'in_stock') inStockTotal += s.quantity || 0;
+    }
+  }
+  stats.textContent = items.length + ' items, ' + inStockTotal + ' units in stock';
+
+  const bySection = {};
+  for (const it of items) {
+    if (!bySection[it.section]) bySection[it.section] = [];
+    bySection[it.section].push(it);
+  }
+  const sections = Object.keys(bySection).sort();
+
+  const blocks = [];
+  for (const section of sections) {
+    blocks.push('<div class="wh-section">');
+    blocks.push('<h3>' + escapeHtml(section) + '</h3>');
+    for (const it of bySection[section]) {
+      blocks.push(renderWarehouseItem(it));
+    }
+    blocks.push('</div>');
+  }
+
+  root.innerHTML = blocks.join('');
+  bindWarehouseTopHandlers();
+  bindWarehouseItemHandlers(root);
+}
+
+function renderWarehouseItem(it) {
+  const head = [
+    '<div class="wh-item-head">',
+    '<input data-field="brand" value="' + escapeHtml(it.brand || '') + '" placeholder="brand">',
+    '<input data-field="model" value="' + escapeHtml(it.model || '') + '" placeholder="model">',
+    '<input data-field="section" value="' + escapeHtml(it.section || '') + '" placeholder="section">',
+    '<input data-field="price_ngn" type="number" value="' + (it.price_ngn != null ? it.price_ngn : '') + '" placeholder="price NGN">',
+    '<input data-field="notes" value="' + escapeHtml(it.notes || '') + '" placeholder="notes (optional)">',
+    '<div class="row-actions">',
+    '<button class="btn primary" data-wh-action="save-item">Save</button>',
+    '<button class="btn danger" data-wh-action="delete-item">Delete</button>',
+    '</div>',
+    '</div>'
+  ].join('');
+
+  const locs = WH_LOCATIONS.map(loc => renderWarehouseLocation(it, loc)).join('');
+  const datasheet = renderWarehouseDatasheet(it);
+  return '<div class="wh-item" data-wh-item="' + it.id + '">' + head + '<div class="wh-locations">' + locs + '</div>' + datasheet + '</div>';
+}
+
+function renderWarehouseDatasheet(it) {
+  const sizeKb = it.datasheet_size_bytes ? Math.round(it.datasheet_size_bytes / 1024) + ' KB' : '';
+  const has = !!it.datasheet_path;
+  const downloadHref = has
+    ? '/api/warehouse/items/' + it.id + '/datasheet/download?key=' + encodeURIComponent(apiKey || '')
+    : '';
+  return [
+    '<div class="wh-datasheet">',
+    '<div class="wh-ds-head">',
+    '<span class="wh-ds-label">Datasheet (PDF/PNG/JPG/WEBP, max 15MB)</span>',
+    has
+      ? ('<span class="wh-ds-attached">Attached: ' + escapeHtml(it.datasheet_filename || 'file') + (sizeKb ? ' &middot; ' + sizeKb : '') + '</span>')
+      : '<span class="wh-ds-empty">No datasheet attached.</span>',
+    '</div>',
+    '<div class="wh-ds-actions">',
+    '<input type="file" data-wh-ds-file accept=".pdf,application/pdf,image/png,image/jpeg,image/jpg,image/webp">',
+    '<button class="btn primary" data-wh-action="upload-ds">Upload</button>',
+    has ? '<a class="btn" href="' + downloadHref + '" target="_blank" rel="noopener">Download</a>' : '',
+    has ? '<button class="btn danger" data-wh-action="remove-ds">Remove</button>' : '',
+    '<span class="wh-ds-status" data-wh-ds-status></span>',
+    '</div>',
+    '</div>'
+  ].join('');
+}
+
+function renderWarehouseLocation(it, loc) {
+  const s = (it.stock && it.stock[loc]) || { state: 'out_of_stock', quantity: 0, coming_note: '', eta_date: '' };
+  const stateClass = s.state || 'out_of_stock';
+  const stateRadios = WH_STATES.map(opt => {
+    const active = opt.value === s.state ? ' active ' + opt.value : '';
+    return [
+      '<label class="' + opt.value + active.trim() + '" data-wh-state-label="' + opt.value + '">',
+      '<input type="radio" name="wh-state-' + it.id + '-' + loc + '" value="' + opt.value + '"' + (opt.value === s.state ? ' checked' : '') + '>',
+      escapeHtml(opt.label),
+      '</label>'
+    ].join('');
+  }).join('');
+
+  return [
+    '<div class="wh-loc ' + stateClass + '" data-wh-loc="' + loc + '">',
+    '<div class="wh-loc-head"><span class="wh-loc-name">' + loc + '</span></div>',
+    '<div class="wh-state-row">' + stateRadios + '</div>',
+    '<div class="wh-qty-row">',
+    '<label>Qty</label>',
+    '<button class="wh-qty-btn" data-wh-action="qty-minus">−</button>',
+    '<input class="wh-qty-input" data-wh-field="quantity" type="number" min="0" value="' + (s.quantity || 0) + '">',
+    '<button class="wh-qty-btn" data-wh-action="qty-plus">+</button>',
+    '</div>',
+    '<div class="wh-note-row">',
+    '<span>Coming note (visible to Sunny when state is incoming)</span>',
+    '<input data-wh-field="coming_note" value="' + escapeHtml(s.coming_note || '') + '" placeholder="e.g. next batch arriving with main shipment">',
+    '</div>',
+    '<div class="wh-eta-row">',
+    '<span>ETA date (optional)</span>',
+    '<input data-wh-field="eta_date" type="date" value="' + escapeHtml(s.eta_date || '') + '">',
+    '</div>',
+    '<button class="btn primary" data-wh-action="save-loc">Save ' + loc + '</button>',
+    '</div>'
+  ].join('');
+}
+
+function bindWarehouseTopHandlers() {
+  const addBtn = document.getElementById('wh-add-btn');
+  if (addBtn && !addBtn.dataset.bound) {
+    addBtn.dataset.bound = '1';
+    addBtn.addEventListener('click', addWarehouseItem);
+  }
+  const refreshBtn = document.getElementById('wh-refresh-btn');
+  if (refreshBtn && !refreshBtn.dataset.bound) {
+    refreshBtn.dataset.bound = '1';
+    refreshBtn.addEventListener('click', () => loadWarehouse());
+  }
+}
+
+function bindWarehouseItemHandlers(root) {
+  root.querySelectorAll('[data-wh-item]').forEach(itemEl => {
+    const itemId = parseInt(itemEl.dataset.whItem, 10);
+
+    itemEl.querySelectorAll('.wh-item-head [data-wh-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.whAction === 'save-item') saveWarehouseItem(itemId, itemEl);
+        if (btn.dataset.whAction === 'delete-item') deleteWarehouseItem(itemId);
+      });
+    });
+
+    const dsRoot = itemEl.querySelector('.wh-datasheet');
+    if (dsRoot) {
+      dsRoot.querySelectorAll('[data-wh-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.dataset.whAction === 'upload-ds') uploadWarehouseDatasheet(itemId, dsRoot);
+          if (btn.dataset.whAction === 'remove-ds') removeWarehouseDatasheet(itemId);
+        });
+      });
+    }
+
+    itemEl.querySelectorAll('[data-wh-loc]').forEach(locEl => {
+      const loc = locEl.dataset.whLoc;
+
+      locEl.querySelectorAll('input[type="radio"]').forEach(r => {
+        r.addEventListener('change', () => {
+          locEl.classList.remove('in_stock', 'incoming', 'out_of_stock');
+          locEl.classList.add(r.value);
+          locEl.querySelectorAll('[data-wh-state-label]').forEach(lbl => {
+            lbl.classList.toggle('active', lbl.dataset.whStateLabel === r.value);
+          });
+        });
+      });
+
+      locEl.querySelectorAll('[data-wh-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.whAction;
+          if (action === 'save-loc') saveWarehouseLocation(itemId, loc, locEl);
+          if (action === 'qty-plus') adjustWarehouseQty(itemId, loc, locEl, 1);
+          if (action === 'qty-minus') adjustWarehouseQty(itemId, loc, locEl, -1);
+        });
+      });
+    });
+  });
+}
+
+async function addWarehouseItem() {
+  const body = {
+    section: document.getElementById('wh-new-section').value.trim(),
+    brand: document.getElementById('wh-new-brand').value.trim(),
+    model: document.getElementById('wh-new-model').value.trim(),
+    price_ngn: document.getElementById('wh-new-price').value || null,
+    notes: document.getElementById('wh-new-notes').value.trim() || null
+  };
+  if (!body.section || !body.brand || !body.model) {
+    alert('Section, brand, and model are required.');
+    return;
+  }
+  try {
+    await apiFetch('/warehouse/items', { method: 'POST', body: JSON.stringify(body) });
+    document.getElementById('wh-new-section').value = '';
+    document.getElementById('wh-new-brand').value = '';
+    document.getElementById('wh-new-model').value = '';
+    document.getElementById('wh-new-price').value = '';
+    document.getElementById('wh-new-notes').value = '';
+    await loadWarehouse();
+  } catch (err) {
+    alert('Add failed: ' + err.message);
+  }
+}
+
+async function saveWarehouseItem(id, itemEl) {
+  const body = {};
+  itemEl.querySelectorAll('.wh-item-head [data-field]').forEach(el => {
+    const field = el.dataset.field;
+    let v = el.value;
+    if (field === 'price_ngn') v = v === '' ? null : Number(v);
+    body[field] = v;
+  });
+  try {
+    await apiFetch('/warehouse/items/' + id, { method: 'POST', body: JSON.stringify(body) });
+    flashRow(itemEl);
+  } catch (err) {
+    alert('Save failed: ' + err.message);
+  }
+}
+
+async function deleteWarehouseItem(id) {
+  if (!confirm('Delete this item and its stock records?')) return;
+  try {
+    await apiFetch('/warehouse/items/' + id, { method: 'DELETE' });
+    await loadWarehouse();
+  } catch (err) {
+    alert('Delete failed: ' + err.message);
+  }
+}
+
+async function saveWarehouseLocation(itemId, loc, locEl) {
+  const checkedRadio = locEl.querySelector('input[type="radio"]:checked');
+  const body = {
+    state: checkedRadio ? checkedRadio.value : 'out_of_stock'
+  };
+  locEl.querySelectorAll('[data-wh-field]').forEach(el => {
+    const field = el.dataset.whField;
+    let v = el.value;
+    if (field === 'quantity') v = v === '' ? 0 : Number(v);
+    body[field] = v;
+  });
+  try {
+    await apiFetch('/warehouse/items/' + itemId + '/stock/' + loc, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    flashRow(locEl);
+  } catch (err) {
+    alert('Save failed: ' + err.message);
+  }
+}
+
+async function uploadWarehouseDatasheet(itemId, dsRoot) {
+  const fileInput = dsRoot.querySelector('[data-wh-ds-file]');
+  const status = dsRoot.querySelector('[data-wh-ds-status]');
+  const file = fileInput.files && fileInput.files[0];
+  status.className = 'wh-ds-status';
+  if (!file) { status.textContent = 'Pick a file first.'; status.className = 'wh-ds-status err'; return; }
+  if (file.size > 15 * 1024 * 1024) { status.textContent = 'File too large (max 15MB).'; status.className = 'wh-ds-status err'; return; }
+  status.textContent = 'Uploading.';
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+    await apiFetch('/warehouse/items/' + itemId + '/datasheet', {
+      method: 'POST',
+      body: JSON.stringify({
+        filename: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        base64
+      })
+    });
+    await loadWarehouse();
+  } catch (err) {
+    status.textContent = 'Upload failed: ' + err.message;
+    status.className = 'wh-ds-status err';
+  }
+}
+
+async function removeWarehouseDatasheet(itemId) {
+  if (!confirm('Remove the datasheet attached to this item?')) return;
+  try {
+    await apiFetch('/warehouse/items/' + itemId + '/datasheet', { method: 'DELETE' });
+    await loadWarehouse();
+  } catch (err) {
+    alert('Remove failed: ' + err.message);
+  }
+}
+
+async function adjustWarehouseQty(itemId, loc, locEl, delta) {
+  const input = locEl.querySelector('[data-wh-field="quantity"]');
+  const next = Math.max(0, (Number(input.value) || 0) + delta);
+  input.value = next;
+  try {
+    await apiFetch('/warehouse/items/' + itemId + '/stock/' + loc + '/adjust', {
+      method: 'POST',
+      body: JSON.stringify({ delta })
+    });
+    flashRow(locEl);
+  } catch (err) {
+    alert('Adjust failed: ' + err.message);
   }
 }
 

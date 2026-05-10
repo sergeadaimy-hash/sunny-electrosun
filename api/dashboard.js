@@ -36,6 +36,18 @@ const {
   updateNote: updateCatalogNote,
   deleteNote: deleteCatalogNote
 } = require('../src/catalog');
+const warehouseModule = require('../src/warehouse');
+const promptStore = require('../src/prompt_store');
+const {
+  listItems: listWarehouseItems,
+  addItem: addWarehouseItem,
+  updateItem: updateWarehouseItem,
+  deleteItem: deleteWarehouseItem,
+  setStock: setWarehouseStock,
+  adjustQuantity: adjustWarehouseQuantity,
+  setDatasheet: setWarehouseDatasheet,
+  removeDatasheet: removeWarehouseDatasheet
+} = warehouseModule;
 
 const router = express.Router();
 
@@ -427,16 +439,108 @@ router.delete('/catalog/notes/:id', (req, res) => {
   res.json({ ok: true, id });
 });
 
+router.get('/warehouse', (req, res) => {
+  try {
+    res.json({ items: listWarehouseItems() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/warehouse/items', (req, res) => {
+  try {
+    const id = addWarehouseItem(req.body || {});
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/warehouse/items/:id', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    updateWarehouseItem(id, req.body || {});
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/warehouse/items/:id', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    deleteWarehouseItem(id);
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/warehouse/items/:id/stock/:location', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  const location = String(req.params.location || '').toLowerCase();
+  try {
+    setWarehouseStock(id, location, req.body || {});
+    res.json({ ok: true, id, location });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/warehouse/items/:id/stock/:location/adjust', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  const location = String(req.params.location || '').toLowerCase();
+  const delta = parseInt32(req.body?.delta, 0);
+  try {
+    adjustWarehouseQuantity(id, location, delta);
+    res.json({ ok: true, id, location, delta });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/warehouse/items/:id/datasheet', express.json({ limit: '20mb' }), (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    const filename = String(req.body?.filename || '').trim();
+    const mimeType = String(req.body?.mime_type || '').trim();
+    const base64 = String(req.body?.base64 || '');
+    if (!filename) return res.status(400).json({ error: 'filename required' });
+    if (!mimeType) return res.status(400).json({ error: 'mime_type required' });
+    if (!base64) return res.status(400).json({ error: 'base64 file content required' });
+    setWarehouseDatasheet(id, { filename, mimeType, base64 });
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/warehouse/items/:id/datasheet', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    removeWarehouseDatasheet(id);
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/warehouse/items/:id/datasheet/download', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    const item = warehouseModule.getItem(id);
+    if (!item || !item.datasheet_path) return res.status(404).json({ error: 'no datasheet attached' });
+    res.setHeader('Content-Type', item.datasheet_mime || 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'inline; filename="' + (item.datasheet_filename || 'datasheet').replace(/"/g, '') + '"');
+    require('fs').createReadStream(item.datasheet_path).pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/brain', (req, res) => {
-  const root = path.join(__dirname, '..');
-  const safeRead = (p) => {
-    try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
-  };
-  const rules = {
-    system: safeRead(path.join(root, 'src', 'prompts', 'system.md')),
-    classifier: safeRead(path.join(root, 'src', 'prompts', 'classifier.md')),
-    teacher: safeRead(path.join(root, 'src', 'prompts', 'teacher.md'))
-  };
+  promptStore.invalidate();
+  const rules = promptStore.getAll();
   const models = {
     classifier: process.env.MODEL_CLASSIFIER || 'claude-opus-4-7',
     teacher: process.env.MODEL_TEACHER || 'claude-opus-4-7',
@@ -456,6 +560,135 @@ router.get('/brain', (req, res) => {
     graph_version: 'v21.0'
   };
   res.json({ rules, models, config });
+});
+
+router.post('/prompts/:name', express.json({ limit: '1mb' }), async (req, res) => {
+  const name = String(req.params.name || '');
+  if (!promptStore.ALLOWED.includes(name)) {
+    return res.status(400).json({ error: 'unknown prompt: ' + name });
+  }
+  const content = req.body && typeof req.body.content === 'string' ? req.body.content : null;
+  if (content === null) return res.status(400).json({ error: 'content (string) required' });
+
+  let writeOk = false;
+  try {
+    promptStore.write(name, content);
+    writeOk = true;
+  } catch (err) {
+    return res.status(500).json({ error: 'write failed: ' + err.message });
+  }
+
+  const result = { ok: true, name, saved_locally: true, committed: false };
+
+  const repo = process.env.GITHUB_REPO || 'sergeadaimy-hash/sunny-electrosun';
+  const branch = process.env.GITHUB_BRANCH || 'main';
+  const token = process.env.GITHUB_TOKEN;
+
+  if (!token) {
+    result.git_error = 'GITHUB_TOKEN env var is not set; edit applies to this container only and will be lost on next git redeploy.';
+    return res.json(result);
+  }
+
+  try {
+    const filePath = 'src/prompts/' + name + '.md';
+    const apiBase = 'https://api.github.com/repos/' + repo + '/contents/' + filePath;
+    const headers = {
+      'Authorization': 'Bearer ' + token,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'sunny-electrosun-admin'
+    };
+
+    const getRes = await fetch(apiBase + '?ref=' + encodeURIComponent(branch), { headers });
+    let sha = null;
+    if (getRes.ok) {
+      const meta = await getRes.json();
+      sha = meta.sha;
+    } else if (getRes.status !== 404) {
+      const t = await getRes.text();
+      throw new Error('GitHub GET ' + getRes.status + ': ' + t.slice(0, 200));
+    }
+
+    const putBody = {
+      message: 'admin: edit ' + filePath + ' via Sunny console',
+      content: Buffer.from(content, 'utf8').toString('base64'),
+      branch
+    };
+    if (sha) putBody.sha = sha;
+
+    const putRes = await fetch(apiBase, {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(putBody)
+    });
+    if (!putRes.ok) {
+      const t = await putRes.text();
+      throw new Error('GitHub PUT ' + putRes.status + ': ' + t.slice(0, 300));
+    }
+    const putJson = await putRes.json();
+    result.committed = true;
+    result.commit_sha = putJson.commit && putJson.commit.sha;
+    result.html_url = putJson.content && putJson.content.html_url;
+    logger.info('api.prompts.committed', { name, commit_sha: result.commit_sha });
+  } catch (err) {
+    logger.warn('api.prompts.commit_fail', { name, message: err.message });
+    result.git_error = err.message;
+  }
+
+  res.json(result);
+});
+
+router.post('/prompts/deploy', async (req, res) => {
+  const hookUrl = process.env.RAILWAY_DEPLOY_HOOK_URL;
+  const token = process.env.RAILWAY_TOKEN || process.env.RAILWAY_API_TOKEN;
+  const serviceId = process.env.RAILWAY_SERVICE_ID;
+  const environmentId = process.env.RAILWAY_ENVIRONMENT_ID;
+
+  // Path 1: legacy deploy hook URL (kept for backwards compat)
+  if (hookUrl) {
+    try {
+      const r = await fetch(hookUrl, { method: 'POST' });
+      if (r.ok) {
+        logger.info('api.prompts.deploy_triggered', { via: 'hook' });
+        return res.json({ ok: true, message: 'Deploy triggered via hook. New container live in 30-60 seconds.' });
+      }
+      const t = await r.text();
+      logger.warn('api.prompts.deploy_hook_failed', { status: r.status, body: t.slice(0, 200) });
+    } catch (err) {
+      logger.warn('api.prompts.deploy_hook_error', { message: err.message });
+    }
+  }
+
+  // Path 2: Railway GraphQL API (project token)
+  if (token && serviceId && environmentId) {
+    try {
+      const query = 'mutation serviceInstanceRedeploy($serviceId: String!, $environmentId: String!) { serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId) }';
+      const r = await fetch('https://backboard.railway.app/graphql/v2', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token
+        },
+        body: JSON.stringify({ query, variables: { serviceId, environmentId } })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j.errors) {
+        const msg = (j.errors[0] && j.errors[0].message) || JSON.stringify(j.errors).slice(0, 200);
+        return res.json({ ok: false, message: 'Railway API error: ' + msg });
+      }
+      logger.info('api.prompts.deploy_triggered', { via: 'graphql' });
+      return res.json({ ok: true, message: 'Deploy triggered via Railway API. New container live in 30-60 seconds.' });
+    } catch (err) {
+      logger.error('api.prompts.deploy_graphql_fail', { message: err.message });
+      return res.json({ ok: false, message: 'Deploy failed: ' + err.message });
+    }
+  }
+
+  // Path 3: nothing configured. Save already auto-redeploys (Railway watches main).
+  return res.json({
+    ok: false,
+    message: 'No deploy token configured. Either set RAILWAY_TOKEN to a project token (Railway → Project Settings → Tokens), or just press Save above — pushing to main auto-redeploys Railway.'
+  });
 });
 
 router.get('/version', (req, res) => {

@@ -6,7 +6,7 @@ const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 
 const MODEL = process.env.MODEL_OWNER_QA || 'claude-opus-4-7';
-const PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'owner_qa.md'), 'utf8');
+const promptStore = require('./prompt_store');
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;
 let _client = null;
@@ -166,7 +166,7 @@ async function answerOwnerQuestion(ownerContactId, question) {
     const resp = await client().messages.create({
       model: MODEL,
       max_tokens: 600,
-      system: [{ type: 'text', text: PROMPT, cache_control: { type: 'ephemeral' } }],
+      system: [{ type: 'text', text: promptStore.get('owner_qa'), cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userBlock }]
     });
     if (resp.usage) recordUsage(MODEL, resp.usage, 'owner_qa');

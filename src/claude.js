@@ -3,16 +3,15 @@ const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
-const { formatKnowledgeForPrompt } = require('./knowledge');
-const { formatCatalogForPrompt } = require('./catalog');
-const { formatDatasheetsForPrompt } = require('./datasheets');
+// knowledge facts retired 2026-05-10: rules now live entirely in src/prompts/system.md
+const { formatWarehouseForPrompt } = require('./warehouse');
+// datasheets retired from prompt 2026-05-10: now attached to warehouse items, looked up at send time
 const security = require('./security');
 
 const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-opus-4-7';
 const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-opus-4-7';
 
-const SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'system.md'), 'utf8');
-const CLASSIFIER_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'classifier.md'), 'utf8');
+const promptStore = require('./prompt_store');
 
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;
@@ -93,21 +92,14 @@ async function classify(history, message) {
   const userBlock = `Conversation history:\n${formatHistoryAsText(history)}\n\nLatest customer message:\n${message}\n\nReturn JSON now.`;
 
   const classifierSystem = [
-    { type: 'text', text: CLASSIFIER_PROMPT, cache_control: { type: 'ephemeral' } }
+    { type: 'text', text: promptStore.get('classifier'), cache_control: { type: 'ephemeral' } }
   ];
-  let catalogSnap = '';
-  try { catalogSnap = formatCatalogForPrompt(); } catch (err) {
-    logger.warn('claude.classify.catalog_load_fail', { message: err.message });
+  let warehouseSnap = '';
+  try { warehouseSnap = formatWarehouseForPrompt(); } catch (err) {
+    logger.warn('claude.classify.warehouse_load_fail', { message: err.message });
   }
-  if (catalogSnap) {
-    classifierSystem.push({ type: 'text', text: catalogSnap, cache_control: { type: 'ephemeral' } });
-  }
-  let knowSnap = '';
-  try { knowSnap = formatKnowledgeForPrompt(); } catch (err) {
-    logger.warn('claude.classify.knowledge_load_fail', { message: err.message });
-  }
-  if (knowSnap) {
-    classifierSystem.push({ type: 'text', text: knowSnap, cache_control: { type: 'ephemeral' } });
+  if (warehouseSnap) {
+    classifierSystem.push({ type: 'text', text: warehouseSnap, cache_control: { type: 'ephemeral' } });
   }
 
   const callOnce = () => withRetry(() => client().messages.create({
@@ -297,28 +289,14 @@ async function generateReply(history, message, contact, attachments = [], option
     : '';
 
   const systemBlocks = [
-    { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }
+    { type: 'text', text: promptStore.get('system'), cache_control: { type: 'ephemeral' } }
   ];
-  let catalogBlock = '';
-  try { catalogBlock = formatCatalogForPrompt(); } catch (err) {
-    logger.warn('claude.reply.catalog_load_fail', { message: err.message });
+  let warehouseBlock = '';
+  try { warehouseBlock = formatWarehouseForPrompt(); } catch (err) {
+    logger.warn('claude.reply.warehouse_load_fail', { message: err.message });
   }
-  if (catalogBlock) {
-    systemBlocks.push({ type: 'text', text: catalogBlock, cache_control: { type: 'ephemeral' } });
-  }
-  let knowledgeBlock = '';
-  try { knowledgeBlock = formatKnowledgeForPrompt(); } catch (err) {
-    logger.warn('claude.reply.knowledge_load_fail', { message: err.message });
-  }
-  if (knowledgeBlock) {
-    systemBlocks.push({ type: 'text', text: knowledgeBlock, cache_control: { type: 'ephemeral' } });
-  }
-  let datasheetsBlock = '';
-  try { datasheetsBlock = formatDatasheetsForPrompt(); } catch (err) {
-    logger.warn('claude.reply.datasheets_load_fail', { message: err.message });
-  }
-  if (datasheetsBlock) {
-    systemBlocks.push({ type: 'text', text: datasheetsBlock, cache_control: { type: 'ephemeral' } });
+  if (warehouseBlock) {
+    systemBlocks.push({ type: 'text', text: warehouseBlock, cache_control: { type: 'ephemeral' } });
   }
   if (contextBlock) systemBlocks.push({ type: 'text', text: contextBlock });
 
@@ -394,7 +372,7 @@ async function generateReply(history, message, contact, attachments = [], option
         const lastUserText = typeof lastUser.content === 'string' ? lastUser.content : message;
         retryMessages[lastIdx] = {
           role: 'user',
-          content: `${lastUserText}\n\n[System note: previous attempt censored numbers with asterisks. Give the ACTUAL figures from the catalog. The customer is explicitly asking for totals; this IS a price ask. Compute and write the real numbers.]`
+          content: `${lastUserText}\n\n[System note: previous attempt censored numbers with asterisks. Give the ACTUAL figures from the warehouse stock block. The customer is explicitly asking for totals; this IS a price ask. Compute and write the real numbers.]`
         };
         const retry = await client().messages.create({
           model: MODEL_REPLY,

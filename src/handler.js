@@ -18,7 +18,7 @@ const {
 const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
 const { sendMessage, downloadMedia, uploadMediaToMeta, sendDocument } = require('./whatsapp');
-const datasheetsModule = require('./datasheets');
+const warehouse = require('./warehouse');
 const { DB_PATH } = require('../db/init');
 const { extractKnowledge, addKnowledgeEntry } = require('./knowledge');
 const { answerOwnerQuestion } = require('./owner_qa');
@@ -146,7 +146,7 @@ function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
   lines.push('');
   lines.push('How to reply RIGHT NOW:');
   lines.push('- Read the customer\'s CURRENT message and respond to THAT.');
-  lines.push('- ANSWER directly from the catalog and the owner-taught knowledge facts. Stock status, prices, and product options are in those blocks. Use them.');
+  lines.push('- ANSWER directly from the warehouse stock block and the owner-taught knowledge facts. Stock status (per Abuja and per Lagos), prices, and product options are in those blocks. Use them.');
   lines.push('- Do NOT say "the team will reach out", "the team will follow up", "the team is on it", "the specialist will confirm", "we will share the figure shortly", "we will get back to you", or any variant. Those phrases are BANNED in this turn.');
   lines.push('- Do NOT echo back invented quantities, model numbers, prices, or order sizes (for example "100-unit order") that the customer has NOT actually said in their messages. If a prior outbound message of yours mentioned such a thing without the customer saying it, that was a mistake and you must NOT repeat it. Re-read the customer\'s actual messages to find what they actually want.');
   lines.push('- If the customer\'s current message is a casual remark or filler ("hmm", "interesting", "ok", "noted"), reply with one short phrase (e.g. "Got it.") and stop.');
@@ -595,8 +595,9 @@ async function processCustomerBatch(entry) {
 
   const classification = await runClassification(refreshedContact, priorHistory, classifierMessage);
 
-  // Datasheet request fast-path: if customer is asking for a datasheet/brochure/spec sheet
-  // AND we can match a stored datasheet by keyword, upload to Meta (cached) and send the document.
+  // Datasheet request fast-path: if customer asks for a datasheet/brochure/spec sheet,
+  // attempt to match a Warehouse Stock item that has a PDF attached and send that file.
+  // Falls through to normal LLM reply on no match or send failure.
   const DATASHEET_REQUEST_RE = /\b(data\s*sheet|datasheet|brochure|spec\s*sheet|specification\s*sheet|specs?\s*(sheet|pdf|file|document)|technical\s*(sheet|specs?)|product\s*(sheet|brochure|manual|guide|pdf)|user\s*(manual|guide))\b/i;
   if (DATASHEET_REQUEST_RE.test(safeCombinedText)) {
     try {
@@ -604,29 +605,19 @@ async function processCustomerBatch(entry) {
       const productsAsked = String(refreshedContact.products_asked_about || '');
       const brandPref = String(refreshedContact.brand_preference || '');
       const enrichedHistory = [recentText, productsAsked, brandPref].filter(Boolean).join(' ');
-      let match = datasheetsModule.findDatasheetByQuery(safeCombinedText, enrichedHistory);
-      if (!match) {
-        // Fallback: if only one active datasheet exists, send it; otherwise let the LLM ask which product.
-        const allSheets = datasheetsModule.listDatasheets();
-        if (allSheets.length === 1) {
-          match = { sheet: allSheets[0], score: 0 };
-          logger.info('handler.datasheet.single_sheet_fallback', {
-            contactId: contact.id,
-            datasheet_id: allSheets[0].id
-          });
+      const match = warehouse.findItemDatasheetByQuery(safeCombinedText, enrichedHistory);
+      if (match && match.item && match.item.datasheet_path) {
+        const item = match.item;
+        let mediaId = item.datasheet_meta_media_id;
+        const fresh = mediaId && warehouse.isMetaMediaFresh(item.datasheet_meta_uploaded_at);
+        if (!fresh) {
+          mediaId = await uploadMediaToMeta(item.datasheet_path, item.datasheet_mime, item.datasheet_filename);
+          warehouse.setItemDatasheetMetaCache(item.id, mediaId);
         }
-      }
-      if (match && match.sheet) {
-        const sheet = match.sheet;
-        let mediaId = sheet.meta_media_id;
-        if (!datasheetsModule.isMetaMediaFresh(sheet)) {
-          mediaId = await uploadMediaToMeta(sheet.file_path, sheet.mime_type, sheet.filename);
-          datasheetsModule.setMetaMediaCache(sheet.id, mediaId);
-        }
-        const caption = `${sheet.label}, datasheet from Electro-Sun`;
-        const docRes = await sendDocument(lastMsg.from, mediaId, sheet.filename, caption);
+        const caption = `${item.brand} ${item.model} datasheet, from Electro-Sun`;
+        const docRes = await sendDocument(lastMsg.from, mediaId, item.datasheet_filename, caption);
         if (docRes && docRes.ok) {
-          const noteText = `[Datasheet sent: ${sheet.label}]`;
+          const noteText = `[Datasheet sent: ${item.brand} ${item.model}]`;
           appendMessage(conversation.id, 'outbound', noteText, {
             whatsapp_message_id: docRes.messageId,
             intent: 'datasheet_sent',
@@ -634,18 +625,16 @@ async function processCustomerBatch(entry) {
           });
           logger.info('handler.datasheet.sent', {
             contactId: contact.id,
-            datasheet_id: sheet.id,
-            label: sheet.label,
+            warehouse_item_id: item.id,
             score: match.score
           });
           return;
         }
         logger.warn('handler.datasheet.send_fail_fallback_to_text', {
           contactId: contact.id,
-          datasheet_id: sheet.id,
+          warehouse_item_id: item.id,
           status: docRes && docRes.status
         });
-        // fall through to normal reply path so customer at least gets text
       } else {
         logger.info('handler.datasheet.no_match', {
           contactId: contact.id,
@@ -657,7 +646,6 @@ async function processCustomerBatch(entry) {
         contactId: contact.id,
         message: err.message
       });
-      // fall through to normal reply
     }
   }
 

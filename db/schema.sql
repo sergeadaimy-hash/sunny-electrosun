@@ -127,6 +127,40 @@ CREATE TABLE IF NOT EXISTS catalog_notes (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS warehouse_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  section TEXT NOT NULL,
+  brand TEXT NOT NULL,
+  model TEXT NOT NULL,
+  price_ngn INTEGER,
+  notes TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  datasheet_filename TEXT,
+  datasheet_path TEXT,
+  datasheet_mime TEXT,
+  datasheet_size_bytes INTEGER,
+  datasheet_meta_media_id TEXT,
+  datasheet_meta_uploaded_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS warehouse_stock (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER NOT NULL,
+  location TEXT NOT NULL CHECK (location IN ('abuja', 'lagos')),
+  state TEXT NOT NULL DEFAULT 'out_of_stock' CHECK (state IN ('in_stock', 'out_of_stock', 'incoming')),
+  quantity INTEGER NOT NULL DEFAULT 0,
+  coming_note TEXT,
+  eta_date TEXT,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (item_id) REFERENCES warehouse_items(id) ON DELETE CASCADE,
+  UNIQUE(item_id, location)
+);
+
+CREATE INDEX IF NOT EXISTS idx_warehouse_items_section ON warehouse_items(section);
+CREATE INDEX IF NOT EXISTS idx_warehouse_stock_item ON warehouse_stock(item_id);
+
 CREATE TABLE IF NOT EXISTS datasheets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   label TEXT NOT NULL,

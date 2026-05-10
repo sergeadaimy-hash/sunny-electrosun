@@ -96,6 +96,14 @@ function applyMigrations(db) {
     messages: [
       { name: 'media_path', type: 'TEXT' },
       { name: 'media_mime', type: 'TEXT' }
+    ],
+    warehouse_items: [
+      { name: 'datasheet_filename', type: 'TEXT' },
+      { name: 'datasheet_path', type: 'TEXT' },
+      { name: 'datasheet_mime', type: 'TEXT' },
+      { name: 'datasheet_size_bytes', type: 'INTEGER' },
+      { name: 'datasheet_meta_media_id', type: 'TEXT' },
+      { name: 'datasheet_meta_uploaded_at', type: 'TEXT' }
     ]
   };
 

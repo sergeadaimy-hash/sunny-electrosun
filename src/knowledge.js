@@ -6,7 +6,7 @@ const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 
 const MODEL_TEACHER = process.env.MODEL_TEACHER || 'claude-opus-4-7';
-const TEACHER_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts', 'teacher.md'), 'utf8');
+const promptStore = require('./prompt_store');
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;
 let _client = null;
@@ -46,7 +46,7 @@ async function extractKnowledge(ownerMessage) {
     const resp = await client().messages.create({
       model: MODEL_TEACHER,
       max_tokens: 600,
-      system: [{ type: 'text', text: TEACHER_PROMPT, cache_control: { type: 'ephemeral' } }],
+      system: [{ type: 'text', text: promptStore.get('teacher'), cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userBlock }]
     });
     if (resp.usage) recordUsage(MODEL_TEACHER, resp.usage, 'teacher');

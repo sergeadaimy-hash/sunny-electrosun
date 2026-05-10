@@ -128,6 +128,12 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `OPENAI_API_KEY` | Required for voice-note transcription. PENDING: not yet set on Railway. |
 | `MEDIA_DIR` | Where downloaded WhatsApp media is stored. Defaults to `<DB_PATH dirname>/media`, set to `/data/media` on Railway. |
 | `SPECIALIST_DIRECT_LINK` | Digits-only WhatsApp number for the wa.me click-to-chat link appended to HOT lead replies. Currently set to brother's number. |
+| `GITHUB_TOKEN` | Personal Access Token with `Contents: write` on the Sunny repo. Required for the Rules editor's Save button to commit + push edits. If unset, Save still writes to the running container's filesystem but the change is wiped on the next git redeploy. |
+| `GITHUB_REPO` | `<owner>/<repo>` for the GitHub Contents API call. Defaults to `sergeadaimy-hash/sunny-electrosun`. |
+| `GITHUB_BRANCH` | Branch to commit prompt edits to. Defaults to `main`. |
+| `RAILWAY_TOKEN` | Railway Project Token (Project Settings → Tokens). The Rules editor's "Deploy to live" button uses this to call the Railway GraphQL API (`serviceInstanceRedeploy`) with the auto-injected `RAILWAY_SERVICE_ID` + `RAILWAY_ENVIRONMENT_ID`. If unset, the button suggests pressing Save instead (which pushes to main and auto-redeploys via Railway's GitHub integration). |
+| `RAILWAY_DEPLOY_HOOK_URL` | Optional. Legacy deploy hook URL (older Railway UIs). Tried first if set. Recent Railway plans hide this feature, so most users should use `RAILWAY_TOKEN` instead. |
+| `WAREHOUSE_DATASHEETS_DIR` | Where per-item datasheets are stored. Defaults to `<DB_PATH dirname>/warehouse_datasheets/`. On Railway: `/data/warehouse_datasheets/`. |
 | `RATE_LIMIT_PER_MINUTE` | Per-contact message rate limit (default 15). Owner exempt. Blocked messages dropped without persistence or reply. |
 | `RATE_LIMIT_DAILY` | Per-contact daily message cap (default 300). Owner exempt. |
 | `MAX_SINGLE_MESSAGE_CHARS` | Per-message inbound truncation limit (default 2000). |
@@ -151,7 +157,11 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 |---|---|
 | `src/owner_qa.js` + `src/prompts/owner_qa.md` | Owner Q&A mode. Brother WhatsApps Sunny questions about his data, gets answers from a live snapshot (today's stats, last 24h hot leads, pending queries, recent contacts, brother's own chat history, active facts count). |
 | `src/knowledge.js` + `src/prompts/teacher.md` | Knowledge_entries CRUD + Haiku/Opus teaching extraction. Dedup at insert (normalised leading 120 chars per category). 500-fact / 30KB cap on prompt injection. |
-| `src/catalog.js` | catalog_items + catalog_notes CRUD. `formatCatalogForPrompt()` renders the live catalog as Markdown for each reply. Editable from admin Catalog tab. |
+| `src/catalog.js` | catalog_items + catalog_notes CRUD. `formatCatalogForPrompt()` exists but is NO LONGER injected into Sunny's prompt (retired 2026-05-10 in favor of warehouse stock). Catalog tab in admin still renders for legacy reference. |
+| `src/warehouse.js` | warehouse_items + warehouse_stock (per-location: abuja / lagos). `formatWarehouseForPrompt()` is the authoritative stock + price block injected into both classifier and reply system blocks. CRUD via admin "Warehouse Stock" tab; each item auto-creates an Abuja stock row and a Lagos stock row on add. State is one of `in_stock` / `out_of_stock` / `incoming`; `incoming` rows can carry an ETA date and a coming_note quoted verbatim to customers. Per-item datasheet attachment: `setDatasheet`, `removeDatasheet`, `findItemDatasheetByQuery` (token-overlap on brand+model+notes+section). Files stored at `WAREHOUSE_DATASHEETS_DIR` (defaults to `<DB dir>/warehouse_datasheets/`). When a customer asks for a datasheet, `src/handler.js` looks up the matching warehouse item, uploads the file to Meta (cached 25 days), and sends it as a WhatsApp document. |
+| `src/prompt_store.js` | Read/write/cache wrapper for the four prompt files (`system.md`, `classifier.md`, `teacher.md`, `owner_qa.md`). 30-second in-memory cache busted on every write. `claude.js`, `knowledge.js`, and `owner_qa.js` all source their system prompts via this store, so a Save in admin takes effect on the next customer message without a process restart. |
+| `src/datasheets.js` | LEGACY 2026-05-10. The dedicated `datasheets` table + Meta upload helpers still exist but the admin sub-panel is removed and the prompt block is no longer injected. Datasheets now live on warehouse_items. The old datasheets table is preserved for migration; the brother can re-attach previously uploaded sheets onto warehouse rows. |
+| `src/knowledge.js` | LEGACY 2026-05-10. Live facts panel was retired; doctrine now lives entirely in `src/prompts/system.md`. Module + endpoints kept so older facts can still be read; `formatKnowledgeForPrompt()` is no longer injected into Sunny's system blocks. |
 | `src/cost_tracker.js` | `recordUsage` after every Anthropic response; `isOverBudget` short-circuit. |
 | `src/window_monitor.js` | `*/30 * * * *` cron. Past 22h: one-time reminder to owner. Past 24h: marks status='expired' and alerts owner. Idempotent via `expiring_warning_sent_at`. |
 | `src/transcribe.js` | OpenAI Whisper wrapper for voice-note transcription. Falls back to "[Customer sent a voice note that could not be transcribed]" if OPENAI_API_KEY missing. |
@@ -301,8 +311,10 @@ Schema lives in `db/schema.sql`. Tables:
 - **`pending_queries`**: silent-query workflow. `customer_contact_id`, `customer_message`, `alert_message_id`, `status` (open/resolved/expired), `created_at`, `resolved_at`, `expiring_warning_sent_at`.
 - **`daily_costs`**: per-day spend in cents (integers, no float drift).
 - **`knowledge_entries`**: owner-taught facts. `id`, `source_message`, `extracted_fact`, `category` (pricing/policy/product/sales/operations/warranty/customer/correction/other), `confidence`, `status` (active/rejected/draft), `created_at`, `approved_at`, `rejected_at`.
-- **`catalog_items`**: `brand`, `model`, `price_naira`, `stock`, `notes`. Seeded from `src/knowledge/products.json` on first boot only.
-- **`catalog_notes`**: free-form catalog notes (PDU stacking limits, etc.).
+- **`catalog_items`**: `brand`, `model`, `price_naira`, `stock`, `notes`. Seeded from `src/knowledge/products.json` on first boot only. Legacy: no longer injected into the prompt as of 2026-05-10.
+- **`catalog_notes`**: free-form catalog notes (PDU stacking limits, etc.). Legacy.
+- **`warehouse_items`**: `section`, `brand`, `model`, `price_ngn`, `notes`, `sort_order`. Source of truth for what Electro-Sun sells.
+- **`warehouse_stock`**: per-item × per-location stock row. Columns: `item_id`, `location` ('abuja' | 'lagos'), `state` ('in_stock' | 'out_of_stock' | 'incoming'), `quantity` (integer, default 0), `coming_note` (free text), `eta_date` (YYYY-MM-DD). UNIQUE(item_id, location). Two rows are auto-created per item (Abuja + Lagos) on insert.
 
 Idempotent ALTER TABLE migrations live in `db/init.js > applyMigrations`.
 
@@ -403,10 +415,9 @@ Mounted at `/admin`. Single-page HTML+JS+CSS, WhatsApp-style light theme (white 
 
 - **Inbox**: WhatsApp-style two-pane (conversation list + thread). Gradient-green avatar circles with per-contact initials. White incoming bubbles, pastel green (`#DCF8C6`) outgoing, pastel violet for human-typed outgoing. Inline-bottom-right timestamps. Take-over and Return-to-agent buttons; manual reply auto-marks `human_handled` so Sunny stops auto-replying.
 - **Contacts**: filterable contacts list with last-active and category.
-- **Knowledge**: four sub-panels.
-  - Live facts: filterable, editable owner-taught facts with Edit / Approve / Reject / Delete.
-  - Rules: read-only render of `system.md`, `classifier.md`, `teacher.md`.
-  - Catalog: fully editable (brand/model/price/stock/notes); Add new; editable note list.
+- **Warehouse Stock**: top-level tab. Source of truth for stock + price + datasheets. One row per item (brand/model/section/price/notes) with two side-by-side panels (Abuja, Lagos). Each panel: state radios (In stock / Incoming / Out of stock), quantity with +/- buttons, coming note (free text), ETA date. Plus a per-item datasheet attachment (PDF/PNG/JPG/WEBP up to 15MB) that Sunny auto-sends when the customer asks for a datasheet/brochure/spec. Edits save instantly via REST and feed `formatWarehouseForPrompt()` on the very next reply.
+- **Knowledge**: two sub-panels (Live facts / Catalog / Datasheets retired 2026-05-10).
+  - Rules: editable per-prompt textareas for `system.md`, `classifier.md`, `teacher.md`, `owner_qa.md`. Each has a Save button (writes file via `src/prompt_store.js` and commits + pushes to GitHub via the Contents API if `GITHUB_TOKEN` is set). A global "Deploy to live" button POSTs to `RAILWAY_DEPLOY_HOOK_URL` to trigger a Railway redeploy. Sunny re-reads prompts on every classify/reply call (cached 30s, busted on Save), so saved prompts take effect on the next customer message without a restart.
   - Models & config: model IDs, runtime config, env-var booleans.
 
 ## Prompts: where to tune Sunny's voice
