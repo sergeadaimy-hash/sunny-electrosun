@@ -391,12 +391,12 @@ async function generateReply(history, message, contact, attachments = [], option
       }
     }
 
-    const PRICE_ASK_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|totals?|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoices?|proformas?|how\s+many\s+naira)\b/i;
+    const PRICE_ASK_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|totals?|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoices?|proformas?|how\s+many\s+naira|configure|configuration|sizing|recommend(ation)?|complete\s+system|full\s+system|required|bundle|kit|boq|bom|estimate|estimation|spec(s|ification)?s?)\b/i;
     const currentAsked = PRICE_ASK_RE.test(String(message || ''));
     let priorAsked = false;
     if (Array.isArray(history)) {
-      const lastTwoUser = history.filter(m => m && m.role === 'user').slice(-2);
-      priorAsked = lastTwoUser.some(m => PRICE_ASK_RE.test(String(m.content || '')));
+      const lastSixUser = history.filter(m => m && m.role === 'user').slice(-6);
+      priorAsked = lastSixUser.some(m => PRICE_ASK_RE.test(String(m.content || '')));
     }
     const customerAskedPrice = currentAsked || priorAsked;
     if (text && !customerAskedPrice) {
