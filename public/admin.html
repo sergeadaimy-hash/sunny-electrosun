@@ -1464,6 +1464,72 @@
     .wh-state-row label.active.incoming { border-color: #f59e0b; color: #b45309; background: #fffbeb; }
     .wh-state-row label.active.out_of_stock { border-color: var(--faint); color: var(--ink); background: #f3f4f6; }
     .wh-state-row input { display: none; }
+
+    /* Warehouse view mode (read-only) */
+    .wh-edit-only { display: none; }
+    .wh-view-only { display: block; }
+    #view-warehouse.wh-mode-edit .wh-edit-only { display: block; }
+    #view-warehouse.wh-mode-edit .wh-view-only { display: none; }
+    .wh-view { display: flex; flex-direction: column; gap: 18px; }
+    .wh-view-warehouse {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px 18px;
+    }
+    .wh-view-warehouse > h3 {
+      margin: 0 0 6px;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--ink);
+      text-transform: capitalize;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+    .wh-view-warehouse .wh-view-summary {
+      margin: 0 0 8px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+    .wh-view-section { margin-top: 14px; }
+    .wh-view-section h4 {
+      margin: 0 0 4px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+    }
+    .wh-view-row {
+      display: grid;
+      grid-template-columns: minmax(220px, 2.2fr) 110px 70px 140px 1.4fr;
+      gap: 12px;
+      padding: 8px 0;
+      border-top: 1px solid var(--line);
+      align-items: center;
+      font-size: 14px;
+    }
+    .wh-view-row:first-of-type { border-top: 0; }
+    .wh-vr-name { font-weight: 600; color: var(--ink); }
+    .wh-vr-meta { color: var(--faint); font-weight: 400; font-size: 12px; display: block; margin-top: 2px; }
+    .wh-vr-note { color: var(--muted); font-size: 12px; }
+    .wh-vr-muted { color: var(--faint); }
+    .wh-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    .wh-badge.in_stock { background: #ecfdf5; color: var(--green); border-color: var(--green); }
+    .wh-badge.incoming { background: #fffbeb; color: #b45309; border-color: #f59e0b; }
+    .wh-badge.out_of_stock { background: #f3f4f6; color: var(--muted); border-color: var(--line); }
+    @media (max-width: 760px) {
+      .wh-view-row { grid-template-columns: 1fr; gap: 4px; }
+    }
+    #wh-edit-toggle.active { background: var(--green); color: #fff; border-color: var(--green); }
     .wh-qty-row {
       display: flex;
       align-items: center;
@@ -1653,10 +1719,11 @@
         <h2>Warehouse Stock</h2>
         <span class="stats" id="wh-stats">Loading.</span>
         <button class="btn" id="wh-refresh-btn">Refresh</button>
+        <button class="btn" id="wh-edit-toggle">Edit</button>
       </div>
-      <p class="brain-readonly-hint">Single source of truth for item availability. Sunny answers stock questions ("do you have X?", "is it in stock?", "when is it arriving?") from this list. Each item tracks the Abuja warehouse and the Lagos warehouse separately. Edits save instantly.</p>
+      <p class="brain-readonly-hint">Single source of truth for item availability. Sunny answers stock questions ("do you have X?", "is it in stock?", "when is it arriving?") from this list. Each item tracks the Abuja warehouse and the Lagos warehouse separately. Press <strong>Edit</strong> to add items, change stock, attach datasheets; edits save instantly.</p>
 
-      <div class="wh-section">
+      <div class="wh-section wh-edit-only">
         <h3>Add a new item</h3>
         <div class="wh-add-card">
           <label>Section
@@ -1680,7 +1747,11 @@
         </div>
       </div>
 
-      <div id="wh-list">
+      <div id="wh-view" class="wh-view-only">
+        <div class="wh-empty">Loading.</div>
+      </div>
+
+      <div id="wh-list" class="wh-edit-only">
         <div class="wh-empty">Loading.</div>
       </div>
     </section>
@@ -2532,6 +2603,20 @@ const WH_STATES = [
   { value: 'incoming', label: 'Incoming' },
   { value: 'out_of_stock', label: 'Out of stock' }
 ];
+let warehouseEditMode = false;
+let warehouseLastItems = [];
+
+function fmtNgn(n) {
+  if (n == null || n === '') return '';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '';
+  return num.toLocaleString('en-NG') + ' NGN';
+}
+
+function whStateLabel(state) {
+  const opt = WH_STATES.find(x => x.value === state);
+  return opt ? opt.label : (state || 'unknown');
+}
 
 async function loadWarehouse() {
   try {
@@ -2541,16 +2626,23 @@ async function loadWarehouse() {
   } catch (err) {
     document.getElementById('wh-list').innerHTML =
       '<div class="wh-empty">Error loading warehouse: ' + escapeHtml(err.message) + '</div>';
+    document.getElementById('wh-view').innerHTML =
+      '<div class="wh-empty">Error loading warehouse: ' + escapeHtml(err.message) + '</div>';
   }
 }
 
 function renderWarehouse(items) {
-  const root = document.getElementById('wh-list');
+  warehouseLastItems = items || [];
+  applyWarehouseModeClass();
+
   const stats = document.getElementById('wh-stats');
+  const editRoot = document.getElementById('wh-list');
+  const viewRoot = document.getElementById('wh-view');
 
   if (!items.length) {
     stats.textContent = '0 items';
-    root.innerHTML = '<div class="wh-empty">No items yet. Use the form above to add the first one.</div>';
+    editRoot.innerHTML = '<div class="wh-empty">No items yet. Use the form above to add the first one.</div>';
+    viewRoot.innerHTML = '<div class="wh-empty">No items yet. Switch to edit mode to add the first one.</div>';
     bindWarehouseTopHandlers();
     return;
   }
@@ -2564,6 +2656,14 @@ function renderWarehouse(items) {
   }
   stats.textContent = items.length + ' items, ' + inStockTotal + ' units in stock';
 
+  renderWarehouseEditList(items, editRoot);
+  renderWarehouseView(items, viewRoot);
+
+  bindWarehouseTopHandlers();
+  bindWarehouseItemHandlers(editRoot);
+}
+
+function renderWarehouseEditList(items, root) {
   const bySection = {};
   for (const it of items) {
     if (!bySection[it.section]) bySection[it.section] = [];
@@ -2580,10 +2680,102 @@ function renderWarehouse(items) {
     }
     blocks.push('</div>');
   }
-
   root.innerHTML = blocks.join('');
-  bindWarehouseTopHandlers();
-  bindWarehouseItemHandlers(root);
+}
+
+function renderWarehouseView(items, root) {
+  const blocks = [];
+  for (const loc of WH_LOCATIONS) {
+    const bySection = {};
+    let locInStock = 0;
+    let locIncoming = 0;
+    let locOut = 0;
+    for (const it of items) {
+      const sectionKey = it.section || 'other';
+      if (!bySection[sectionKey]) bySection[sectionKey] = [];
+      bySection[sectionKey].push(it);
+      const s = (it.stock && it.stock[loc]) || { state: 'out_of_stock', quantity: 0 };
+      if (s.state === 'in_stock') locInStock += s.quantity || 0;
+      else if (s.state === 'incoming') locIncoming += 1;
+      else locOut += 1;
+    }
+    const sectionNames = Object.keys(bySection).sort();
+    const summaryBits = [
+      locInStock + ' units in stock',
+      locIncoming + ' incoming row' + (locIncoming === 1 ? '' : 's'),
+      locOut + ' out-of-stock row' + (locOut === 1 ? '' : 's')
+    ];
+
+    blocks.push('<div class="wh-view-warehouse">');
+    blocks.push('<h3>' + escapeHtml(loc) + '</h3>');
+    blocks.push('<p class="wh-view-summary">' + escapeHtml(summaryBits.join(' &middot; ').replace(/&middot;/g, '·')) + '</p>');
+
+    for (const section of sectionNames) {
+      const rows = bySection[section]
+        .slice()
+        .sort((a, b) => {
+          const ab = (a.brand || '').localeCompare(b.brand || '');
+          if (ab !== 0) return ab;
+          return (a.model || '').localeCompare(b.model || '');
+        })
+        .map(it => renderWarehouseViewRow(it, loc))
+        .join('');
+      blocks.push('<div class="wh-view-section">');
+      blocks.push('<h4>' + escapeHtml(section) + '</h4>');
+      blocks.push(rows);
+      blocks.push('</div>');
+    }
+
+    blocks.push('</div>');
+  }
+  root.innerHTML = blocks.join('');
+}
+
+function renderWarehouseViewRow(it, loc) {
+  const s = (it.stock && it.stock[loc]) || { state: 'out_of_stock', quantity: 0, coming_note: '', eta_date: '' };
+  const state = s.state || 'out_of_stock';
+  const qtyCell = state === 'in_stock'
+    ? String(s.quantity || 0)
+    : '<span class="wh-vr-muted">—</span>';
+  const priceTxt = fmtNgn(it.price_ngn);
+  const priceCell = priceTxt ? escapeHtml(priceTxt) : '<span class="wh-vr-muted">—</span>';
+  let noteTxt = '';
+  if (state === 'incoming') {
+    const parts = [];
+    if (s.coming_note) parts.push(s.coming_note);
+    if (s.eta_date) parts.push('ETA ' + s.eta_date);
+    noteTxt = parts.join(' · ');
+  }
+  const noteCell = noteTxt
+    ? '<span class="wh-vr-note">' + escapeHtml(noteTxt) + '</span>'
+    : '<span class="wh-vr-muted">—</span>';
+  const metaTxt = it.notes ? '<span class="wh-vr-meta">' + escapeHtml(it.notes) + '</span>' : '';
+  const nameTxt = ((it.brand || '') + ' ' + (it.model || '')).trim() || '(unnamed item)';
+  return [
+    '<div class="wh-view-row">',
+    '<div><span class="wh-vr-name">' + escapeHtml(nameTxt) + '</span>' + metaTxt + '</div>',
+    '<div><span class="wh-badge ' + state + '">' + escapeHtml(whStateLabel(state)) + '</span></div>',
+    '<div>' + qtyCell + '</div>',
+    '<div>' + priceCell + '</div>',
+    '<div>' + noteCell + '</div>',
+    '</div>'
+  ].join('');
+}
+
+function applyWarehouseModeClass() {
+  const sec = document.getElementById('view-warehouse');
+  if (!sec) return;
+  sec.classList.toggle('wh-mode-edit', warehouseEditMode);
+  const btn = document.getElementById('wh-edit-toggle');
+  if (btn) {
+    btn.textContent = warehouseEditMode ? 'Done' : 'Edit';
+    btn.classList.toggle('active', warehouseEditMode);
+  }
+}
+
+function toggleWarehouseEditMode() {
+  warehouseEditMode = !warehouseEditMode;
+  applyWarehouseModeClass();
 }
 
 function renderWarehouseItem(it) {
@@ -2677,6 +2869,11 @@ function bindWarehouseTopHandlers() {
   if (refreshBtn && !refreshBtn.dataset.bound) {
     refreshBtn.dataset.bound = '1';
     refreshBtn.addEventListener('click', () => loadWarehouse());
+  }
+  const editBtn = document.getElementById('wh-edit-toggle');
+  if (editBtn && !editBtn.dataset.bound) {
+    editBtn.dataset.bound = '1';
+    editBtn.addEventListener('click', toggleWarehouseEditMode);
   }
 }
 
