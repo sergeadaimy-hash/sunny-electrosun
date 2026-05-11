@@ -232,7 +232,7 @@ function formatWarehouseForPrompt() {
   const lines = [];
   const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
   lines.push(`# Warehouse stock (live source of truth, last refreshed ${today} UTC)`);
-  lines.push('Authoritative list of every item Electro-Sun stocks, with separate state for the Abuja warehouse and the Lagos warehouse. Use this block to answer "do you have X?", "is it in stock?", "how many are left?", and "when is it arriving?". Quote ETA dates and "incoming" notes verbatim, never invent them. If a customer asks for an item that is not listed below, tell them it is not in our current warehouse list and offer to confirm with the team.');
+  lines.push('Authoritative list of every item Electro-Sun stocks. Per-warehouse state and quantity below are INTERNAL ONLY (use them to compute what to say). Customer hears exactly ONE of three words: "available" (any warehouse in_stock), "incoming" with the earliest ETA (no warehouse in_stock, at least one incoming), or "out of stock" (all warehouses out_of_stock). NEVER name a specific warehouse to the customer. NEVER reveal unit counts unless the customer asked for a quantity larger than our total (then give the TOTAL across all warehouses without naming them). Quote ETA dates and "incoming" notes verbatim. If a customer asks for an item that is not listed below, tell them it is not in our current list and offer to confirm with the team.');
   lines.push('');
 
   const bySection = {};
