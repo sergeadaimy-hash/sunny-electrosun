@@ -51,6 +51,10 @@ const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '1
 
 const CASUAL_CONFIRM_RE = /^(o+k+(ay|ey|wy)?|alright|noted|got\s*it|sure|fine|cool|nice|great|perfect|thanks|thank\s*you|tnx|ty|appreciate(d)?|cheers|no\s*problem|np|👍|🙏|❤️|✅|done|gotcha|sounds\s*good|sg|👌|🆗|all\s*good|yep|yup|y(ea+|ah+)|alright\s*then|great\s*thanks|thanks\s*a\s*lot|much\s*appreciated|noted\s*thanks|hmm+|h+mm|interesting|hmm+\s*interesting|wow|really|i\s*see|isee|oh|aha|ahaa|ahh|right|wow\s*ok|ok\s*cool|ok\s*sure|sure\s*thing)[.!?,\s]*$/i;
 const PRODUCT_KEYWORDS_RE = /\b(kw|kva|kwh|panel|panels|battery|batteries|inverter|inverters|deye|jinko|ja|longi|sungrow|huawei|bos|hv|lv|hybrid|off\s*grid|on\s*grid|three\s*phase|single\s*phase|naira|ngn|price|cost|how\s*much|stock|available|quotation|invoice|proforma|brochure|datasheet|spec|kit|system)\b/i;
+// Gratitude is its own flavor of casual confirmation: customer is thanking
+// Sunny. Reply should be warm ("you're most welcome", "anytime") + a soft
+// offer to keep helping, NOT the bare 6-word ack used for "ok"/"noted".
+const GRATITUDE_RE = /\b(thanks?|thank\s*you|thnx|tnx|ty|thx|tysm|appreciate(d|s)?|much\s+appreciated|grateful|gracias|merci|shukran|🙏|❤️)\b/i;
 function isCasualConfirmation(text) {
   const t = String(text || '').trim();
   if (!t) return false;
@@ -58,6 +62,11 @@ function isCasualConfirmation(text) {
   if (CASUAL_CONFIRM_RE.test(t)) return true;
   if (t.length <= 30 && !/\?/.test(t) && !PRODUCT_KEYWORDS_RE.test(t)) return true;
   return false;
+}
+function isGratitudeMessage(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 60) return false;
+  return GRATITUDE_RE.test(t);
 }
 
 const WELCOME_REPLY = [
@@ -661,13 +670,33 @@ async function processCustomerBatch(entry) {
 
   const isHot = isHotEscalation;
   const currentOpen = isHot ? null : getOpenPendingQueryForContact(contact.id);
+  const customerIsGratitude = customerIsCasualConfirm && isGratitudeMessage(safeCombinedText);
   let expertContext = null;
   if (isHot) {
     expertContext = buildExpertContext({ isHot: true });
+  } else if (customerIsGratitude) {
+    expertContext = [
+      '# Gratitude context (treat as authoritative)',
+      'The customer just thanked you ("thank you", "thanks", "appreciate it", etc.). React with warmth, then offer to keep helping. Do NOT default to a flat "Got it." here; that reads cold after a thank-you.',
+      '',
+      'Voice rules in this state:',
+      '- Reply with ONE warm welcome phrase, then an open offer of further help. Vary the wording across replies; do not repeat the exact same line twice.',
+      '- Good shapes (pick ONE, do not list them all):',
+      '  - "You\'re most welcome. Anything else I can help with?"',
+      '  - "Anytime. Anything else you need?"',
+      '  - "My pleasure. Is there anything else I can help you with?"',
+      '  - "Happy to help. Anything else on your mind?"',
+      '  - "Glad to help. Anything else you\'d like to know?"',
+      '- Maximum 2 short sentences. No paragraph.',
+      '- Do NOT mention prices, quantities, the team, the specialist, the catalog, stock, follow-ups, or any handoff. The customer is not asking for more info; they\'re closing a thread warmly.',
+      '- Do NOT include any URL, phone number, or wa.me link.',
+      '- Match the customer\'s language if non-English (e.g. respond in the language they used).',
+      '- Do NOT bring up earlier topics or prior pending questions.'
+    ].join('\n');
   } else if (customerIsCasualConfirm) {
     expertContext = [
       '# Casual confirmation context (treat as authoritative)',
-      'The customer just sent a short acknowledgement (e.g. "ok", "thanks", "no problem", "got it", "alright").',
+      'The customer just sent a short acknowledgement (e.g. "ok", "noted", "no problem", "got it", "alright"). This is closing a thread, not opening one. Stay terse.',
       '',
       'Voice rules in this state:',
       '- Reply with ONE short phrase only: "Got it." OR "Noted." OR a single matching emoji like 👍.',
@@ -692,7 +721,8 @@ async function processCustomerBatch(entry) {
 
   const replyMessage = safeCombinedText || '(customer sent attachments only, see images)';
   const reply = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
-    expertContext
+    expertContext,
+    allowTrailingQuestion: customerIsGratitude
   });
   if (!reply.ok || !reply.text) {
     try {

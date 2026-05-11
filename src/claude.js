@@ -457,12 +457,16 @@ async function generateReply(history, message, contact, attachments = [], option
     }
 
     // Trailing-question guard, loosened 2026-05-10: only strip when the customer
-    // sent a PURE acknowledgement ("ok", "noted", "thanks", emoji-only) and Sunny
-    // is piling on another question. Factual answers like "30kwh" or "Lagos" are
-    // allowed to receive a natural follow-up question (warmer salesman tone).
-    if (text) {
+    // sent a PURE acknowledgement ("ok", "noted", emoji-only) and Sunny is piling
+    // on another question. Factual answers like "30kwh" or "Lagos" are allowed
+    // to receive a natural follow-up question. 2026-05-11: gratitude messages
+    // ("thank you", "thanks") are explicitly NOT pure acks for this purpose;
+    // the gratitude expert context wants Sunny to ask "anything else I can help
+    // with?", which is the right warm close. Skip the strip when the handler
+    // signaled allowTrailingQuestion (gratitude flow).
+    if (text && !options.allowTrailingQuestion) {
       const customerMsg = String(message || '').trim();
-      const PURE_ACK_RE = /^(o+k+(ay|ey|wy)?|alright|noted|got\s*it|sure|fine|cool|nice|thanks|thank\s*you|tnx|ty|appreciate(d)?|cheers|no\s*problem|np|👍|🙏|❤️|✅|done|gotcha|sounds\s*good|sg|👌|🆗|all\s*good|yep|yup|y(ea+|ah+))[\s.!?,]*$/i;
+      const PURE_ACK_RE = /^(o+k+(ay|ey|wy)?|alright|noted|got\s*it|sure|fine|cool|nice|no\s*problem|np|👍|✅|done|gotcha|sounds\s*good|sg|👌|🆗|all\s*good|yep|yup|y(ea+|ah+))[\s.!?,]*$/i;
       const customerIsPureAck = customerMsg.length > 0 && PURE_ACK_RE.test(customerMsg);
       const replyEndsWithQuestion = /\?\s*$/.test(text);
       if (customerIsPureAck && replyEndsWithQuestion) {
