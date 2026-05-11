@@ -4,7 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 // knowledge facts retired 2026-05-10: rules now live entirely in src/prompts/system.md
-const { formatWarehouseForPrompt } = require('./warehouse');
+const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt } = require('./warehouse');
 // datasheets retired from prompt 2026-05-10: now attached to warehouse items, looked up at send time
 const security = require('./security');
 
@@ -297,6 +297,20 @@ async function generateReply(history, message, contact, attachments = [], option
   }
   if (warehouseBlock) {
     systemBlocks.push({ type: 'text', text: warehouseBlock, cache_control: { type: 'ephemeral' } });
+  }
+  if (!isCasualGreeting) {
+    let datasheetBlock = '';
+    try { datasheetBlock = formatDatasheetKnowledgeForPrompt(message, history); }
+    catch (err) {
+      logger.warn('claude.reply.datasheet_block_fail', { message: err.message });
+    }
+    if (datasheetBlock) {
+      systemBlocks.push({ type: 'text', text: datasheetBlock });
+      logger.info('claude.reply.datasheet_block_injected', {
+        contactId: contact?.id,
+        block_chars: datasheetBlock.length
+      });
+    }
   }
   if (contextBlock) systemBlocks.push({ type: 'text', text: contextBlock });
 
