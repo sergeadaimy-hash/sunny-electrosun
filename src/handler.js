@@ -279,20 +279,26 @@ async function notifyOwnerEscalation(contact, message, classification) {
     return null;
   }
 
-  // 2026-05-10: HOT lead alerts only. No silent_query, no follow-up pings, no QID tags.
-  // Format is intentionally minimal: header + customer name/phone + one-line commitment
-  // (their last message verbatim) + wa.me link.
+  // Two alert formats. HOT lead = customer ready to pay; silent_query =
+  // customer waiting on team answer Sunny promised. Both formats include the
+  // wa.me link so the brother can open the chat directly. Restored from the
+  // 2026-05-10 HOT-only state because Sunny was telling customers "the team
+  // will get back to you" without firing an alert; the contract was broken.
+  const escalationType = classification && classification.escalation_type === 'hot_lead' ? 'hot_lead' : 'silent_query';
   const customerWaLink = contact.phone
     ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}`
     : null;
 
-  const lines = [
-    'HOT LEAD, customer is ready to pay.',
-    `Customer: ${contact.name || 'unknown'} (${contact.phone})`,
-    '',
-    'Their message:',
-    message
-  ];
+  const lines = [];
+  if (escalationType === 'hot_lead') {
+    lines.push('HOT LEAD, customer is ready to pay.');
+  } else {
+    lines.push('FOLLOW-UP NEEDED, customer is waiting on a team answer.');
+  }
+  lines.push(`Customer: ${contact.name || 'unknown'} (${contact.phone})`);
+  lines.push('');
+  lines.push('Their message:');
+  lines.push(message);
   if (customerWaLink) {
     lines.push('');
     lines.push(`Open chat with customer: ${customerWaLink}`);
@@ -305,7 +311,7 @@ async function notifyOwnerEscalation(contact, message, classification) {
     const ownerConv = getActiveConversation(ownerContact.id);
     appendMessage(ownerConv.id, 'outbound', alertText, {
       whatsapp_message_id: sendRes && sendRes.messageId,
-      intent: 'escalation_alert_hot',
+      intent: escalationType === 'hot_lead' ? 'escalation_alert_hot' : 'escalation_alert_silent',
       language: 'english'
     });
   } catch (err) {
@@ -450,49 +456,93 @@ function enqueueCustomerMessage(contact, conversation, msg, imageAttachment, ima
 async function notifyOwnerForEscalation({ contact, classification, safeCombinedText, lastMsg, batchSize, source }) {
   const escalationType = classification.escalation_type || 'silent_query';
 
-  // 2026-05-10: ONLY HOT lead (customer-ready-to-pay) pages the owner. Silent
-  // query and stall-guard escalations no longer ping. The owner asked for one
-  // signal he cares about: "this customer wants to buy now."
-  if (escalationType !== 'hot_lead') {
-    logger.info('handler.escalation.owner_ping_skipped_not_hot', {
-      contactId: contact.id,
-      escalation_type: escalationType,
-      source: source || 'classifier'
-    });
-    logEvent(contact.id, 'escalated', {
-      intent: classification.intent,
-      escalation_type: escalationType,
-      confidence: classification.confidence,
-      batch_size: batchSize,
-      source: source || 'classifier',
-      owner_notified: false
-    });
-    return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType };
-  }
-
   logEvent(contact.id, 'escalated', {
     intent: classification.intent,
-    escalation_type: 'hot_lead',
+    escalation_type: escalationType,
     confidence: classification.confidence,
     batch_size: batchSize,
     source: source || 'classifier'
   });
 
-  // Auto-resolve any open silent_query for this contact when HOT fires. The
-  // customer is closing the deal; the old pending query is moot. Leaving it
-  // open would keep routing future turns into the silent_query_followup path
-  // instead of the HOT handoff.
-  try {
-    const stale = getOpenPendingQueryForContact(contact.id);
-    if (stale && stale.id) {
-      resolvePendingQuery(stale.id, '[auto-resolved: HOT lead handoff fired]');
-      logger.info('handler.escalation.pending_query_auto_resolved_by_hot', {
-        contactId: contact.id,
-        queryId: stale.id
-      });
+  // HOT flow auto-resolves any prior open silent_query (the customer is now
+  // closing the deal, the older question is moot).
+  if (escalationType === 'hot_lead') {
+    try {
+      const stale = getOpenPendingQueryForContact(contact.id);
+      if (stale && stale.id) {
+        resolvePendingQuery(stale.id, '[auto-resolved: HOT lead handoff fired]');
+        logger.info('handler.escalation.pending_query_auto_resolved_by_hot', {
+          contactId: contact.id,
+          queryId: stale.id
+        });
+      }
+    } catch (err) {
+      logger.warn('handler.escalation.pending_query_auto_resolve_fail', { message: err.message });
     }
-  } catch (err) {
-    logger.warn('handler.escalation.pending_query_auto_resolve_fail', { message: err.message });
+  }
+
+  // For silent_query: if there's already an open pending query for this
+  // contact, throttle follow-up pings via FOLLOWUP_COOLDOWN. Otherwise create
+  // a fresh pending query AND fire a brand-new alert (subject to the
+  // brand-new escalation cooldown).
+  let freshPendingId = null;
+  if (escalationType === 'silent_query') {
+    const existingOpen = getOpenPendingQueryForContact(contact.id);
+    if (existingOpen && existingOpen.id) {
+      const followThrottle = security.checkFollowupThrottle(contact.id);
+      if (!followThrottle.allowed) {
+        security.logSecurityEvent('followup_throttled', {
+          contactId: contact.id,
+          last_at: followThrottle.lastAt,
+          cooldown_ms: followThrottle.cooldownMs,
+          queryId: existingOpen.id,
+          source: source || 'classifier'
+        });
+        return {
+          openPending: existingOpen,
+          freshPendingId: null,
+          ownerNotified: false,
+          escalationType: 'silent_query',
+          throttled: true
+        };
+      }
+      // Send a brief follow-up ping rather than the full alert.
+      const ownerPhone = process.env.OWNER_WHATSAPP;
+      let followSendRes = null;
+      if (ownerPhone) {
+        const waLink = contact.phone ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}` : null;
+        const followLines = [
+          'FOLLOW-UP, same customer is still asking on the pending query.',
+          `Customer: ${contact.name || 'unknown'} (${contact.phone})`,
+          '',
+          'Latest message:',
+          safeCombinedText
+        ];
+        if (waLink) {
+          followLines.push('');
+          followLines.push(`Open chat with customer: ${waLink}`);
+        }
+        const followText = followLines.join('\n');
+        followSendRes = await sendMessage(ownerPhone, followText);
+        try {
+          const ownerContact = getOrCreateContact(ownerPhone, null);
+          const ownerConv = getActiveConversation(ownerContact.id);
+          appendMessage(ownerConv.id, 'outbound', followText, {
+            whatsapp_message_id: followSendRes && followSendRes.messageId,
+            intent: 'escalation_followup_ping',
+            language: 'english'
+          });
+        } catch (err) {
+          logger.warn('escalation.persist_owner_followup_fail', { message: err.message });
+        }
+      }
+      return {
+        openPending: existingOpen,
+        freshPendingId: null,
+        ownerNotified: !!(followSendRes && followSendRes.ok),
+        escalationType: 'silent_query'
+      };
+    }
   }
 
   const escThrottle = security.checkEscalationThrottle(contact.id);
@@ -501,9 +551,26 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
       contactId: contact.id,
       last_at: escThrottle.lastAt,
       cooldown_ms: escThrottle.cooldownMs,
+      escalation_type: escalationType,
       source: source || 'classifier'
     });
-    return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType: 'hot_lead', throttled: true };
+    return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType, throttled: true };
+  }
+
+  // Create the pending_queries row for silent_query so subsequent customer
+  // messages route through the open-pending follow-up path (single ping per
+  // cooldown window) instead of hammering the brother with brand-new alerts.
+  if (escalationType === 'silent_query') {
+    try {
+      freshPendingId = createPendingQuery({
+        contactId: contact.id,
+        customerMessageId: lastMsg && lastMsg.id,
+        customerMessageText: safeCombinedText,
+        classifierIntent: classification.intent || 'silent_query'
+      });
+    } catch (err) {
+      logger.warn('handler.escalation.create_pending_query_fail', { message: err.message });
+    }
   }
 
   const alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification);
@@ -511,16 +578,21 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
   if (!ownerNotified) {
     logger.error('handler.escalation.owner_alert_send_failed', {
       contactId: contact.id,
+      escalation_type: escalationType,
       send_status: alertSendRes && alertSendRes.status,
       send_error: alertSendRes && alertSendRes.error
     });
   }
+  if (freshPendingId && alertSendRes && alertSendRes.messageId) {
+    try { setPendingQueryAlertId(freshPendingId, alertSendRes.messageId); }
+    catch (err) { logger.warn('handler.escalation.set_alert_id_fail', { message: err.message }); }
+  }
 
   return {
     openPending: null,
-    freshPendingId: null,
+    freshPendingId,
     ownerNotified,
-    escalationType: 'hot_lead'
+    escalationType
   };
 }
 
@@ -850,7 +922,32 @@ async function processCustomerBatch(entry) {
   }
 
   let outboundText = reply.text;
-  const HANDOFF_REPLY_RE = /\b((a|the|our|one\s+of\s+our)\s+(specialists?|engineers?|sales\s+representatives?|sales\s+reps?|team\s+members?|team)\s+(will|is)\s+(reach(ing)?\s+out|follow(ing)?\s+up|contact|be\s+in\s+touch|get\s+back|come\s+back|reconnect|provide|deliver|send|prepare|review|reach|confirm|call|connect)|account\s+details\s+and\s+(final\s+)?figures|formal\s+documents\s+and\s+(final\s+)?figures|reach\s+out\s+(shortly|soon)\s+with\s+(the\s+)?account|share\s+the\s+account|send\s+(you\s+)?the\s+account|(specialist|sales\s+team|team)\s+(will|is)\s+(handle|handling|process|processing|manage|managing)\s+(the\s+)?(payment|order|invoice))/i;
+  // STRICT INVARIANT: any time Sunny promises a team follow-up in text, the
+  // owner MUST get an alert with the customer's wa.me link. Otherwise the
+  // customer waits for a reply that never gets escalated. This regex matches
+  // every common shape of that promise.
+  const HANDOFF_REPLY_RE = new RegExp([
+    // "Team will / can / may / is [action]" + many action verbs
+    '\\b(a|the|our|one\\s+of\\s+our)\\s+(specialists?|engineers?|sales\\s+representatives?|sales\\s+reps?|team\\s+members?|team)\\s+(will|can|may|is|are|would)\\s+(reach(ing)?\\s+out|follow(ing)?\\s+up|contact|be\\s+in\\s+touch|get\\s+back|come\\s+back|reconnect|provide|deliver|send|prepare|review|reach|confirm|call|connect|look\\s+(into|at)|check|investigate|verify|clarify|sort|revert|share|update|let\\s+you\\s+know|respond|reply)',
+    // First-person "I'll / let me check with the team"
+    '(i\'?ll|i\\s+will|let\\s+me|i\\s+can)\\s+(check|confirm|verify|reach\\s+out\\s+to|ask|consult|speak\\s+(to|with)|flag|forward|share|escalate|raise)\\s+(.{0,40})?(the\\s+team|my\\s+team|our\\s+team|the\\s+specialist|the\\s+experts?|with\\s+the\\s+team)',
+    // "Flag this for them / for the team"
+    'flag\\s+(it|that|this)\\s+(for|to|with)\\s+(them|the\\s+team|the\\s+specialist|the\\s+experts?)',
+    // "Forward / escalate / raise this with the team"
+    '(forward|escalate|raise|share|pass)\\s+(it|that|this).{0,40}(the\\s+team|them|the\\s+specialist|the\\s+experts?)',
+    // "Team is on it" / "team will revert"
+    'the\\s+team\\s+(is\\s+on\\s+(it|that)|will\\s+revert|will\\s+circle\\s+back|will\\s+take\\s+a\\s+look)',
+    // HOT-handoff specific phrases (kept from original)
+    'account\\s+details\\s+and\\s+(final\\s+)?figures',
+    'formal\\s+documents\\s+and\\s+(final\\s+)?figures',
+    'reach\\s+out\\s+(shortly|soon)\\s+with\\s+(the\\s+)?account',
+    'share\\s+the\\s+account',
+    'send\\s+(you\\s+)?the\\s+account',
+    '(specialist|sales\\s+team|team)\\s+(will|is|can)\\s+(handle|handling|process|processing|manage|managing)\\s+(the\\s+)?(payment|order|invoice)',
+    // "Get back to you" general (paired with shortly/soon/asap)
+    'get\\s+back\\s+to\\s+you\\s+(shortly|soon|with|once|as\\s+soon)',
+    'will\\s+get\\s+back\\s+to\\s+you'
+  ].join('|'), 'i');
   const replyMentionsHandoff = HANDOFF_REPLY_RE.test(outboundText);
   const linkAlreadyInText = /https?:\/\/wa\.me\//i.test(outboundText);
 
@@ -868,7 +965,7 @@ async function processCustomerBatch(entry) {
         escalation_type: isHot ? 'hot_lead' : 'silent_query'
       };
       try {
-        await notifyOwnerForEscalation({
+        const handoffEsc = await notifyOwnerForEscalation({
           contact: refreshedContact,
           classification: handoffClassification,
           safeCombinedText,
@@ -876,6 +973,12 @@ async function processCustomerBatch(entry) {
           batchSize: msgs.length,
           source: 'handoff_in_reply'
         });
+        // Make sure the escalatedThisTurn flag downstream sees this so the
+        // customer reply gets the wa.me specialist link appended.
+        if (handoffEsc && handoffEsc.ownerNotified) {
+          classification.needs_escalation = true;
+          if (!classification.escalation_type) classification.escalation_type = isHot ? 'hot_lead' : 'silent_query';
+        }
       } catch (err) {
         logger.warn('handler.handoff_in_reply_alert_fail', {
           contactId: contact.id,
