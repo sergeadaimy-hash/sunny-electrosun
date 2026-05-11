@@ -15,20 +15,30 @@ function isCasualGreeting(text) {
   return t.length <= 30 && GREETING_RE.test(t);
 }
 
-const HOT_TRIGGER_RE = /\b(want\s+to\s+pay|ready\s+to\s+pay|can\s+(i|we)\s+pay|may\s+(i|we)\s+pay|pay\s+(now|today|tomorrow|this\s+week)|i'?ll\s+pay|let\s+me\s+pay|paying\s+(now|today)|making\s+(the\s+)?payment|send\s+(me\s+)?(your\s+|the\s+)?account(\s+(number|details|info|name|bank))?|send\s+account|share\s+(your|the|account)\s+(account|bank)|account\s+(number|details|name|info)\s+(please|plz|pls|kindly)?|send\s+(me\s+)?(a\s+)?proforma|send\s+(me\s+)?(an\s+)?invoice|issue\s+(me\s+)?(a\s+)?(proforma|invoice|quotation)|deposit\s+\d|\d+%\s+deposit|let'?s\s+(proceed|go\s+ahead|do\s+this)|go\s+ahead\s+with|i'?m\s+ready\s+to\s+(buy|order|pay|proceed)|i\s+am\s+ready\s+to\s+(buy|order|pay|proceed)|confirm\s+(the\s+)?order|place\s+(the\s+)?order|send\s+(your|the)\s+(engineer|team)|when\s+can\s+(you|your\s+team)\s+(install|come|deliver|visit)|ready\s+to\s+(order|buy|proceed)|i\s+want\s+to\s+(order|buy|proceed)|i'?ll\s+(order|buy|proceed)|book\s+(the\s+)?(installation|site\s+visit)|schedule\s+(the\s+)?(installation|site\s+visit)|i\s+(am\s+|will\s+)?proceed|going\s+to\s+pay|wanna\s+pay|wants?\s+to\s+pay|payment\s+now|book\s+now|order\s+now)\b/i;
+const HOT_TRIGGER_RE = /\b(want\s+to\s+pay|ready\s+to\s+pay|can\s+(i|we)\s+pay|may\s+(i|we)\s+pay|pay\s+(now|today|tomorrow|this\s+week)|i'?ll\s+pay|let\s+me\s+pay|paying\s+(now|today)|making\s+(the\s+)?payment|send\s+(me\s+)?(your\s+|the\s+)?account(\s+(number|details|info|name|bank))?|send\s+account|share\s+(your|the|account)\s+(account|bank)|account\s+(number|details|name|info)\s+(please|plz|pls|kindly)?|send\s+(me\s+)?(a\s+|the\s+)?proforma|send\s+(me\s+)?(an\s+|the\s+)?invoice|prepare\s+(the\s+|a\s+|an\s+)?(proforma|invoice|quotation)|issue\s+(me\s+)?(a\s+)?(proforma|invoice|quotation)|deposit\s+\d|\d+%\s+deposit|let'?s\s+(proceed|go\s+ahead|do\s+this)|go\s+ahead\s+with|i'?m\s+ready\s+to\s+(buy|order|pay|proceed)|i\s+am\s+ready\s+to\s+(buy|order|pay|proceed)|confirm\s+(the\s+)?order|place\s+(the\s+)?order|send\s+(your|the)\s+(engineer|team)|when\s+can\s+(you|your\s+team)\s+(install|come|deliver|visit)|ready\s+to\s+(order|buy|proceed)|i\s+want\s+to\s+(order|buy|proceed)|i'?ll\s+(order|buy|proceed)|book\s+(the\s+)?(installation|site\s+visit)|schedule\s+(the\s+)?(installation|site\s+visit)|i\s+(am\s+|will\s+)?proceed|going\s+to\s+pay|wanna\s+pay|wants?\s+to\s+pay|payment\s+now|book\s+now|order\s+now|picking\s+(it\s+)?up\s+(tomorrow|today|this\s+week|next\s+week|on\s+\w+)|i'?ll\s+(be\s+)?(picking|collecting|coming\s+to\s+pick)|i'?ll\s+come\s+(tomorrow|today|to\s+pick|to\s+collect)|coming\s+(tomorrow|today)\s+to\s+(pick|collect|pay)|my\s+name\s+is\s+\w+|name\s+is\s+\w+\s+\w+|(company|business)\s+name\s+is|is\s+my\s+(company|business)\s+name|the\s+(company|business)\s+name\s+is|register\s+(it\s+)?(under|in)\s+(my|the)\s+name|(make|put)\s+(the\s+)?(invoice|proforma|order)\s+(in|under)\s+(my|the)\s+name|make\s+(it|the\s+(invoice|proforma))\s+for\s+\w+\s+\w+)\b/i;
 
 function hasHotTrigger(text) {
   return HOT_TRIGGER_RE.test(text || '');
 }
 
-const AFFIRMATION_RE = /^(yes|yea+h?|yep+|yup+|sure|ok+|okay+|of\s+course|sounds\s+good|let'?s\s+(do\s+(it|that|this)|go|proceed)|go\s+ahead|absolutely|definitely|i'?m\s+ready|ready|please\s+do|do\s+it|alright|all\s+right|fine|cool|great|good|na'?am|aye|na'?am)[\s.!]*$/i;
-const HOT_PROMPT_FROM_SUNNY_RE = /\b(ready\s+to\s+pay|shall\s+(i|we)\s+send\s+(the\s+)?account|best\s+price.*(ready|pay)|are\s+you\s+ready\s+to|shall\s+(i|we)\s+(book|schedule|proceed)|want\s+to\s+(proceed|order|book)|happy\s+to\s+proceed|shall\s+we\s+(go\s+ahead|proceed)|confirm\s+(the\s+)?(order|payment)|proceed\s+with\s+(the\s+)?order|send\s+you\s+(the\s+)?account|payment\s+now)/i;
+const AFFIRMATION_RE = /^(yes|yea+h?|yep+|yup+|sure|ok+|okay+|of\s+course|sounds\s+good|let'?s\s+(do\s+(it|that|this)|go|proceed)|go\s+ahead|absolutely|definitely|i'?m\s+ready|ready|please\s+do|do\s+it|alright|all\s+right|fine|cool|great|good|na'?am|aye|na'?am)[\s.!,]*$/i;
+// Leading-affirmation: customer's message STARTS with "yes" / "sure" / "ok" /
+// etc. but then continues with more content (their name, pickup details). We
+// still treat this as an affirmation if it follows a Sunny HOT prompt — the
+// extra content is the customer doing the closing work for us.
+const LEADING_AFFIRMATION_RE = /^(yes|yea+h?|yep+|yup+|sure|ok+|okay+|of\s+course|sounds\s+good|absolutely|definitely|i'?m\s+ready|alright|all\s+right|please\s+do|do\s+it|go\s+ahead)\b/i;
+const HOT_PROMPT_FROM_SUNNY_RE = /\b(ready\s+to\s+pay|ready\s+to\s+proceed|shall\s+(i|we)\s+send\s+(the\s+)?account|best\s+price.*(ready|pay)|are\s+you\s+ready\s+to|shall\s+(i|we)\s+(book|schedule|proceed)|want\s+to\s+(proceed|order|book)|happy\s+to\s+proceed|shall\s+we\s+(go\s+ahead|proceed)|confirm\s+(the\s+)?(order|payment)|proceed\s+with\s+(the\s+)?order|send\s+you\s+(the\s+)?account|payment\s+now|(would\s+you\s+like|want)\s+(a|an|the)?\s*(proforma|invoice|quotation)|like\s+a\s+(proforma|invoice|quotation)|pay\s+(now|tomorrow|today)\s+or)/i;
 
 function isAffirmationAfterHotPrompt(history, body) {
   if (!Array.isArray(history) || history.length === 0) return false;
   const trimmed = String(body || '').trim();
-  if (!trimmed || trimmed.length > 25) return false;
-  if (!AFFIRMATION_RE.test(trimmed)) return false;
+  if (!trimmed) return false;
+  // Two paths: short pure affirmation (<= 25 chars), or longer message that
+  // STARTS with an affirmation token (the customer said "yes" plus their name,
+  // their pickup plan, their company, etc.).
+  const isPureAffirmation = trimmed.length <= 25 && AFFIRMATION_RE.test(trimmed);
+  const isLeadingAffirmation = trimmed.length <= 200 && LEADING_AFFIRMATION_RE.test(trimmed);
+  if (!isPureAffirmation && !isLeadingAffirmation) return false;
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i];
     if (m && m.role === 'assistant') {

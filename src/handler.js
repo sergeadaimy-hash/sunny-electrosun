@@ -478,6 +478,23 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
     source: source || 'classifier'
   });
 
+  // Auto-resolve any open silent_query for this contact when HOT fires. The
+  // customer is closing the deal; the old pending query is moot. Leaving it
+  // open would keep routing future turns into the silent_query_followup path
+  // instead of the HOT handoff.
+  try {
+    const stale = getOpenPendingQueryForContact(contact.id);
+    if (stale && stale.id) {
+      resolvePendingQuery(stale.id, '[auto-resolved: HOT lead handoff fired]');
+      logger.info('handler.escalation.pending_query_auto_resolved_by_hot', {
+        contactId: contact.id,
+        queryId: stale.id
+      });
+    }
+  } catch (err) {
+    logger.warn('handler.escalation.pending_query_auto_resolve_fail', { message: err.message });
+  }
+
   const escThrottle = security.checkEscalationThrottle(contact.id);
   if (!escThrottle.allowed) {
     security.logSecurityEvent('escalation_throttled', {
