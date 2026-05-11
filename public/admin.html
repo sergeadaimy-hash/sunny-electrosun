@@ -1464,6 +1464,15 @@
     .wh-state-row label.active.incoming { border-color: #f59e0b; color: #b45309; background: #fffbeb; }
     .wh-state-row label.active.out_of_stock { border-color: var(--faint); color: var(--ink); background: #f3f4f6; }
     .wh-state-row input { display: none; }
+    .wh-loc-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+    .wh-loc-state-badge { font-size: 11px; padding: 2px 8px; }
+    .wh-incoming-row { margin-top: 8px; }
+    .wh-incoming-label {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .wh-incoming-fields { margin-top: 6px; }
 
     /* Warehouse view mode (read-only) */
     .wh-edit-only { display: none; }
@@ -2889,34 +2898,39 @@ function renderWarehouseDatasheet(it) {
 
 function renderWarehouseLocation(it, loc) {
   const s = (it.stock && it.stock[loc]) || { state: 'out_of_stock', quantity: 0, coming_note: '', eta_date: '' };
-  const stateClass = s.state || 'out_of_stock';
-  const stateRadios = WH_STATES.map(opt => {
-    const active = opt.value === s.state ? ' active ' + opt.value : '';
-    return [
-      '<label class="' + opt.value + active.trim() + '" data-wh-state-label="' + opt.value + '">',
-      '<input type="radio" name="wh-state-' + it.id + '-' + loc + '" value="' + opt.value + '"' + (opt.value === s.state ? ' checked' : '') + '>',
-      escapeHtml(opt.label),
-      '</label>'
-    ].join('');
-  }).join('');
+  const isIncoming = s.state === 'incoming';
+  // Derived state for display: qty > 0 = available, else out of stock. Incoming
+  // overrides only when the brother explicitly ticked "Incoming?".
+  const derivedState = isIncoming ? 'incoming' : ((s.quantity || 0) > 0 ? 'in_stock' : 'out_of_stock');
+  const stateLabel = whStateLabel(derivedState);
 
   return [
-    '<div class="wh-loc ' + stateClass + '" data-wh-loc="' + loc + '">',
-    '<div class="wh-loc-head"><span class="wh-loc-name">' + loc + '</span></div>',
-    '<div class="wh-state-row">' + stateRadios + '</div>',
+    '<div class="wh-loc ' + derivedState + '" data-wh-loc="' + loc + '">',
+    '<div class="wh-loc-head">',
+    '<span class="wh-loc-name">' + loc + '</span>',
+    '<span class="wh-loc-state-badge wh-badge ' + derivedState + '" data-wh-state-display>' + escapeHtml(stateLabel) + '</span>',
+    '</div>',
     '<div class="wh-qty-row">',
     '<label>Qty</label>',
     '<button class="wh-qty-btn" data-wh-action="qty-minus">−</button>',
     '<input class="wh-qty-input" data-wh-field="quantity" type="number" min="0" value="' + (s.quantity || 0) + '">',
     '<button class="wh-qty-btn" data-wh-action="qty-plus">+</button>',
     '</div>',
+    '<div class="wh-incoming-row">',
+    '<label class="wh-incoming-label">',
+    '<input type="checkbox" data-wh-incoming' + (isIncoming ? ' checked' : '') + '> ',
+    'Incoming? (mark this as a future batch, not current stock)',
+    '</label>',
+    '</div>',
+    '<div class="wh-incoming-fields" data-wh-incoming-fields style="display: ' + (isIncoming ? 'block' : 'none') + '">',
     '<div class="wh-note-row">',
-    '<span>Coming note (visible to Sunny when state is incoming)</span>',
+    '<span>Coming note (visible to Sunny)</span>',
     '<input data-wh-field="coming_note" value="' + escapeHtml(s.coming_note || '') + '" placeholder="e.g. next batch arriving with main shipment">',
     '</div>',
     '<div class="wh-eta-row">',
-    '<span>ETA date (optional)</span>',
+    '<span>ETA date</span>',
     '<input data-wh-field="eta_date" type="date" value="' + escapeHtml(s.eta_date || '') + '">',
+    '</div>',
     '</div>',
     '<button class="btn primary" data-wh-action="save-loc">Save ' + loc + '</button>',
     '</div>'
@@ -2970,15 +2984,28 @@ function bindWarehouseItemHandlers(root) {
     itemEl.querySelectorAll('[data-wh-loc]').forEach(locEl => {
       const loc = locEl.dataset.whLoc;
 
-      locEl.querySelectorAll('input[type="radio"]').forEach(r => {
-        r.addEventListener('change', () => {
-          locEl.classList.remove('in_stock', 'incoming', 'out_of_stock');
-          locEl.classList.add(r.value);
-          locEl.querySelectorAll('[data-wh-state-label]').forEach(lbl => {
-            lbl.classList.toggle('active', lbl.dataset.whStateLabel === r.value);
-          });
-        });
-      });
+      function refreshLocStateDisplay() {
+        const incomingCb = locEl.querySelector('[data-wh-incoming]');
+        const qtyInput = locEl.querySelector('[data-wh-field="quantity"]');
+        const isIncoming = incomingCb && incomingCb.checked;
+        const qty = qtyInput ? (Number(qtyInput.value) || 0) : 0;
+        const newState = isIncoming ? 'incoming' : (qty > 0 ? 'in_stock' : 'out_of_stock');
+        locEl.classList.remove('in_stock', 'incoming', 'out_of_stock');
+        locEl.classList.add(newState);
+        const badge = locEl.querySelector('[data-wh-state-display]');
+        if (badge) {
+          badge.classList.remove('in_stock', 'incoming', 'out_of_stock');
+          badge.classList.add(newState);
+          badge.textContent = whStateLabel(newState);
+        }
+        const fields = locEl.querySelector('[data-wh-incoming-fields]');
+        if (fields) fields.style.display = isIncoming ? 'block' : 'none';
+      }
+
+      const incomingCb = locEl.querySelector('[data-wh-incoming]');
+      if (incomingCb) incomingCb.addEventListener('change', refreshLocStateDisplay);
+      const qtyInput = locEl.querySelector('[data-wh-field="quantity"]');
+      if (qtyInput) qtyInput.addEventListener('input', refreshLocStateDisplay);
 
       locEl.querySelectorAll('[data-wh-action]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -3044,10 +3071,11 @@ async function deleteWarehouseItem(id) {
 }
 
 async function saveWarehouseLocation(itemId, loc, locEl) {
-  const checkedRadio = locEl.querySelector('input[type="radio"]:checked');
-  const body = {
-    state: checkedRadio ? checkedRadio.value : 'out_of_stock'
-  };
+  const incomingCb = locEl.querySelector('[data-wh-incoming]');
+  const isIncoming = !!(incomingCb && incomingCb.checked);
+  // Server derives final state. We only need to tell it whether the brother
+  // explicitly ticked Incoming; quantity does the rest.
+  const body = { state: isIncoming ? 'incoming' : 'in_stock' };
   locEl.querySelectorAll('[data-wh-field]').forEach(el => {
     const field = el.dataset.whField;
     let v = el.value;
@@ -3060,6 +3088,7 @@ async function saveWarehouseLocation(itemId, loc, locEl) {
       body: JSON.stringify(body)
     });
     flashRow(locEl);
+    await loadWarehouse();
   } catch (err) {
     alert('Save failed: ' + err.message);
   }
@@ -3143,12 +3172,16 @@ async function adjustWarehouseQty(itemId, loc, locEl, delta) {
   const input = locEl.querySelector('[data-wh-field="quantity"]');
   const next = Math.max(0, (Number(input.value) || 0) + delta);
   input.value = next;
+  // Update the visible state badge immediately for snappy UX. Server will
+  // derive the same value on save.
+  input.dispatchEvent(new Event('input'));
   try {
     await apiFetch('/warehouse/items/' + itemId + '/stock/' + loc + '/adjust', {
       method: 'POST',
       body: JSON.stringify({ delta })
     });
     flashRow(locEl);
+    await loadWarehouse();
   } catch (err) {
     alert('Adjust failed: ' + err.message);
   }

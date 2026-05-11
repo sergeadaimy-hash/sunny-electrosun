@@ -102,6 +102,13 @@ if (require.main === module) {
   } catch (err) {
     logger.warn('server.legacy_fact_cleanup_fail', { message: err.message });
   }
+  try {
+    const { repairAllStockStates } = require('./src/warehouse');
+    const fixed = repairAllStockStates();
+    if (fixed > 0) logger.info('server.stock_state_repair_boot', { rows_fixed: fixed });
+  } catch (err) {
+    logger.warn('server.stock_state_repair_fail', { message: err.message });
+  }
   const server = app.listen(PORT, () => {
     logger.info('server.listen', { port: PORT, notifications_disabled: notificationsDisabled() });
     setTimeout(() => {

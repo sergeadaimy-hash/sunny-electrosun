@@ -161,6 +161,22 @@ function deleteItem(id) {
   db.prepare('DELETE FROM warehouse_items WHERE id = ?').run(id);
 }
 
+// State derivation is centralized here so the UI cannot put state and
+// quantity out of sync. Rule:
+// - state = 'incoming' is preserved only when explicitly set (caller opted in).
+// - otherwise: state is derived from final quantity. qty > 0 -> 'in_stock',
+//   qty == 0 -> 'out_of_stock'.
+// This closes the bug where the brother could set qty 87 but accidentally
+// leave the state on 'out_of_stock' (or vice versa) and Sunny would tell
+// customers the item was unavailable.
+function deriveStockState(currentRow, updates) {
+  const updatesIncoming = updates.state === 'incoming';
+  const currentIncoming = !updatesIncoming && currentRow && currentRow.state === 'incoming' && updates.state === undefined;
+  if (updatesIncoming || currentIncoming) return 'incoming';
+  const newQty = (updates.quantity !== undefined ? updates.quantity : (currentRow ? currentRow.quantity : 0)) || 0;
+  return Number(newQty) > 0 ? 'in_stock' : 'out_of_stock';
+}
+
 function setStock(itemId, location, input) {
   if (!LOCATIONS.includes(location)) {
     throw new Error('location must be one of: ' + LOCATIONS.join(', '));
@@ -170,6 +186,12 @@ function setStock(itemId, location, input) {
   if (!item) throw new Error('item not found');
   ensureStockRows(itemId);
   const data = coerceStock(input);
+  const currentRow = db.prepare(
+    'SELECT state, quantity FROM warehouse_stock WHERE item_id = ? AND location = ?'
+  ).get(itemId, location);
+  // Always write a derived state. Caller's state is treated as a hint
+  // ("incoming" or "not incoming"); qty does the rest.
+  data.state = deriveStockState(currentRow, data);
   const cols = STOCK_FIELDS.filter(k => data[k] !== undefined);
   if (!cols.length) return;
   const setSql = cols.map(k => `${k} = ?`).join(', ');
@@ -188,12 +210,36 @@ function adjustQuantity(itemId, location, delta) {
   if (!Number.isFinite(n) || n === 0) return;
   const db = getDb();
   ensureStockRows(itemId);
+  const currentRow = db.prepare(
+    'SELECT state, quantity FROM warehouse_stock WHERE item_id = ? AND location = ?'
+  ).get(itemId, location);
+  const newQty = Math.max(0, (currentRow ? currentRow.quantity : 0) + n);
+  const newState = deriveStockState(currentRow, { quantity: newQty });
   db.prepare(`
     UPDATE warehouse_stock
-    SET quantity = MAX(0, quantity + ?),
-        updated_at = ?
+    SET quantity = ?, state = ?, updated_at = ?
     WHERE item_id = ? AND location = ?
-  `).run(n, nowIso(), itemId, location);
+  `).run(newQty, newState, nowIso(), itemId, location);
+}
+
+function repairAllStockStates() {
+  const db = getDb();
+  const rows = db.prepare(
+    'SELECT item_id, location, state, quantity FROM warehouse_stock'
+  ).all();
+  let fixed = 0;
+  const upd = db.prepare(
+    'UPDATE warehouse_stock SET state = ?, updated_at = ? WHERE item_id = ? AND location = ?'
+  );
+  for (const r of rows) {
+    const correct = deriveStockState(r, {});
+    if (correct !== r.state) {
+      upd.run(correct, nowIso(), r.item_id, r.location);
+      fixed++;
+    }
+  }
+  if (fixed) logger.info('warehouse.stock.state_repaired', { rows_fixed: fixed });
+  return fixed;
 }
 
 function formatNgn(n) {
@@ -577,5 +623,6 @@ module.exports = {
   extractDatasheetTextForItem,
   setStaple,
   formatDatasheetKnowledgeForPrompt,
-  pickDatasheetItemsForScope
+  pickDatasheetItemsForScope,
+  repairAllStockStates
 };
