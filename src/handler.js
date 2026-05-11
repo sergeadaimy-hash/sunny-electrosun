@@ -60,13 +60,13 @@ function isCasualConfirmation(text) {
 }
 
 const WELCOME_REPLY = [
-  'Welcome to Electro-Sun Global Services',
+  'Welcome To ElectroSun Global Services LTD',
   '',
   '*Abuja Address*',
   '',
   'Office: Sunset Place, 141 Adetokunbo Ademola Cres, Wuse 2, Abuja',
   '',
-  'Warehouse address: Plot 816, Gidado Idriss Way, Idu Industrial Area, FCT Abuja',
+  'Warehouse address: Plot 816, Gidado Idriss way Idu Industrial area FCT Abuja',
   '',
   'Contact:',
   'Charbel: 09068859213',
