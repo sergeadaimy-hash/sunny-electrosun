@@ -480,11 +480,19 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
   }
 
   const alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification);
+  const ownerNotified = !!(alertSendRes && alertSendRes.ok);
+  if (!ownerNotified) {
+    logger.error('handler.escalation.owner_alert_send_failed', {
+      contactId: contact.id,
+      send_status: alertSendRes && alertSendRes.status,
+      send_error: alertSendRes && alertSendRes.error
+    });
+  }
 
   return {
     openPending: null,
     freshPendingId: null,
-    ownerNotified: !!alertSendRes,
+    ownerNotified,
     escalationType: 'hot_lead'
   };
 }
@@ -621,7 +629,11 @@ async function processCustomerBatch(entry) {
     classification.escalation_type = null;
   }
 
-  const customerIsCasualConfirm = isCasualConfirmation(safeCombinedText);
+  const isHotEscalation = !!(classification.needs_escalation && classification.escalation_type === 'hot_lead');
+  // Casual-confirm gate ONLY applies to non-HOT messages. HOT was already vetted by
+  // the classifier's HOT_TRIGGER_RE whitelist; a short "i want to pay" is not casual,
+  // it is a commitment. Suppressing it here was eating every natural payment phrase.
+  const customerIsCasualConfirm = !isHotEscalation && isCasualConfirmation(safeCombinedText);
 
   let escResult = null;
   if (classification.needs_escalation && !customerIsCasualConfirm) {
@@ -636,14 +648,17 @@ async function processCustomerBatch(entry) {
   } else if (classification.needs_escalation && customerIsCasualConfirm) {
     logger.info('handler.escalation_suppressed_casual_confirm', {
       contactId: contact.id,
+      escalation_type: classification.escalation_type,
       message_preview: safeCombinedText.slice(0, 80)
     });
   }
 
-  const isHot = !!(classification.needs_escalation && classification.escalation_type === 'hot_lead' && !customerIsCasualConfirm);
+  const isHot = isHotEscalation;
   const currentOpen = isHot ? null : getOpenPendingQueryForContact(contact.id);
   let expertContext = null;
-  if (customerIsCasualConfirm) {
+  if (isHot) {
+    expertContext = buildExpertContext({ isHot: true });
+  } else if (customerIsCasualConfirm) {
     expertContext = [
       '# Casual confirmation context (treat as authoritative)',
       'The customer just sent a short acknowledgement (e.g. "ok", "thanks", "no problem", "got it", "alright").',
@@ -655,8 +670,6 @@ async function processCustomerBatch(entry) {
       '- Do NOT bring up earlier topics in this conversation. The customer is closing a thread, not opening one.',
       '- Maximum length: 6 words.'
     ].join('\n');
-  } else if (isHot) {
-    expertContext = buildExpertContext({ isHot: true });
   } else if (currentOpen) {
     expertContext = buildExpertContext({
       openPending: currentOpen,
