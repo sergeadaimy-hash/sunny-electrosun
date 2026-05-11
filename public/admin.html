@@ -1514,6 +1514,19 @@
     .wh-vr-meta { color: var(--faint); font-weight: 400; font-size: 12px; display: block; margin-top: 2px; }
     .wh-vr-note { color: var(--muted); font-size: 12px; }
     .wh-vr-muted { color: var(--faint); }
+    .wh-vr-flag {
+      display: inline-block;
+      padding: 1px 6px;
+      margin-left: 4px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      border: 1px solid currentColor;
+      vertical-align: 1px;
+    }
+    .wh-vr-flag.staple { color: var(--green); background: #ecfdf5; }
+    .wh-vr-flag.ds { color: #6d28d9; background: #f5f3ff; }
     .wh-badge {
       display: inline-block;
       padding: 2px 10px;
@@ -1599,6 +1612,27 @@
     }
     .wh-ds-status { font-size: 12px; color: var(--faint); }
     .wh-ds-status.err { color: #b91c1c; }
+    .wh-ds-status.ok { color: var(--green); }
+    .wh-ds-extracted { margin-top: 4px; font-size: 12px; }
+    .wh-ds-extracted-ok { color: var(--green); }
+    .wh-ds-extracted-empty { color: #b45309; }
+    .wh-staple-row {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--line);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .wh-staple-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .wh-staple-hint { font-size: 11px; color: var(--faint); }
     .wh-empty {
       padding: 30px;
       text-align: center;
@@ -2749,7 +2783,14 @@ function renderWarehouseViewRow(it, loc) {
   const noteCell = noteTxt
     ? '<span class="wh-vr-note">' + escapeHtml(noteTxt) + '</span>'
     : '<span class="wh-vr-muted">—</span>';
-  const metaTxt = it.notes ? '<span class="wh-vr-meta">' + escapeHtml(it.notes) + '</span>' : '';
+  const metaParts = [];
+  if (it.notes) metaParts.push(escapeHtml(it.notes));
+  const flagParts = [];
+  if (it.is_staple) flagParts.push('<span class="wh-vr-flag staple" title="Always injected into Sunny\'s prompt">STAPLE</span>');
+  if (it.datasheet_text && String(it.datasheet_text).length > 0) flagParts.push('<span class="wh-vr-flag ds" title="Datasheet text extracted for Sunny">DS</span>');
+  const metaTxt = (metaParts.length || flagParts.length)
+    ? '<span class="wh-vr-meta">' + metaParts.join(' &middot; ') + (metaParts.length && flagParts.length ? ' ' : '') + flagParts.join(' ') + '</span>'
+    : '';
   const nameTxt = ((it.brand || '') + ' ' + (it.model || '')).trim() || '(unnamed item)';
   return [
     '<div class="wh-view-row">',
@@ -2801,9 +2842,23 @@ function renderWarehouseItem(it) {
 function renderWarehouseDatasheet(it) {
   const sizeKb = it.datasheet_size_bytes ? Math.round(it.datasheet_size_bytes / 1024) + ' KB' : '';
   const has = !!it.datasheet_path;
+  const isPdf = has && (String(it.datasheet_mime || '').toLowerCase() === 'application/pdf');
   const downloadHref = has
     ? '/api/warehouse/items/' + it.id + '/datasheet/download?key=' + encodeURIComponent(apiKey || '')
     : '';
+  const textChars = it.datasheet_text ? String(it.datasheet_text).length : 0;
+  const extractedAt = it.datasheet_text_extracted_at || '';
+  let textStatus;
+  if (!has) {
+    textStatus = '';
+  } else if (!isPdf) {
+    textStatus = '<span class="wh-ds-extracted-empty">Image datasheet (no text extracted); Sunny still sends the file on request.</span>';
+  } else if (textChars > 0) {
+    textStatus = '<span class="wh-ds-extracted-ok">' + textChars + ' chars extracted for Sunny' + (extractedAt ? ' (' + escapeHtml(extractedAt) + ')' : '') + '</span>';
+  } else {
+    textStatus = '<span class="wh-ds-extracted-empty">No text extracted yet (try Re-extract).</span>';
+  }
+  const stapleChecked = it.is_staple ? ' checked' : '';
   return [
     '<div class="wh-datasheet">',
     '<div class="wh-ds-head">',
@@ -2816,8 +2871,17 @@ function renderWarehouseDatasheet(it) {
     '<input type="file" data-wh-ds-file accept=".pdf,application/pdf,image/png,image/jpeg,image/jpg,image/webp">',
     '<button class="btn primary" data-wh-action="upload-ds">Upload</button>',
     has ? '<a class="btn" href="' + downloadHref + '" target="_blank" rel="noopener">Download</a>' : '',
+    has && isPdf ? '<button class="btn" data-wh-action="reextract-ds">Re-extract</button>' : '',
     has ? '<button class="btn danger" data-wh-action="remove-ds">Remove</button>' : '',
     '<span class="wh-ds-status" data-wh-ds-status></span>',
+    '</div>',
+    has ? '<div class="wh-ds-extracted">' + textStatus + '</div>' : '',
+    '<div class="wh-staple-row">',
+    '<label class="wh-staple-label">',
+    '<input type="checkbox" data-wh-staple' + stapleChecked + '> ',
+    'Always tell Sunny about this item (staple)',
+    '</label>',
+    '<span class="wh-staple-hint">Staples are always injected into Sunny\'s prompt, even when the customer hasn\'t named the product. Pick 3-5 most-asked items.</span>',
     '</div>',
     '</div>'
   ].join('');
@@ -2894,8 +2958,13 @@ function bindWarehouseItemHandlers(root) {
         btn.addEventListener('click', () => {
           if (btn.dataset.whAction === 'upload-ds') uploadWarehouseDatasheet(itemId, dsRoot);
           if (btn.dataset.whAction === 'remove-ds') removeWarehouseDatasheet(itemId);
+          if (btn.dataset.whAction === 'reextract-ds') reextractWarehouseDatasheet(itemId, dsRoot);
         });
       });
+      const stapleCb = dsRoot.querySelector('[data-wh-staple]');
+      if (stapleCb) {
+        stapleCb.addEventListener('change', () => toggleWarehouseStaple(itemId, !!stapleCb.checked, dsRoot));
+      }
     }
 
     itemEl.querySelectorAll('[data-wh-loc]').forEach(locEl => {
@@ -3032,6 +3101,41 @@ async function removeWarehouseDatasheet(itemId) {
     await loadWarehouse();
   } catch (err) {
     alert('Remove failed: ' + err.message);
+  }
+}
+
+async function reextractWarehouseDatasheet(itemId, dsRoot) {
+  const status = dsRoot.querySelector('[data-wh-ds-status]');
+  if (status) {
+    status.textContent = 'Re-extracting...';
+    status.className = 'wh-ds-status';
+  }
+  try {
+    const res = await apiFetch('/warehouse/items/' + itemId + '/datasheet/reextract', { method: 'POST' });
+    if (status) {
+      status.textContent = 'Extracted ' + (res.chars || 0) + ' chars.';
+      status.className = 'wh-ds-status ok';
+    }
+    await loadWarehouse();
+  } catch (err) {
+    if (status) {
+      status.textContent = 'Re-extract failed: ' + err.message;
+      status.className = 'wh-ds-status err';
+    }
+  }
+}
+
+async function toggleWarehouseStaple(itemId, value, dsRoot) {
+  try {
+    await apiFetch('/warehouse/items/' + itemId + '/staple', {
+      method: 'POST',
+      body: JSON.stringify({ is_staple: value })
+    });
+  } catch (err) {
+    alert('Staple toggle failed: ' + err.message);
+    // revert UI
+    const cb = dsRoot.querySelector('[data-wh-staple]');
+    if (cb) cb.checked = !value;
   }
 }
 
