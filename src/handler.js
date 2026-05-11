@@ -713,14 +713,25 @@ async function processCustomerBatch(entry) {
   } else if (customerIsCasualConfirm) {
     expertContext = [
       '# Casual confirmation context (treat as authoritative)',
-      'The customer just sent a short acknowledgement (e.g. "ok", "noted", "no problem", "got it", "alright"). This is closing a thread, not opening one. Stay terse.',
+      'The customer just sent a short acknowledgement (e.g. "ok", "noted", "alright", "no problem"). They are closing a thread or pausing. React warmly, leave the door open, do NOT push.',
       '',
       'Voice rules in this state:',
-      '- Reply with ONE short phrase only: "Got it." OR "Noted." OR a single matching emoji like 👍.',
+      '- Reply with ONE short warm phrase. Vary the wording across replies; do NOT default to "Got it." every time.',
+      '- Good shapes (pick ONE that fits):',
+      '  - "Sure, take your time."',
+      '  - "No problem, no rush."',
+      '  - "Anytime, just let me know."',
+      '  - "Sure thing. Reach out whenever you\'re ready."',
+      '  - "Alright, I\'ll be here whenever you need."',
+      '  - "Noted, take your time."',
+      '  - "Sounds good."',
+      '  - A single matching emoji like 👍 (only if the customer\'s own message was very minimal).',
+      '- Maximum 1 short sentence (or a small two-clause phrase). No paragraph.',
+      '- Do NOT pile on a follow-up question. The customer is closing, not asking.',
       '- Do NOT mention prices, quantities, the team, the specialist, the catalog, stock, follow-ups, or any handoff.',
       '- Do NOT include any URL, phone number, or wa.me link.',
-      '- Do NOT bring up earlier topics in this conversation. The customer is closing a thread, not opening one.',
-      '- Maximum length: 6 words.'
+      '- Do NOT bring up earlier topics in this conversation.',
+      '- Match the customer\'s language if non-English.'
     ].join('\n');
   } else if (currentOpen) {
     expertContext = buildExpertContext({
