@@ -13,7 +13,8 @@ const {
   findPendingByAlertId,
   resolvePendingQuery,
   getOpenPendingQueryForContact,
-  getContactById
+  getContactById,
+  getMessagesForConversation
 } = require('./memory');
 const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
@@ -595,8 +596,13 @@ async function processCustomerBatch(entry) {
     classification.escalation_type = null;
     if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
 
-    const hasPriorOutbound = Array.isArray(priorHistory) && priorHistory.some(m => m && m.role === 'assistant');
-    if (!hasPriorOutbound) {
+    // Welcome card fires on the first greeting of EACH conversation rollover
+    // (24h gap opens a new conversation row). Returning customers after a day
+    // get the addresses + contact lines re-shown; mid-conversation greetings
+    // fall through to a normal reply.
+    const convMsgs = getMessagesForConversation(conversation.id);
+    const hasPriorOutboundInConv = convMsgs.some(m => m && m.direction === 'outbound');
+    if (!hasPriorOutboundInConv) {
       try {
         const sendRes = await sendMessage(lastMsg.from, WELCOME_REPLY);
         appendMessage(conversation.id, 'outbound', WELCOME_REPLY, {
