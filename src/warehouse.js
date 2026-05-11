@@ -15,6 +15,12 @@ const MAX_DATASHEET_BYTES = parseInt(process.env.DATASHEET_MAX_BYTES || String(1
 const ALLOWED_DATASHEET_MIMES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const META_MEDIA_TTL_DAYS = 25;
 
+// Per-item cap on injected datasheet text. ~2KB per item × ~4 items in scope per
+// reply keeps the Datasheet Knowledge block under 8KB even on busy turns.
+const DATASHEET_TEXT_PER_ITEM_CAP = parseInt(process.env.DATASHEET_TEXT_PER_ITEM_CAP || '2000', 10);
+const DATASHEET_BLOCK_TOTAL_CAP = parseInt(process.env.DATASHEET_BLOCK_TOTAL_CAP || '10000', 10);
+const DATASHEET_SCOPE_HISTORY_TURNS = parseInt(process.env.DATASHEET_SCOPE_HISTORY_TURNS || '6', 10);
+
 function ensureDatasheetsDir() {
   if (!fs.existsSync(DATASHEETS_DIR)) fs.mkdirSync(DATASHEETS_DIR, { recursive: true });
 }
@@ -250,6 +256,67 @@ function formatWarehouseForPrompt() {
   return lines.join('\n').trim();
 }
 
+async function extractTextFromPdfBuffer(buffer) {
+  try {
+    const pdfParse = require('pdf-parse');
+    const result = await pdfParse(buffer);
+    const raw = String(result?.text || '');
+    return normalizeDatasheetText(raw);
+  } catch (err) {
+    logger.warn('warehouse.datasheet.pdf_extract_fail', { message: err.message });
+    return '';
+  }
+}
+
+function normalizeDatasheetText(s) {
+  if (!s) return '';
+  // Collapse runs of whitespace, drop completely blank lines, strip lines that
+  // are page numbers, strip control chars. Keep meaningful structure (newlines
+  // between sections), since spec tables read better when each row is its own
+  // line.
+  const lines = s
+    .replace(/ +/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l && !/^\d{1,3}\s*\/\s*\d{1,3}$/.test(l) && !/^page\s+\d+$/i.test(l));
+  return lines.join('\n').trim();
+}
+
+async function extractDatasheetTextForItem(itemId) {
+  const db = getDb();
+  const item = db.prepare(
+    'SELECT id, datasheet_path, datasheet_mime, datasheet_filename FROM warehouse_items WHERE id = ?'
+  ).get(itemId);
+  if (!item || !item.datasheet_path || !fs.existsSync(item.datasheet_path)) return null;
+
+  let text = '';
+  if (item.datasheet_mime === 'application/pdf') {
+    const buffer = fs.readFileSync(item.datasheet_path);
+    text = await extractTextFromPdfBuffer(buffer);
+  } else {
+    // Image datasheets: nothing to extract text-wise here. We leave the field
+    // empty; the file is still sent to the customer on request.
+    text = '';
+  }
+
+  db.prepare(
+    'UPDATE warehouse_items SET datasheet_text = ?, datasheet_text_extracted_at = ?, updated_at = ? WHERE id = ?'
+  ).run(text || null, nowIso(), nowIso(), itemId);
+  logger.info('warehouse.datasheet.text_extracted', {
+    itemId, chars: text.length, mime: item.datasheet_mime
+  });
+  return text;
+}
+
+function setStaple(itemId, value) {
+  const db = getDb();
+  const v = value ? 1 : 0;
+  db.prepare('UPDATE warehouse_items SET is_staple = ?, updated_at = ? WHERE id = ?')
+    .run(v, nowIso(), itemId);
+  logger.info('warehouse.staple.set', { itemId, is_staple: v });
+}
+
 function setDatasheet(itemId, { filename, base64, mimeType }) {
   const db = getDb();
   const item = db.prepare('SELECT id, datasheet_path FROM warehouse_items WHERE id = ?').get(itemId);
@@ -280,10 +347,18 @@ function setDatasheet(itemId, { filename, base64, mimeType }) {
     UPDATE warehouse_items
     SET datasheet_filename = ?, datasheet_path = ?, datasheet_mime = ?, datasheet_size_bytes = ?,
         datasheet_meta_media_id = NULL, datasheet_meta_uploaded_at = NULL,
+        datasheet_text = NULL, datasheet_text_extracted_at = NULL,
         updated_at = ?
     WHERE id = ?
   `).run(safeName, finalPath, mimeType, buffer.length, nowIso(), itemId);
   logger.info('warehouse.datasheet.attached', { itemId, filename: safeName, size_bytes: buffer.length });
+
+  // Fire-and-forget text extraction so the upload response stays fast. The
+  // extracted text just won't be in the Datasheet Knowledge block for the
+  // next ~second; subsequent replies will have it.
+  extractDatasheetTextForItem(itemId).catch(err => {
+    logger.warn('warehouse.datasheet.extract_background_fail', { itemId, message: err.message });
+  });
 }
 
 function removeDatasheet(itemId) {
@@ -298,6 +373,7 @@ function removeDatasheet(itemId) {
     UPDATE warehouse_items
     SET datasheet_filename = NULL, datasheet_path = NULL, datasheet_mime = NULL,
         datasheet_size_bytes = NULL, datasheet_meta_media_id = NULL, datasheet_meta_uploaded_at = NULL,
+        datasheet_text = NULL, datasheet_text_extracted_at = NULL,
         updated_at = ?
     WHERE id = ?
   `).run(nowIso(), itemId);
@@ -394,6 +470,90 @@ function findItemDatasheetByQuery(message, recentText = '') {
   return null;
 }
 
+// Pick the warehouse items whose datasheet text should be injected into Sunny's
+// prompt this turn. Rules:
+// 1. Always include items flagged is_staple=1 (the brother's "always tell Sunny
+//    about this" list).
+// 2. Scan the current customer message + the last N customer turns for tokens
+//    that match an item's brand+model. Any match gets included.
+// 3. Cap individual items at DATASHEET_TEXT_PER_ITEM_CAP chars, cap the whole
+//    block at DATASHEET_BLOCK_TOTAL_CAP chars. Current-message mentions win
+//    over history mentions, which win over staples, if the budget runs out.
+function pickDatasheetItemsForScope(currentMessage, recentHistory) {
+  const db = getDb();
+  const items = db.prepare(`
+    SELECT id, brand, model, section, notes, is_staple, datasheet_text
+    FROM warehouse_items
+    WHERE datasheet_text IS NOT NULL AND length(datasheet_text) > 0
+  `).all();
+  if (!items.length) return [];
+
+  const currentTokens = new Set(tokenize(currentMessage || ''));
+  const historyText = (Array.isArray(recentHistory) ? recentHistory : [])
+    .filter(m => m && m.role === 'user')
+    .slice(-DATASHEET_SCOPE_HISTORY_TURNS)
+    .map(m => String(m.content || ''))
+    .join(' ');
+  const historyTokens = new Set(tokenize(historyText));
+
+  function itemMatches(it, tokens) {
+    if (!tokens.size) return false;
+    const itemTokens = tokenize([it.brand, it.model, it.section].filter(Boolean).join(' '));
+    for (const t of itemTokens) {
+      if (t.length < 2) continue;
+      if (tokens.has(t)) return true;
+    }
+    return false;
+  }
+
+  // Priority: 0 = current-message match (highest), 1 = history match, 2 = staple-only.
+  const ranked = [];
+  for (const it of items) {
+    if (itemMatches(it, currentTokens)) ranked.push({ it, priority: 0 });
+    else if (itemMatches(it, historyTokens)) ranked.push({ it, priority: 1 });
+    else if (it.is_staple) ranked.push({ it, priority: 2 });
+  }
+
+  ranked.sort((a, b) => a.priority - b.priority);
+
+  const out = [];
+  const seen = new Set();
+  let totalChars = 0;
+  for (const { it } of ranked) {
+    if (seen.has(it.id)) continue;
+    let text = String(it.datasheet_text || '').trim();
+    if (text.length > DATASHEET_TEXT_PER_ITEM_CAP) {
+      text = text.slice(0, DATASHEET_TEXT_PER_ITEM_CAP).trim() + '\n[...truncated...]';
+    }
+    if (totalChars + text.length > DATASHEET_BLOCK_TOTAL_CAP) break;
+    seen.add(it.id);
+    out.push({ id: it.id, brand: it.brand, model: it.model, section: it.section, notes: it.notes, text });
+    totalChars += text.length;
+  }
+  return out;
+}
+
+function formatDatasheetKnowledgeForPrompt(currentMessage, recentHistory) {
+  const picked = pickDatasheetItemsForScope(currentMessage, recentHistory);
+  if (!picked.length) return '';
+  const lines = [];
+  lines.push('# Datasheet Knowledge (per-item specs from uploaded datasheets)');
+  lines.push('');
+  lines.push('Authoritative spec text for the items in scope this turn. Use these excerpts to answer technical questions (voltage windows, pack counts, current ratings, dimensions, compatible inverters, install constraints) for the items below. Two strict rules:');
+  lines.push('1. Only quote specs that appear in the excerpt for that item. If a customer asks a spec figure that is NOT in the excerpt, say "let me confirm that with the team" rather than guessing.');
+  lines.push('2. Never quote a price from this block. Prices come ONLY from the Warehouse Stock block.');
+  lines.push('');
+  for (const p of picked) {
+    const head = (p.brand + ' ' + p.model).trim();
+    lines.push('## ' + head + (p.section ? ' (' + p.section + ')' : ''));
+    if (p.notes) lines.push('Internal notes: ' + p.notes);
+    lines.push('');
+    lines.push(p.text);
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
 module.exports = {
   LOCATIONS,
   STATES,
@@ -413,5 +573,9 @@ module.exports = {
   setItemDatasheetMetaCache,
   isMetaMediaFresh,
   findItemDatasheetByQuery,
-  formatWarehouseForPrompt
+  formatWarehouseForPrompt,
+  extractDatasheetTextForItem,
+  setStaple,
+  formatDatasheetKnowledgeForPrompt,
+  pickDatasheetItemsForScope
 };

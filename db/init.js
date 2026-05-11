@@ -103,7 +103,10 @@ function applyMigrations(db) {
       { name: 'datasheet_mime', type: 'TEXT' },
       { name: 'datasheet_size_bytes', type: 'INTEGER' },
       { name: 'datasheet_meta_media_id', type: 'TEXT' },
-      { name: 'datasheet_meta_uploaded_at', type: 'TEXT' }
+      { name: 'datasheet_meta_uploaded_at', type: 'TEXT' },
+      { name: 'datasheet_text', type: 'TEXT' },
+      { name: 'datasheet_text_extracted_at', type: 'TEXT' },
+      { name: 'is_staple', type: 'INTEGER NOT NULL DEFAULT 0' }
     ]
   };
 

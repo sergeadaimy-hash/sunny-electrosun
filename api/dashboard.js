@@ -538,6 +538,28 @@ router.get('/warehouse/items/:id/datasheet/download', (req, res) => {
   }
 });
 
+router.post('/warehouse/items/:id/staple', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    const value = !!(req.body && req.body.is_staple);
+    warehouseModule.setStaple(id, value);
+    res.json({ ok: true, id, is_staple: value });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/warehouse/items/:id/datasheet/reextract', async (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    const text = await warehouseModule.extractDatasheetTextForItem(id);
+    if (text === null) return res.status(404).json({ error: 'no datasheet attached or file missing' });
+    res.json({ ok: true, id, chars: (text || '').length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/brain', (req, res) => {
   promptStore.invalidate();
   const rules = promptStore.getAll();
