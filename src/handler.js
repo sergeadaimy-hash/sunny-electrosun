@@ -693,19 +693,11 @@ async function processCustomerBatch(entry) {
   // (a new conversation row opens after the 24h rollover). It runs regardless
   // of whether the message is a pure greeting, because the customer's very
   // first message often contains a greeting AND a substantive question, and
-  // they still need to see the welcome card. If the message is a pure
-  // greeting we stop after the welcome; otherwise we continue to a normal
-  // substantive reply so the customer gets BOTH the welcome card AND the
-  // answer in the same turn.
+  // they still need to see the welcome card. Once the card is sent we STOP —
+  // no second substantive reply this turn. The customer's follow-up will get
+  // a normal reply.
   const convMsgsForWelcome = getMessagesForConversation(conversation.id);
   const hasPriorOutboundInConv = convMsgsForWelcome.some(m => m && m.direction === 'outbound');
-  const messageIsPureGreeting = handlerIsGreeting(combinedText);
-
-  if (messageIsPureGreeting) {
-    classification.needs_escalation = false;
-    classification.escalation_type = null;
-    if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
-  }
 
   if (!hasPriorOutboundInConv) {
     try {
@@ -718,11 +710,9 @@ async function processCustomerBatch(entry) {
       logger.info('handler.welcome_sent', {
         contactId: contact.id,
         phone: lastMsg.from,
-        chars: WELCOME_REPLY.length,
-        pure_greeting: messageIsPureGreeting
+        chars: WELCOME_REPLY.length
       });
-      // Pure greeting? We're done. Otherwise continue to a substantive reply.
-      if (messageIsPureGreeting) return;
+      return;
     } catch (err) {
       logger.error('handler.welcome_send_fail', {
         contactId: contact.id,
@@ -732,6 +722,12 @@ async function processCustomerBatch(entry) {
       // If the welcome failed to send, fall through to normal reply so the
       // customer at least gets an answer.
     }
+  }
+
+  if (handlerIsGreeting(combinedText)) {
+    classification.needs_escalation = false;
+    classification.escalation_type = null;
+    if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
   }
 
   if (escalationsDisabled() && classification.needs_escalation) {
@@ -748,6 +744,34 @@ async function processCustomerBatch(entry) {
   // the classifier's HOT_TRIGGER_RE whitelist; a short "i want to pay" is not casual,
   // it is a commitment. Suppressing it here was eating every natural payment phrase.
   const customerIsCasualConfirm = !isHotEscalation && isCasualConfirmation(safeCombinedText);
+
+  // Silent-skip rule: if the customer just sent a pure casual confirm AND
+  // Sunny's most recent reply was ALREADY a warm-close phrase ("take your
+  // time", "anytime", "I'll be here", "no rush"...), do not reply. The
+  // customer is waiting for the specialist, not asking a new question.
+  // Replying with another warm-close every time looks like Sunny isn't
+  // listening.
+  if (customerIsCasualConfirm) {
+    try {
+      const lastAssistant = Array.isArray(priorHistory)
+        ? priorHistory.filter(m => m && m.role === 'assistant').slice(-1)[0]
+        : null;
+      if (lastAssistant) {
+        const lastBody = String(lastAssistant.content || '').toLowerCase();
+        const WARM_CLOSE_RE = /(take\s+your\s+time|anytime[,.]|whenever\s+you'?re\s+ready|no\s+rush|i'?ll\s+be\s+here|reach\s+out\s+whenever|just\s+let\s+me\s+know|i'?ll\s+be\s+(around|here|right\s+here)|alright,?\s+i'?ll|sure,?\s+take|sure\s+thing)/i;
+        if (WARM_CLOSE_RE.test(lastBody)) {
+          logger.info('handler.casual_confirm_after_warm_close_skipped', {
+            contactId: contact.id,
+            message_preview: safeCombinedText.slice(0, 40),
+            prior_outbound_preview: lastBody.slice(0, 80)
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      logger.warn('handler.casual_confirm_skip_check_fail', { message: err.message });
+    }
+  }
 
   let escResult = null;
   if (classification.needs_escalation && !customerIsCasualConfirm) {
