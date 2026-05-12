@@ -448,11 +448,15 @@ function tokenize(text) {
 }
 
 // Pull out size tokens like "80", "12.5" from "80kw", "80kW", "12kw", "80k",
-// "80kva", "16kwh". Returns the bare numbers as a Set of strings.
+// "80kva", "16kwh", and also "7.68" from "A7.68kwh" or "bos-A7.68kwh" where
+// the digit is glued onto a leading letter. The `\b` form used previously
+// rejected these because letter-digit has no word boundary; we now use a
+// guard that allows any leading char except another digit / dot (which would
+// be a sub-match of a larger number).
 function extractSizeNumbers(text) {
   const out = new Set();
   if (!text) return out;
-  const re = /\b(\d+(?:\.\d+)?)\s*(?:kw|kva|kwh|k)\b/gi;
+  const re = /(?:^|[^\d.])(\d+(?:\.\d+)?)\s*(?:kw|kva|kwh|k)\b/gi;
   let m;
   const s = String(text);
   while ((m = re.exec(s)) !== null) out.add(m[1]);
@@ -469,23 +473,40 @@ function findItemDatasheetByQuery(message, recentText = '') {
   `).all();
   if (!items.length) return null;
 
-  // Size match is the hard gate. If the customer message names a specific size
-  // ("80kw", "12.5kva", "16kwh"), only items with that same size in their model
-  // or notes are candidates. This stops "80kw datasheet" from falling back to
-  // the 50kW item just because it's the only one with a PDF attached.
+  // Size match is the preferred gate. If the customer message names a specific
+  // size ("80kw", "12.5kva", "16kwh"), prefer items whose model/notes carry
+  // that same size, to stop "80kw datasheet" from falling back to the 50kW
+  // item just because it's the only one with a PDF attached. BUT if no item
+  // matches the size by the kw-suffix check (common for batteries whose
+  // capacity is in the model name without a "kwh" suffix, e.g. "BOS-A-PACK7.68"
+  // or "SE-F5.12"), fall through to token-overlap matching instead of giving
+  // up entirely. Previous behavior was to return null, which dropped the
+  // customer to the LLM path where Sunny could end up sending an internal
+  // "[Datasheet sent: ...]" marker as plain text.
   const querySizes = extractSizeNumbers(message);
   let candidates = items;
   if (querySizes.size > 0) {
-    candidates = items.filter(it => {
+    const sizeMatched = items.filter(it => {
       const itemSizes = extractSizeNumbers(
         [it.brand, it.model, it.notes].filter(Boolean).join(' ')
       );
       for (const q of querySizes) {
         if (itemSizes.has(q)) return true;
       }
+      // Soft size-in-token check: the customer's size number appears as a
+      // substring of any model/notes token (catches "5" matching "F5.12",
+      // "7.68" matching "PACK7.68", "16" matching "Se-F16").
+      const blob = [it.brand, it.model, it.notes]
+        .filter(Boolean).join(' ').toLowerCase();
+      for (const q of querySizes) {
+        const re = new RegExp(`(?:^|[^\\d.])${q.replace(/\./g, '\\.')}(?![\\d])`);
+        if (re.test(blob)) return true;
+      }
       return false;
     });
-    if (!candidates.length) return null; // no matching size, do NOT fall back
+    if (sizeMatched.length > 0) candidates = sizeMatched;
+    // else: keep candidates = items, let token overlap handle it. We won't
+    // claim a size-perfect match, but we'll still try to find the right item.
   }
 
   // Among the candidates, rank by ordinary token overlap (brand, model, notes,

@@ -224,6 +224,17 @@ function scrubHistoryContent(text) {
     .replace(/If you'd prefer to reach them directly now:?[^\n]*/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+  // Internal "[Datasheet sent: ...]" markers are DB-only labels; they should
+  // never reach the model as if they were Sunny's words. If we leak them into
+  // history, Opus pattern-matches and parrots them back to the next customer
+  // who asks for a datasheet (sending the bracket label as a plain text
+  // message instead of a PDF). Replace the entire content if it's just the
+  // marker; strip the marker line otherwise.
+  if (/^\s*\[Datasheet sent:[^\]]+\]\s*$/i.test(cleaned)) {
+    cleaned = '[earlier datasheet was attached for this customer]';
+  } else {
+    cleaned = cleaned.replace(/^\s*\[Datasheet sent:[^\]]+\]\s*\n?/gim, '').trim();
+  }
   for (const re of HISTORY_HOLDING_PATTERNS) {
     if (re.test(cleaned.split('\n')[0] || '')) {
       cleaned = '[earlier system holding message]';
@@ -633,6 +644,17 @@ async function generateReply(history, message, contact, attachments = [], option
         });
         text = "Let me confirm the exact availability of that configuration with the team and get back to you shortly.";
       }
+    }
+
+    // Defense: the internal "[Datasheet sent: ...]" marker is a DB-only label,
+    // never sent to customers as text. If Opus generated one anyway (because
+    // it leaked into history before the scrubber learned to strip it), block.
+    if (text && /\[Datasheet\s+sent:[^\]]+\]/i.test(text)) {
+      logger.warn('claude.reply.datasheet_marker_in_output_blocked', {
+        contactId: contact?.id,
+        original_reply: text.slice(0, 300)
+      });
+      text = "We don't have that specific datasheet on file. The team will share it shortly.";
     }
 
     return { ok: true, text, usage: resp.usage };
