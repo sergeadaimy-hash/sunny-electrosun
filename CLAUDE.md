@@ -4,11 +4,22 @@ This file is the working memory for Sunny. Read it before making any change. It 
 
 Detailed session-by-session changelog lives in `docs/session-history.md`. That file is the audit trail for "what shipped when and why"; this file is the always-true reference for what is currently in the codebase and what rules govern Sunny's behavior.
 
-## Current launch status (rebuild in progress, 2026-05-10 evening Beirut)
+## Current launch status (rebuild in progress, 2026-05-12 midday Beirut)
 
 Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud deploy) are closed.
 
-**Session of 2026-05-10 is doing the agent-redesign rebuild** (per `docs/archive/agent-redesign-roadmap-2026-05-09.md`). Latest commit on origin/main: `88d5a84`. What changed since `7338652`:
+**Session of 2026-05-12** swapped both master prompts to owner-supplied versions and enriched owner escalation alerts. Latest commit on origin/main: `d89ca2c`. Three commits this session:
+
+- `ce8df82` Classifier prompt swap to HOT/SERIOUS/COLD/DISQUALIFIED/REPEAT_CLIENT vocabulary. Old C1-C5 schema archived at `docs/archive/classifier-v1-c1-to-c5-2026-05-12.md`. New `normalizeClassifierShape` in `src/classifier.js` derives the legacy `lead_temperature` from the new `category` (SERIOUS→WARM) so every downstream consumer keeps working without changes. Greeting fast-path and `FALLBACK_CLASSIFICATION` updated to new shape.
+- `192a161` System reply prompt swap to "distributor counter rep v2". Old version archived at `docs/archive/system-v1-19sections-2026-05-12.md`. Key shifts: install discussion strict-refused under 30kW; 30kW+ routes to specialist for EPC; ALL negotiation escalates to human; HV defaults flipped to LV-first for residential; WARM renamed to SERIOUS.
+- `d89ca2c` Owner escalation alerts now include typed headers (HOT/NEGOTIATION/REPEAT/BIG-PROJECT/FOLLOW-UP), customer signals, latest message, 6-turn conversation brief, an admin deep-link of the form `<PUBLIC_BASE_URL>/admin#conv=<id>`, and the customer wa.me link. New env var `PUBLIC_BASE_URL` (defaults to the Railway URL when unset). Admin SPA auto-selects the linked conversation on hash change.
+
+Code adaptation backlog (new prompts reference these but the code does not yet honor them):
+- Routing for `escalation_type='negotiation'` / `'repeat_complex'` / `'big_project'` currently falls through the silent_query pending-queries flow (header label is correct via `ESCALATION_HEADERS`, but routing is generic).
+- `Active Promos`, `Big project context`, structured `Datasheet Knowledge` injection blocks not yet built.
+- `contacts.category` rows now mix C1-C5 (legacy) with HOT/SERIOUS/COLD (new). Admin filters for C* still work for legacy rows.
+
+**Earlier in the rebuild** (2026-05-10 session, per `docs/archive/agent-redesign-roadmap-2026-05-09.md`): see commit `88d5a84` and the seven-step summary archived in `memory/project_pickup_2026-05-10.md`. Highlights:
 
 1. **Warehouse Stock** is now the single source of truth for stock + price + datasheets. New top-level admin tab with per-item Abuja/Lagos panels (state in_stock/incoming/out_of_stock, quantity +/-, coming note, ETA date) and a per-item datasheet PDF upload. `formatWarehouseForPrompt()` replaces the catalog block in Sunny's prompt. Catalog table preserved but its prompt block is no longer injected.
 2. **Knowledge tab stripped** to two sub-panels: **Rules** (editable per-prompt textareas with Save = git commit+push via GitHub Contents API, Deploy = Railway GraphQL `serviceInstanceRedeploy`) and **Models & config**. Live facts, Catalog, Datasheets sub-panels and the owner-DM teaching path retired. `teacher.md` dropped from the editor. Doctrine now lives entirely inside `system.md`.
