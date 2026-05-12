@@ -272,6 +272,53 @@ function extractMessages(payload) {
   return out;
 }
 
+const ADMIN_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sunny-electrosun-production.up.railway.app').replace(/\/+$/, '');
+
+const ESCALATION_HEADERS = {
+  hot_lead: 'HOT LEAD, customer is ready to pay.',
+  negotiation: 'NEGOTIATION, customer is asking for a discount or counter-offer.',
+  repeat_complex: 'REPEAT CLIENT, returning customer with a complex ask.',
+  big_project: 'BIG PROJECT, 30kW+ install / EPC enquiry.',
+  silent_query: 'FOLLOW-UP NEEDED, customer is waiting on a team answer.'
+};
+
+function escalationHeader(type) {
+  return ESCALATION_HEADERS[type] || ESCALATION_HEADERS.silent_query;
+}
+
+function formatConversationBriefForOwner(contactId, maxTurns = 6) {
+  try {
+    const conv = getActiveConversation(contactId);
+    if (!conv || !conv.id) return null;
+    const rows = getMessagesForConversation(conv.id) || [];
+    if (rows.length === 0) return null;
+    const tail = rows.slice(-maxTurns);
+    const briefLines = [];
+    for (const r of tail) {
+      const who = r.direction === 'inbound' ? 'Customer' : 'Sunny';
+      let stamp = '';
+      if (r.timestamp) {
+        const d = new Date(r.timestamp.includes('T') ? r.timestamp : r.timestamp.replace(' ', 'T') + 'Z');
+        if (!isNaN(d)) {
+          stamp = `[${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}] `;
+        }
+      }
+      const body = String(r.body || '').replace(/\s+/g, ' ').trim();
+      const truncated = body.length > 220 ? body.slice(0, 217) + '...' : body;
+      briefLines.push(`${stamp}${who}: ${truncated}`);
+    }
+    return briefLines.join('\n');
+  } catch (err) {
+    logger.warn('escalation.brief_build_fail', { message: err.message, contactId });
+    return null;
+  }
+}
+
+function buildAdminConversationLink(conversationId) {
+  if (!conversationId) return null;
+  return `${ADMIN_BASE_URL}/admin#conv=${conversationId}`;
+}
+
 async function notifyOwnerEscalation(contact, message, classification) {
   const ownerPhone = process.env.OWNER_WHATSAPP;
   if (!ownerPhone) {
@@ -279,29 +326,39 @@ async function notifyOwnerEscalation(contact, message, classification) {
     return null;
   }
 
-  // Two alert formats. HOT lead = customer ready to pay; silent_query =
-  // customer waiting on team answer Sunny promised. Both formats include the
-  // wa.me link so the brother can open the chat directly. Restored from the
-  // 2026-05-10 HOT-only state because Sunny was telling customers "the team
-  // will get back to you" without firing an alert; the contract was broken.
-  const escalationType = classification && classification.escalation_type === 'hot_lead' ? 'hot_lead' : 'silent_query';
+  const rawType = classification && classification.escalation_type;
+  const escalationType = ESCALATION_HEADERS[rawType] ? rawType : 'silent_query';
   const customerWaLink = contact.phone
     ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}`
     : null;
 
+  const customerConv = getActiveConversation(contact.id);
+  const adminLink = customerConv && customerConv.id ? buildAdminConversationLink(customerConv.id) : null;
+  const brief = formatConversationBriefForOwner(contact.id, 6);
+
+  const signals = [];
+  if (classification && classification.category) signals.push(`Category: ${classification.category}`);
+  if (classification && classification.lead_temperature) signals.push(`Temp: ${classification.lead_temperature}`);
+  if (classification && classification.intent) signals.push(`Intent: ${classification.intent}`);
+
   const lines = [];
-  if (escalationType === 'hot_lead') {
-    lines.push('HOT LEAD, customer is ready to pay.');
-  } else {
-    lines.push('FOLLOW-UP NEEDED, customer is waiting on a team answer.');
-  }
+  lines.push(escalationHeader(escalationType));
   lines.push(`Customer: ${contact.name || 'unknown'} (${contact.phone})`);
+  if (signals.length) lines.push(signals.join(' | '));
   lines.push('');
-  lines.push('Their message:');
+  lines.push('Latest message:');
   lines.push(message);
-  if (customerWaLink) {
+  if (brief) {
     lines.push('');
-    lines.push(`Open chat with customer: ${customerWaLink}`);
+    lines.push('Conversation so far:');
+    lines.push(brief);
+  }
+  if (adminLink) {
+    lines.push('');
+    lines.push(`Open in admin: ${adminLink}`);
+  }
+  if (customerWaLink) {
+    lines.push(`Open WhatsApp chat: ${customerWaLink}`);
   }
 
   const alertText = lines.join('\n');
@@ -511,6 +568,9 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
       let followSendRes = null;
       if (ownerPhone) {
         const waLink = contact.phone ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}` : null;
+        const followConv = getActiveConversation(contact.id);
+        const followAdminLink = followConv && followConv.id ? buildAdminConversationLink(followConv.id) : null;
+        const followBrief = formatConversationBriefForOwner(contact.id, 6);
         const followLines = [
           'FOLLOW-UP, same customer is still asking on the pending query.',
           `Customer: ${contact.name || 'unknown'} (${contact.phone})`,
@@ -518,9 +578,17 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
           'Latest message:',
           safeCombinedText
         ];
-        if (waLink) {
+        if (followBrief) {
           followLines.push('');
-          followLines.push(`Open chat with customer: ${waLink}`);
+          followLines.push('Conversation so far:');
+          followLines.push(followBrief);
+        }
+        if (followAdminLink) {
+          followLines.push('');
+          followLines.push(`Open in admin: ${followAdminLink}`);
+        }
+        if (waLink) {
+          followLines.push(`Open WhatsApp chat: ${waLink}`);
         }
         const followText = followLines.join('\n');
         followSendRes = await sendMessage(ownerPhone, followText);

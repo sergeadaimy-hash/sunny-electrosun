@@ -3189,10 +3189,26 @@ async function adjustWarehouseQty(itemId, loc, locEl, delta) {
 
 // INIT
 
+function parseConvIdFromHash() {
+  const h = String(window.location.hash || '');
+  const m = h.match(/(?:^|[#&])conv=(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function openConvFromHashIfAny() {
+  const id = parseConvIdFromHash();
+  if (id && id !== currentConversationId) {
+    selectConversation(id);
+  }
+}
+
+window.addEventListener('hashchange', openConvFromHashIfAny);
+
 if (apiKey) {
   showApp();
   refreshAll().then(() => {
     refreshTimer = setInterval(refreshAll, 15000);
+    openConvFromHashIfAny();
   }).catch(() => {
     showLogin();
   });
