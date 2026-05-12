@@ -689,38 +689,48 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  if (handlerIsGreeting(combinedText)) {
+  // Welcome card fires on the FIRST customer message of each fresh conversation
+  // (a new conversation row opens after the 24h rollover). It runs regardless
+  // of whether the message is a pure greeting, because the customer's very
+  // first message often contains a greeting AND a substantive question, and
+  // they still need to see the welcome card. If the message is a pure
+  // greeting we stop after the welcome; otherwise we continue to a normal
+  // substantive reply so the customer gets BOTH the welcome card AND the
+  // answer in the same turn.
+  const convMsgsForWelcome = getMessagesForConversation(conversation.id);
+  const hasPriorOutboundInConv = convMsgsForWelcome.some(m => m && m.direction === 'outbound');
+  const messageIsPureGreeting = handlerIsGreeting(combinedText);
+
+  if (messageIsPureGreeting) {
     classification.needs_escalation = false;
     classification.escalation_type = null;
     if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
+  }
 
-    // Welcome card fires on the first greeting of EACH conversation rollover
-    // (24h gap opens a new conversation row). Returning customers after a day
-    // get the addresses + contact lines re-shown; mid-conversation greetings
-    // fall through to a normal reply.
-    const convMsgs = getMessagesForConversation(conversation.id);
-    const hasPriorOutboundInConv = convMsgs.some(m => m && m.direction === 'outbound');
-    if (!hasPriorOutboundInConv) {
-      try {
-        const sendRes = await sendMessage(lastMsg.from, WELCOME_REPLY);
-        appendMessage(conversation.id, 'outbound', WELCOME_REPLY, {
-          whatsapp_message_id: sendRes.messageId,
-          intent: 'welcome',
-          language: classification.language || 'english'
-        });
-        logger.info('handler.welcome_sent', {
-          contactId: contact.id,
-          phone: lastMsg.from,
-          chars: WELCOME_REPLY.length
-        });
-        return;
-      } catch (err) {
-        logger.error('handler.welcome_send_fail', {
-          contactId: contact.id,
-          phone: lastMsg.from,
-          message: err.message
-        });
-      }
+  if (!hasPriorOutboundInConv) {
+    try {
+      const sendRes = await sendMessage(lastMsg.from, WELCOME_REPLY);
+      appendMessage(conversation.id, 'outbound', WELCOME_REPLY, {
+        whatsapp_message_id: sendRes.messageId,
+        intent: 'welcome',
+        language: classification.language || 'english'
+      });
+      logger.info('handler.welcome_sent', {
+        contactId: contact.id,
+        phone: lastMsg.from,
+        chars: WELCOME_REPLY.length,
+        pure_greeting: messageIsPureGreeting
+      });
+      // Pure greeting? We're done. Otherwise continue to a substantive reply.
+      if (messageIsPureGreeting) return;
+    } catch (err) {
+      logger.error('handler.welcome_send_fail', {
+        contactId: contact.id,
+        phone: lastMsg.from,
+        message: err.message
+      });
+      // If the welcome failed to send, fall through to normal reply so the
+      // customer at least gets an answer.
     }
   }
 
