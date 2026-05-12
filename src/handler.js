@@ -613,16 +613,33 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
     }
   }
 
-  const escThrottle = security.checkEscalationThrottle(contact.id);
-  if (!escThrottle.allowed) {
-    security.logSecurityEvent('escalation_throttled', {
-      contactId: contact.id,
-      last_at: escThrottle.lastAt,
-      cooldown_ms: escThrottle.cooldownMs,
-      escalation_type: escalationType,
-      source: source || 'classifier'
-    });
-    return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType, throttled: true };
+  // HOT leads have their own short throttle (60s default, configurable). Regular
+  // 30-min throttle was eating real HOT alerts when a customer escalated twice
+  // in the same conversation. A HOT signal must always reach the owner; the
+  // 60s cap is only to defang back-to-back identical retries.
+  if (escalationType === 'hot_lead') {
+    const hotThrottle = security.checkHotEscalationThrottle(contact.id);
+    if (!hotThrottle.allowed) {
+      security.logSecurityEvent('hot_escalation_throttled', {
+        contactId: contact.id,
+        last_at: hotThrottle.lastAt,
+        cooldown_ms: hotThrottle.cooldownMs,
+        source: source || 'classifier'
+      });
+      return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType, throttled: true };
+    }
+  } else {
+    const escThrottle = security.checkEscalationThrottle(contact.id);
+    if (!escThrottle.allowed) {
+      security.logSecurityEvent('escalation_throttled', {
+        contactId: contact.id,
+        last_at: escThrottle.lastAt,
+        cooldown_ms: escThrottle.cooldownMs,
+        escalation_type: escalationType,
+        source: source || 'classifier'
+      });
+      return { openPending: null, freshPendingId: null, ownerNotified: false, escalationType, throttled: true };
+    }
   }
 
   // Create the pending_queries row for silent_query so subsequent customer
@@ -641,7 +658,19 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
     }
   }
 
-  const alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification);
+  let alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification);
+  // HOT alerts get one retry after a short delay if the first send fails. A
+  // missed HOT alert means the brother doesn't find out a customer is ready
+  // to pay; that's a much worse outcome than a duplicate send.
+  if ((!alertSendRes || !alertSendRes.ok) && escalationType === 'hot_lead') {
+    logger.warn('handler.escalation.hot_alert_first_send_failed_retrying', {
+      contactId: contact.id,
+      first_status: alertSendRes && alertSendRes.status,
+      first_error: alertSendRes && alertSendRes.error
+    });
+    await new Promise(r => setTimeout(r, 1500));
+    alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification);
+  }
   const ownerNotified = !!(alertSendRes && alertSendRes.ok);
   if (!ownerNotified) {
     logger.error('handler.escalation.owner_alert_send_failed', {
@@ -1024,6 +1053,13 @@ async function processCustomerBatch(entry) {
   }
 
   let outboundText = reply.text;
+  // HOT-handoff markers: language Sunny ONLY uses when the customer is in the
+  // HOT-lead-handoff flow ("account details and final figures", "send you the
+  // account", etc.). When any of these appear in the reply, the owner MUST
+  // receive a hot_lead alert — even if a silent_query follow-up ping already
+  // went out this turn. This is the bug that let "Yes send me account" get
+  // routed as a follow-up on an old silent_query instead of a fresh HOT.
+  const HOT_HANDOFF_REPLY_RE = /\b(account\s+details\s+and\s+(final\s+)?figures|formal\s+documents\s+and\s+(final\s+)?figures|reach\s+out\s+(shortly|soon)\s+with\s+(the\s+)?account|share\s+the\s+account|send\s+(you\s+)?the\s+account|(specialist|sales\s+team|team)\s+(will|is|can)\s+(handle|handling|process|processing|manage|managing)\s+(the\s+)?(payment|order|invoice))/i;
   // STRICT INVARIANT: any time Sunny promises a team follow-up in text, the
   // owner MUST get an alert with the customer's wa.me link. Otherwise the
   // customer waits for a reply that never gets escalated. This regex matches
@@ -1051,7 +1087,56 @@ async function processCustomerBatch(entry) {
     'will\\s+get\\s+back\\s+to\\s+you'
   ].join('|'), 'i');
   const replyMentionsHandoff = HANDOFF_REPLY_RE.test(outboundText);
+  const replyMentionsHotHandoff = HOT_HANDOFF_REPLY_RE.test(outboundText);
   const linkAlreadyInText = /https?:\/\/wa\.me\//i.test(outboundText);
+
+  // HOT handoff backstop: if the reply contains HOT-specific handoff language
+  // and no hot_lead alert has fired this turn, force one. This runs BEFORE the
+  // generic backstop and is NOT satisfied by a silent_query follow-up ping
+  // having fired earlier — a HOT signal outranks a silent_query follow-up.
+  if (replyMentionsHotHandoff && !escalationsDisabled()) {
+    const hotAlertAlreadyFiredThisTurn = !!(
+      escResult &&
+      escResult.ownerNotified &&
+      escResult.escalationType === 'hot_lead'
+    );
+    if (!hotAlertAlreadyFiredThisTurn) {
+      logger.warn('handler.hot_handoff_in_reply_owner_alert', {
+        contactId: contact.id,
+        had_expert_context: !!expertContext,
+        original_esc_type: escResult && escResult.escalationType,
+        original_owner_notified: escResult && escResult.ownerNotified,
+        reply_preview: outboundText.slice(0, 200)
+      });
+      const hotHandoffClassification = {
+        ...classification,
+        needs_escalation: true,
+        escalation_type: 'hot_lead'
+      };
+      try {
+        const hotEsc = await notifyOwnerForEscalation({
+          contact: refreshedContact,
+          classification: hotHandoffClassification,
+          safeCombinedText,
+          lastMsg,
+          batchSize: msgs.length,
+          source: 'hot_handoff_in_reply'
+        });
+        if (hotEsc && hotEsc.ownerNotified) {
+          classification.needs_escalation = true;
+          classification.escalation_type = 'hot_lead';
+          // Refresh escResult so the generic handoff backstop below sees the
+          // HOT alert as already-fired and skips firing a duplicate generic one.
+          escResult = hotEsc;
+        }
+      } catch (err) {
+        logger.warn('handler.hot_handoff_in_reply_alert_fail', {
+          contactId: contact.id,
+          message: err.message
+        });
+      }
+    }
+  }
 
   if (replyMentionsHandoff && !escalationsDisabled()) {
     const ownerAlreadyNotifiedThisTurn = !!(escResult && (escResult.ownerNotified || escResult.freshPendingId));

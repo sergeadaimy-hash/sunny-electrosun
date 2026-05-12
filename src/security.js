@@ -6,10 +6,19 @@ const MAX_SINGLE_MESSAGE_CHARS = parseInt(process.env.MAX_SINGLE_MESSAGE_CHARS |
 const MAX_COMBINED_BATCH_CHARS = parseInt(process.env.MAX_COMBINED_BATCH_CHARS || '4000', 10);
 const ESCALATION_COOLDOWN_MS = parseInt(process.env.ESCALATION_COOLDOWN_MS || '1800000', 10);
 const FOLLOWUP_COOLDOWN_MS = parseInt(process.env.FOLLOWUP_COOLDOWN_MS || '300000', 10);
+// HOT leads have their own, much shorter throttle. Reason: the regular 30-min
+// escalation cooldown was eating real HOT alerts when a customer escalated
+// twice in the same conversation (typical pattern: customer asks a question,
+// gets escalated, then commits to buy 5 minutes later -> the second HOT was
+// silently swallowed). A HOT signal must always reach the owner. We keep a
+// 60-second window only to defang back-to-back identical retries from the
+// customer's side (network glitch, double-send, etc.).
+const HOT_ESCALATION_COOLDOWN_MS = parseInt(process.env.HOT_ESCALATION_COOLDOWN_MS || '60000', 10);
 const MAX_IMAGES_PER_DAY = parseInt(process.env.MAX_IMAGES_PER_DAY || '10', 10);
 
 const rateLimitState = new Map();
 const escalationState = new Map();
+const hotEscalationState = new Map();
 const followupState = new Map();
 const imageState = new Map();
 
@@ -151,6 +160,20 @@ function checkEscalationThrottle(contactId) {
   return { allowed: true };
 }
 
+function checkHotEscalationThrottle(contactId) {
+  const now = Date.now();
+  const state = hotEscalationState.get(contactId);
+  if (!state) {
+    hotEscalationState.set(contactId, { lastAt: now });
+    return { allowed: true };
+  }
+  if (now - state.lastAt < HOT_ESCALATION_COOLDOWN_MS) {
+    return { allowed: false, lastAt: state.lastAt, cooldownMs: HOT_ESCALATION_COOLDOWN_MS };
+  }
+  state.lastAt = now;
+  return { allowed: true };
+}
+
 function checkFollowupThrottle(contactId) {
   const now = Date.now();
   const state = followupState.get(contactId);
@@ -218,6 +241,7 @@ module.exports = {
   countPricePatterns,
   countPhonePatterns,
   checkEscalationThrottle,
+  checkHotEscalationThrottle,
   checkFollowupThrottle,
   detectStallLanguage,
   checkImageQuota,
@@ -227,6 +251,7 @@ module.exports = {
   MAX_SINGLE_MESSAGE_CHARS,
   MAX_COMBINED_BATCH_CHARS,
   ESCALATION_COOLDOWN_MS,
+  HOT_ESCALATION_COOLDOWN_MS,
   FOLLOWUP_COOLDOWN_MS,
   MAX_IMAGES_PER_DAY,
 };

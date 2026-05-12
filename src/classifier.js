@@ -27,7 +27,7 @@ const AFFIRMATION_RE = /^(yes|yea+h?|yep+|yup+|sure|ok+|okay+|of\s+course|sounds
 // still treat this as an affirmation if it follows a Sunny HOT prompt — the
 // extra content is the customer doing the closing work for us.
 const LEADING_AFFIRMATION_RE = /^(yes|yea+h?|yep+|yup+|sure|ok+|okay+|of\s+course|sounds\s+good|absolutely|definitely|i'?m\s+ready|alright|all\s+right|please\s+do|do\s+it|go\s+ahead)\b/i;
-const HOT_PROMPT_FROM_SUNNY_RE = /\b(ready\s+to\s+pay|ready\s+to\s+proceed|shall\s+(i|we)\s+send\s+(the\s+)?account|best\s+price.*(ready|pay)|are\s+you\s+ready\s+to|shall\s+(i|we)\s+(book|schedule|proceed)|want\s+to\s+(proceed|order|book)|happy\s+to\s+proceed|shall\s+we\s+(go\s+ahead|proceed)|confirm\s+(the\s+)?(order|payment)|proceed\s+with\s+(the\s+)?order|send\s+you\s+(the\s+)?account|payment\s+now|(would\s+you\s+like|want)\s+(a|an|the)?\s*(proforma|invoice|quotation)|like\s+a\s+(proforma|invoice|quotation)|pay\s+(now|tomorrow|today)\s+or)/i;
+const HOT_PROMPT_FROM_SUNNY_RE = /\b(ready\s+to\s+pay|ready\s+to\s+proceed|shall\s+(i|we)\s+send\s+(the\s+)?account|best\s+price.*(ready|pay)|are\s+you\s+ready\s+to|shall\s+(i|we)\s+(book|schedule|proceed)|want\s+to\s+(proceed|order|book|place\s+(a|an|the)\s+(pre-?order|order)|pre-?order|secure\s+(a|the|one|your)|lock\s+(it|this|that)\s+in|reserve|grab|take\s+(it|one|the\s+unit))|happy\s+to\s+proceed|shall\s+we\s+(go\s+ahead|proceed)|confirm\s+(the\s+)?(order|payment)|proceed\s+with\s+(the\s+)?order|send\s+you\s+(the\s+)?account|payment\s+now|(would\s+you\s+like|want)\s+(a|an|the)?\s*(proforma|invoice|quotation)|like\s+a\s+(proforma|invoice|quotation)|pay\s+(now|tomorrow|today)\s+or|place\s+(a|an|the)\s+(pre-?order|order)|pre-?order\s+(to\s+)?(secure|reserve|lock|hold)|secure\s+(a|the|one|your)\s+(unit|order|spot|piece)|lock\s+(it|this|one|a\s+unit)\s+in|pickup\s+or\s+delivery|come\s+(in|over)\s+to\s+(pay|pick|collect)|when\s+can\s+(you|we)\s+(pay|pick|collect)|how\s+would\s+you\s+like\s+to\s+(pay|proceed))/i;
 
 function isAffirmationAfterHotPrompt(history, body) {
   if (!Array.isArray(history) || history.length === 0) return false;
@@ -126,6 +126,29 @@ async function runClassification(contact, history, message) {
         contactId: contact.id,
         original_temp: result.lead_temperature,
         message_preview: body.slice(0, 80)
+      });
+    }
+    result.lead_temperature = 'HOT';
+    result.needs_escalation = true;
+    result.escalation_type = 'hot_lead';
+  }
+
+  // BACKSTOP: if the customer's CURRENT message contains a hard commitment
+  // phrase ("send me account", "i want to pay", "ready to pay", "send proforma",
+  // etc.), force HOT regardless of what the classifier returned and regardless
+  // of what Sunny said previously. This catches the failure mode where the
+  // classifier (Sonnet) demoted to WARM/SERIOUS, the affirmation-after-hot-
+  // prompt check missed because Sunny's prior question didn't match the
+  // HOT_PROMPT regex, and the open-pending-query follow-up path then swallowed
+  // the HOT signal as a silent_query follow-up ping. A commitment phrase in
+  // the customer's own words is a hard buy signal, never miss it.
+  if (!affirmationToHotPrompt && hasHotTrigger(body)) {
+    if (result.lead_temperature !== 'HOT' || !result.needs_escalation || result.escalation_type !== 'hot_lead') {
+      logger.warn('classifier.commitment_phrase_force_promoted_to_hot', {
+        contactId: contact.id,
+        original_temp: result.lead_temperature,
+        original_escalation_type: result.escalation_type,
+        message_preview: body.slice(0, 120)
       });
     }
     result.lead_temperature = 'HOT';

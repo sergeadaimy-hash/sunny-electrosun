@@ -4,9 +4,71 @@ const Anthropic = require('@anthropic-ai/sdk');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 // knowledge facts retired 2026-05-10: rules now live entirely in src/prompts/system.md
-const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt } = require('./warehouse');
+const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt, listItems: listWarehouseItems } = require('./warehouse');
 // datasheets retired from prompt 2026-05-10: now attached to warehouse items, looked up at send time
 const security = require('./security');
+
+// Variant truth guard. Catches the recurring failure where the model asserts
+// a SIZE+PHASE combo that doesn't exist in Warehouse Stock (e.g. "20kW
+// single-phase is currently incoming, new shipment within 20 days" when the
+// only 20kW we stock is the 3-phase SUN-20K-SG05LP3). Conservative: only
+// flags when the reply combines (size, phase, stock-state) AND the combo is
+// absent from the live warehouse AND the surrounding context isn't a negation
+// ("we don't carry the 20kW single-phase", "stops at the 18kW", etc.).
+function detectFabricatedVariant(text, contactId) {
+  if (!text) return null;
+  let items;
+  try { items = listWarehouseItems(); }
+  catch (err) {
+    logger.warn('claude.reply.variant_guard_load_fail', { message: err.message });
+    return null;
+  }
+  if (!items.length) return null;
+
+  const sizeToPhases = new Map();
+  for (const it of items) {
+    const blob = [it.brand, it.model, it.notes, it.section].filter(Boolean).join(' ').toLowerCase();
+    const sizes = new Set();
+    const reSize = /(\d+(?:\.\d+)?)\s*k(?:w|va|wh)\b/gi;
+    let mm;
+    while ((mm = reSize.exec(blob)) !== null) sizes.add(mm[1]);
+
+    const phases = new Set();
+    if (/\b(single[\s-]?phase|1[\s-]?phase|1ph|1[\s-]?p\b|1\s+phase)\b/.test(blob)) phases.add('single');
+    if (/\b(three[\s-]?phase|3[\s-]?phase|3ph|3[\s-]?p\b|3\s*phases?|3\s+phase)\b/.test(blob)) phases.add('three');
+    if (/\bhv\b/.test(blob)) phases.add('hv');
+    if (/\blv\b/.test(blob)) phases.add('lv');
+
+    for (const s of sizes) {
+      if (!sizeToPhases.has(s)) sizeToPhases.set(s, new Set());
+      const set = sizeToPhases.get(s);
+      for (const p of phases) set.add(p);
+    }
+  }
+
+  const VARIANT_CLAIM_RE = /(\d+(?:\.\d+)?)\s*k(?:w|va|wh)\b[\s\w,-]{0,40}?\b(single[\s-]?phase|three[\s-]?phase|3[\s-]?phase|1[\s-]?phase|hv|lv)\b[\s\w,-]{0,60}?\b(is\s+(?:currently\s+)?)?(incoming|available|in\s+stock|on\s+order|out\s+of\s+stock|pre[\s-]?order|coming|new\s+shipment|currently)\b/gi;
+  const flagged = [];
+  let m;
+  while ((m = VARIANT_CLAIM_RE.exec(text)) !== null) {
+    const size = m[1];
+    let phase = m[2].toLowerCase().replace(/[\s-]+/g, ' ').trim();
+    if (/single|1\s*phase|1ph/.test(phase)) phase = 'single';
+    else if (/three|3\s*phase|3ph/.test(phase)) phase = 'three';
+
+    // Negation context skip: if the surrounding text is correcting / negating
+    // (we don't carry, stops at, only in, three-phase only, etc.), allow it.
+    const beforeStart = Math.max(0, m.index - 100);
+    const context = text.slice(beforeStart, m.index + m[0].length).toLowerCase();
+    if (/(don'?t\s+(have|carry|stock|sell)|doesn'?t\s+(have|carry|stock|sell|exist)|don'?t\s+have\s+a|do\s+not\s+(have|carry|stock|sell)|no\s+\d+\s*k|not\s+in\s+(stock|our|the|current)|isn'?t\s+(in|available)|not\s+available|stops?\s+at|only\s+(in\s+|comes\s+in\s+|available\s+in\s+)?(three|3|single|1|hv|lv)|three[\s-]?phase\s+only|hv\s+only|lv\s+only|3[\s-]?phase\s+only|single[\s-]?phase\s+only|1[\s-]?phase\s+only|currently\s+(out|don'?t)|we\s+don'?t|range\s+stops|lineup\s+stops|you'?re\s+right)/.test(context)) continue;
+
+    const phaseSet = sizeToPhases.get(size);
+    if (!phaseSet || !phaseSet.has(phase)) {
+      flagged.push({ size, phase, match: m[0].slice(0, 120) });
+    }
+  }
+
+  return flagged.length ? flagged : null;
+}
 
 const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-opus-4-7';
 const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-opus-4-7';
@@ -558,6 +620,18 @@ async function generateReply(history, message, contact, attachments = [], option
         }
       } catch (err) {
         logger.warn('claude.reply.post_override_dup_check_fail', { message: err.message });
+      }
+    }
+
+    if (text) {
+      const fabricatedVariants = detectFabricatedVariant(text, contact?.id);
+      if (fabricatedVariants) {
+        logger.warn('claude.reply.fabricated_variant_blocked', {
+          contactId: contact?.id,
+          fabricated: fabricatedVariants,
+          original_reply: text.slice(0, 400)
+        });
+        text = "Let me confirm the exact availability of that configuration with the team and get back to you shortly.";
       }
     }
 
