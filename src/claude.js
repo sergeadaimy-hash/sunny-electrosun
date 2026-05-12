@@ -46,17 +46,22 @@ async function withRetry(fn, label, maxAttempts = 3) {
 }
 
 const FALLBACK_CLASSIFICATION = {
-  category: 'unsorted',
+  category: 'COLD',
+  secondary_category: null,
   lead_temperature: 'COLD',
+  buyer_experience: 'unknown',
   client_type: 'unknown',
   intent: 'other',
   language: 'english',
   confidence: 0,
   needs_escalation: false,
   escalation_type: null,
+  suggested_question: null,
+  follow_up_in_days: null,
   lead_data: {
     name: null, location: null, use_case: null, load_estimate: null, timeline: null,
-    products_asked_about: null, brand_preference: null, budget_mentioned: null
+    products_asked_about: null, brand_preference: null, budget_mentioned: null,
+    experience_signal: null, previous_purchase: null
   }
 };
 

@@ -55,6 +55,39 @@ function isClarificationMessage(text) {
   return t.length <= 40 && CLARIFICATION_RE.test(t);
 }
 
+// Owner swapped classifier prompt on 2026-05-12 to a HOT/SERIOUS/COLD/
+// DISQUALIFIED/REPEAT_CLIENT vocabulary that no longer emits a separate
+// lead_temperature field. Downstream code (this file, src/handler.js, the
+// admin UI, the contacts table) still expects HOT/WARM/COLD/DISQUALIFIED on
+// lead_temperature. We derive it here so a single change in the prompt does
+// not ripple through every consumer.
+const CATEGORY_TO_TEMP = {
+  HOT: 'HOT',
+  SERIOUS: 'WARM',
+  COLD: 'COLD',
+  DISQUALIFIED: 'DISQUALIFIED',
+  CLOSED: 'CLOSED',
+  LOST: 'LOST'
+};
+
+function normalizeClassifierShape(result) {
+  if (!result || typeof result !== 'object') return result;
+  // Already in the legacy shape (lead_temperature present, category is C*). Leave it.
+  if (result.lead_temperature && /^(HOT|WARM|COLD|DISQUALIFIED|CLOSED|LOST)$/.test(result.lead_temperature)) {
+    return result;
+  }
+  const cat = String(result.category || '').toUpperCase();
+  if (cat === 'REPEAT_CLIENT') {
+    const sec = String(result.secondary_category || '').toUpperCase();
+    result.lead_temperature = CATEGORY_TO_TEMP[sec] || 'WARM';
+  } else if (CATEGORY_TO_TEMP[cat]) {
+    result.lead_temperature = CATEGORY_TO_TEMP[cat];
+  } else {
+    result.lead_temperature = 'COLD';
+  }
+  return result;
+}
+
 async function runClassification(contact, history, message) {
   const body = bodyText(message);
 
@@ -64,23 +97,27 @@ async function runClassification(contact, history, message) {
       message_preview: body
     });
     return {
-      category: 'C1',
+      category: 'COLD',
+      secondary_category: null,
       lead_temperature: 'COLD',
+      buyer_experience: 'unknown',
       client_type: 'unknown',
       intent: 'greeting',
       language: 'english',
       confidence: 95,
       needs_escalation: false,
       escalation_type: null,
+      suggested_question: null,
+      follow_up_in_days: null,
       lead_data: {
         name: null, location: null, use_case: null, load_estimate: null,
         timeline: null, products_asked_about: null, brand_preference: null,
-        budget_mentioned: null
+        budget_mentioned: null, experience_signal: null, previous_purchase: null
       }
     };
   }
 
-  const result = await classify(history, message);
+  const result = normalizeClassifierShape(await classify(history, message));
 
   const affirmationToHotPrompt = isAffirmationAfterHotPrompt(history, body);
   if (affirmationToHotPrompt) {
