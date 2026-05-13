@@ -53,6 +53,21 @@ Changes in `src/prompts/system.md`:
 
 This push is uncommitted on local main. Serge will push.
 
+**Same day, fourth tune (2026-05-13 afternoon Beirut), pending Serge push:** swapped §9 entirely with the owner-supplied "Deye HV Inverter & Battery Configurator v2" content. The previous §9 + §5 HV BOM shape + related §19 nevers were snapshotted to `docs/archive/system-hv-section-2026-05-13-before-configurator-v2.md`.
+
+Material changes in this swap (vs the just-shipped state):
+
+- *Optimal module count rule RETIRED.* Sizing now uses pure ceil(total kWh ÷ module kWh) plus even cluster balancing. The earlier "round down within 3%" optimization is gone. Per the owner's worked reference: 230 kWh BOS-A → 30 modules round to 32 (balanced 8+8+8+8), not 28 or 29.
+- *BOS-A rack capacities updated.* BOS-A-RACK11 holds 10 batteries + 1 PDU (was 11). BOS-A-RACK14 holds 13 batteries + 1 PDU (unchanged).
+- *BOS-A rack picking rule rewritten.* 7-10 modules → 1× RACK11, 11-13 modules → 1× RACK14, 14-16 modules → 1× RACK14 + 1× RACK11, 17-21 modules → 2× RACK14. Previously: 1× RACK11 for 1-11 / 1× RACK14 for 12-13 / 2× RACK11 for 14-22.
+- *BOS-G module SKU named:* BOS-G-PACK 5.1 (51.2 V, 100 Ah, LiFePO4). BOS-G rack SKU named: 3U-RACK.
+- *Inverter table gains a Battery voltage column* (160 to 700/800/1000 V) and a footnote on three-phase 380/400 V, 50/60 Hz, IP65, up-to-10 parallel.
+- *BOM output format simplified.* No per-line price math in BOM cards. Prices remain governed by §6 (quote only on explicit ask).
+- *New §9.9 worked reference* (100 kW / 230 kWh, 2× 50K) embedded as an internal sanity check across BOS-A / BOS-B / BOS-G with recommended option.
+- *§19 cleaned:* dropped the "Never blindly use ceil" never (Optimal module count retired). Rack-counting never rewritten with the new BOS-A sizing guide.
+
+This tune is uncommitted on local main, waiting on the user's push.
+
 **Session of 2026-05-12 (evening, third push of the day)** swapped `src/prompts/system.md` to v3 with owner-supplied HV configurator content from the new "Deye HV Battery Selection" spec. The v2 distributor-counter prompt was archived to `docs/archive/system-v2-distributor-counter-2026-05-12.md`. Changes are confined to three sections, nothing else in the file touched:
 
 - §5 Reply length and rhythm: added a second structured-reply shape, the *HV BOM card format*. Used when the customer asks for HV sizing. Format: one project-confirmation line, one BOM card per viable battery series (Inverter / Battery / Control Box / Racks / Cables), one-line recommendation. The existing generic "~50kW" example stays for non-HV configs.
