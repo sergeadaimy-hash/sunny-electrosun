@@ -787,16 +787,20 @@ async function processCustomerBatch(entry) {
   }
 
   // Welcome card fires on the FIRST customer message of each fresh conversation
-  // (a new conversation row opens after the 24h rollover). It runs regardless
-  // of whether the message is a pure greeting, because the customer's very
-  // first message often contains a greeting AND a substantive question, and
-  // they still need to see the welcome card. Once the card is sent we STOP —
-  // no second substantive reply this turn. The customer's follow-up will get
-  // a normal reply.
+  // (a new conversation row opens after the 24h rollover). If the first message
+  // is a PURE greeting ("hi", "good morning"), we send the welcome card and
+  // stop. If the first message carries a substantive question alongside the
+  // greeting (or is a pure question with no greeting), we send the welcome card
+  // AND fall through to generate a normal Opus reply so the customer's actual
+  // question is answered in the same turn. Opus is told the welcome was just
+  // sent via the welcomeJustSent context hint, so it skips greetings/addresses
+  // and goes straight to the answer.
   const convMsgsForWelcome = getMessagesForConversation(conversation.id);
   const hasPriorOutboundInConv = convMsgsForWelcome.some(m => m && m.direction === 'outbound');
+  let welcomeCardJustSent = false;
 
   if (!hasPriorOutboundInConv) {
+    const firstMessageIsPureGreeting = handlerIsGreeting(combinedText);
     try {
       const sendRes = await sendMessage(lastMsg.from, WELCOME_REPLY);
       appendMessage(conversation.id, 'outbound', WELCOME_REPLY, {
@@ -807,9 +811,14 @@ async function processCustomerBatch(entry) {
       logger.info('handler.welcome_sent', {
         contactId: contact.id,
         phone: lastMsg.from,
-        chars: WELCOME_REPLY.length
+        chars: WELCOME_REPLY.length,
+        pure_greeting: firstMessageIsPureGreeting,
+        will_continue_with_reply: !firstMessageIsPureGreeting
       });
-      return;
+      welcomeCardJustSent = true;
+      if (firstMessageIsPureGreeting) return;
+      // else: fall through and let the Opus reply path answer the question
+      // the customer attached to the greeting.
     } catch (err) {
       logger.error('handler.welcome_send_fail', {
         contactId: contact.id,
@@ -951,8 +960,20 @@ async function processCustomerBatch(entry) {
   }
 
   const replyMessage = safeCombinedText || '(customer sent attachments only, see images)';
+  let finalExpertContext = expertContext;
+  if (welcomeCardJustSent) {
+    const welcomeContext = [
+      'WELCOME-ALREADY-SENT context:',
+      'A welcome card with our Abuja office, Abuja warehouse, Lagos office addresses and our phone contacts was just sent to this customer as the previous outbound message of this same turn.',
+      'Do NOT greet again. Do NOT repeat any address or phone number. Do NOT say "welcome" or "hello".',
+      'Answer the customer\'s actual question directly in 1 to 2 short sentences. If a qualifier is needed to advance the sale (size, phase, location, quantity), ask ONE — never two.'
+    ].join('\n');
+    finalExpertContext = finalExpertContext
+      ? welcomeContext + '\n\n' + finalExpertContext
+      : welcomeContext;
+  }
   const reply = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
-    expertContext,
+    expertContext: finalExpertContext,
     allowTrailingQuestion: customerIsGratitude
   });
   if (!reply.ok || !reply.text) {
