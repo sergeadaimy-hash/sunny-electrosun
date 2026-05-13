@@ -68,6 +68,25 @@ Material changes in this swap (vs the just-shipped state):
 
 Live commit: `863ee89` pushed 2026-05-13.
 
+**Same day, seventh tune (2026-05-13 late evening Beirut, live SHA `9b70cb5`), owner-supplied prompt edit via PDF round-trip.** After the sixth-tune slim §9 went live, the owner reviewed it, marked up the master prompt as a PDF (`master-prompt-2026-05-13-edited.pdf` on their desktop), and asked me to apply the edits verbatim. Only two sections changed:
+
+1. *§4 Nigerian English flavor block* replaced. The bullet list with "Kindly / Reach out / Soonest / Avoid Americanisms" was swapped for an affirmation-phrase list with translations: "Okay sir" (respectful agreement), "Yes sir / Yes ma" (confirmation + respect), "No wahala" (no problem), "Ehen" (I understand / go on), "Correct" (that's right), "Sharp sharp" (quickly / understood fast), "I dey hear you" (I understand you), "Noted" (very common in professional chats), "Done" (task confirmed), "Carry go!" (encouragement). Plus example confirmations ("Okay sir, noted." / "No wahala sir." / "Done sir.") and a closing line on where these phrases are used (business, tech, solar, logistics environments).
+
+2. *§9 HV configurator restructured to 10 subsections (was 7 in sixth tune).* The owner essentially reinstated the RULE 0-style "no inverter capacity framing" doctrine that the sixth tune compression had dropped. Material changes vs sixth tune: §9.2 inverter table renamed "Battery inputs" column to "Max clusters" with explicit "ceiling, never a target" emphasis. §9.3 battery table now omits the "Rack hardware" column (rack rules live below as a separate subsection). §9.4 sizing logic in 5 steps (was 6); Step 2 marked "(this is the target)" with the "Do NOT increase it just because more inverter battery inputs are available" line. §9.5 Hard rules restored as a 7-item list. §9.6 Output format with new "Never mention 'battery inputs available' or 'cluster inputs total' in the output. Skip inverter capacity framing → go straight to the options" rule. §9.7 Agent behavior tightened (validator safety-net note removed). §9.8 Pre-send checklist restored as 9 checkbox items including "No mention of 'battery inputs' or 'cluster inputs available' in output?". §9.9 Worked references restored with three full examples (300/480 on 4× 80K, 150/360 on 2× 80K, 100/230 on 2× 50K). §9.10 Key mental model appendix added.
+
+Workflow note: the owner edits the master prompt by taking the .txt I export and re-importing through their editor (PDF round-trip), not by sending a diff or markdown. They expect "cross-check format, don't change content" semantics.
+
+Sections 1-3, 5-8, 10-20 untouched in this tune.
+
+Live state on Railway: SHA `9b70cb5`, deploy `fb311fec-078b-4277-97aa-b6c826518b68`, clean boot, validator still active. Prompt is 575 lines (was 513 after sixth tune; the restored §9.5 / §9.8 / §9.9 / §9.10 added ~62 lines, but the owner trimmed §4 Nigerian flavor by a few lines).
+
+Today's commit chain on origin/main (chronological, all post-revert-revert):
+- `cab9e31` sixth tune: HV BOM validator + slim §9
+- `cadf649` Nigerian English flavor block first version (since superseded)
+- `9b70cb5` owner PDF edit (current live)
+
+Also two reverts earlier in the day (`cdb6257`, `7bc5252`) when the owner asked to roll back to pre-11am state, then immediately back to 6:30pm state. History preserved, no force-pushes.
+
 **Same day, sixth tune (2026-05-13 evening Beirut), HV BOM validator + slim prompt rewrite.** Driven by a live failure where v3 still produced an invalid BOM (24 BOS-B on 2× 80K split 6+6+6+6, violating both the min-clusters rule and the BOS-B 7-floor). Diagnosis: prompt-only enforcement of numeric rules is unreliable on LLMs no matter how many times the rule is repeated. Fix: add a deterministic code-level validator AND trim the prompt of repetition.
 
 Changes shipped this push (uncommitted on local main, Serge will push):
