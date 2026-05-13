@@ -7,7 +7,12 @@ const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt, listItems: listWarehouseItems } = require('./warehouse');
 // datasheets retired from prompt 2026-05-10: now attached to warehouse items, looked up at send time
 const security = require('./security');
-const { validateAndFixHvBom } = require('./hv_validator');
+const {
+  validateAndFixHvBom,
+  recordDropsForContact: recordHvDropsForContact,
+  consumeDropsForContact: consumeHvDropsForContact,
+  formatPriorDropsContext: formatHvPriorDropsContext
+} = require('./hv_validator');
 
 // Variant truth guard. Catches the recurring failure where the model asserts
 // a SIZE+PHASE combo that doesn't exist in Warehouse Stock (e.g. "20kW
@@ -416,6 +421,25 @@ async function generateReply(history, message, contact, attachments = [], option
     });
   }
 
+  if (contact?.id && !isCasualGreeting) {
+    try {
+      const priorDrops = consumeHvDropsForContact(contact.id);
+      if (priorDrops && priorDrops.length) {
+        const dropsBlock = formatHvPriorDropsContext(priorDrops);
+        if (dropsBlock) {
+          systemBlocks.push({ type: 'text', text: dropsBlock });
+          logger.info('claude.reply.hv_prior_drops_injected', {
+            contactId: contact.id,
+            drop_count: priorDrops.length,
+            reasons: priorDrops.map(d => d.reason)
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn('claude.reply.hv_prior_drops_inject_fail', { message: err.message });
+    }
+  }
+
   const effectiveHistory = isCasualGreeting ? [] : history;
   if (isCasualGreeting) {
     logger.info('claude.reply.greeting_clean_history', { contactId: contact?.id });
@@ -672,6 +696,12 @@ async function generateReply(history, message, contact, attachments = [], option
           });
           text = hv.text;
         }
+        if (contact?.id && Array.isArray(hv.drops) && hv.drops.length) {
+          try { recordHvDropsForContact(contact.id, hv.drops); }
+          catch (err) {
+            logger.warn('claude.reply.hv_drops_record_fail', { message: err.message });
+          }
+        }
       }
     }
 
@@ -684,6 +714,47 @@ async function generateReply(history, message, contact, attachments = [], option
         original_reply: text.slice(0, 300)
       });
       text = "We don't have that specific datasheet on file. The team will share it shortly.";
+    }
+
+    // No-double-dashes guard. The owner banned em-dash, en-dash, and ASCII
+    // "--" everywhere (permanent rule, 2026-04-26). The prompt repeats it but
+    // the model still emits them, especially in BOM headers ("Option 1 — BOS-A")
+    // and number ranges ("13–14kW"). Run AFTER the HV validator so its option
+    // header regex (which expects em-dash) still matches.
+    if (text) {
+      const before = text;
+      let cleaned = text
+        // BOM option headers read best with a colon: "Option 1: BOS-B" beats
+        // "Option 1, BOS-B". Special-case BEFORE the generic em/en-dash rule.
+        .replace(/(\*{0,2}\s*Option\s+\d+)\s*[—–]\s*(BOS-[ABG])/gi, '$1: $2')
+        // En-dash between digits is a number range, keep as single hyphen
+        .replace(/(\d)\s*–\s*(\d)/g, '$1-$2')
+        // Em-dash with surrounding spaces becomes ", "
+        .replace(/\s*—\s*/g, ', ')
+        // Bare em-dash (no spaces) becomes ","
+        .replace(/—/g, ',')
+        // En-dash with surrounding spaces becomes ", "
+        .replace(/\s*–\s*/g, ', ')
+        // Bare en-dash becomes "-"
+        .replace(/–/g, '-')
+        // ASCII double-dash with surrounding spaces becomes ", "
+        .replace(/\s*--\s*/g, ', ')
+        // Bare ASCII double-dash becomes "-"
+        .replace(/--/g, '-')
+        // Cleanup: collapse repeated commas, spaces, and stray comma-before-punct
+        .replace(/,(\s*,)+/g, ',')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/,\s*([.?!:;])/g, '$1')
+        .replace(/\s+,/g, ',');
+      if (cleaned !== before) {
+        logger.warn('claude.reply.dashes_stripped', {
+          contactId: contact?.id,
+          em_count: (before.match(/—/g) || []).length,
+          en_count: (before.match(/–/g) || []).length,
+          dd_count: (before.match(/--/g) || []).length
+        });
+        text = cleaned;
+      }
     }
 
     return { ok: true, text, usage: resp.usage };

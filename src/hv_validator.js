@@ -42,6 +42,53 @@ const SERIES_PDU = {
   'BOS-G': 'BOS-G-PDU-2'
 };
 
+// Per-contact memory of the most recent drop set. The next generateReply for
+// the same contact reads (and clears) this so the model gets explicit feedback
+// on what it tried last turn and why it was stripped. Entries expire after
+// _DROP_TTL_MS to avoid leaking stale guidance into an unrelated topic.
+const _lastDropsByContact = new Map();
+const _DROP_TTL_MS = 10 * 60 * 1000;
+
+function recordDropsForContact(contactId, drops) {
+  if (!contactId || !Array.isArray(drops) || !drops.length) return;
+  _lastDropsByContact.set(String(contactId), { drops, ts: Date.now() });
+}
+
+function consumeDropsForContact(contactId) {
+  if (!contactId) return null;
+  const key = String(contactId);
+  const entry = _lastDropsByContact.get(key);
+  if (!entry) return null;
+  _lastDropsByContact.delete(key);
+  if (Date.now() - entry.ts > _DROP_TTL_MS) return null;
+  return entry.drops;
+}
+
+// Format a system block describing what the validator stripped last turn so
+// the model can recompute correctly. No em-dash, en-dash, or `--` per the
+// no-double-dashes rule.
+function formatPriorDropsContext(drops) {
+  if (!drops || !drops.length) return null;
+  const lines = [
+    '# Previous BOM attempt, validator dropped these options',
+    '',
+    'On the previous turn you emitted HV BOM options that violated §9 rules. They were silently stripped from what the customer received. Do NOT repeat the same split or the same inverter pairing. Recompute per §9.4.',
+    ''
+  ];
+  for (const d of drops) {
+    const errBlob = Array.isArray(d.errors) && d.errors.length ? d.errors.join('; ') : '';
+    lines.push(`- ${d.series} dropped (${d.reason}). ${errBlob}`);
+  }
+  lines.push('');
+  lines.push('Common fixes:');
+  lines.push('- non_hv_inverter: HV batteries (BOS-A/B/G) require an HV inverter (SUN-30K, SUN-50K, or SUN-80K). LV inverters like SUN-20K, SUN-12K, SUN-16K do not accept HV battery packs. If the project triggers HV (>50 kWh storage), pick the smallest HV inverter that covers the load, even if a smaller LV inverter would have fit the kW alone.');
+  lines.push('- uneven_split / too_many_clusters: balanced distribution, fewest clusters. For N modules on an inverter with max-per-cluster M, use ceil(N/M) clusters and distribute evenly. Example: 26 BOS-A on a SUN-30K becomes 13+13, not 16+10.');
+  lines.push('- floor_violated / floor_infeasible: BOS-B floor is 7 modules per cluster. If the math forces fewer, drop BOS-B for this project and offer BOS-A or BOS-G instead.');
+  lines.push('');
+  lines.push('If the customer is asking for those series again on this same project, redo the math, do not resend the failed shape.');
+  return lines.join('\n');
+}
+
 // Header pattern. Tolerates em-dash, en-dash, ascii dash, optional asterisks.
 const OPTION_HEADER_RE = /\*?\s*Option\s+(\d+)\s*[—–-]\s*(BOS-[ABG])\s*\*?/i;
 const OPTION_HEADER_GLOBAL_RE = /\*?\s*Option\s+\d+\s*[—–-]\s*BOS-[ABG]\s*\*?/gi;
@@ -195,6 +242,16 @@ function parseOptionBlock(blockText) {
 //   { drop: false }                    — valid, send as-is
 function validateOption(parsed) {
   const errors = [];
+  // HV battery series (BOS-A/B/G) only work with HV inverters: SUN-30K, SUN-50K,
+  // SUN-80K. If the option header parsed cleanly and the inverter line contains
+  // a SUN-XXK SKU but XX is not 30/50/80 (e.g. SUN-20K LV three-phase), the
+  // model paired an LV inverter with HV batteries. Hardware-impossible, drop it.
+  if (!parsed.inverterCode && parsed.inverterLine && /SUN-\d+(?:\.\d+)?K/i.test(parsed.inverterLine)) {
+    errors.push(
+      `${parsed.series} requires an HV inverter (SUN-30K/50K/80K). Inverter line: ${String(parsed.inverterLine).slice(0, 140)}`
+    );
+    return { drop: true, reason: 'non_hv_inverter', errors };
+  }
   // If the parser couldn't read the inverter, battery, or split, we can't
   // validate confidently. Don't risk false positives.
   if (!parsed.inverterCode || !parsed.inverterQty || !parsed.totalModules || !parsed.actualSplit) {
@@ -261,6 +318,45 @@ function validateOption(parsed) {
   }
 
   return { drop: false, errors };
+}
+
+// When the model framed the reply around "Here are all three options" or
+// similar count phrasing but some options got stripped, rewrite the framing so
+// the customer doesn't read "all three" next to a single surviving card. Best
+// effort, common patterns only; the goal is to remove the obvious mismatch,
+// not to perfect the grammar.
+function rewriteFramingForSurvivorCount(text, survivorCount, originalCount) {
+  if (!text || survivorCount === originalCount) return text;
+  let out = text;
+
+  const opener = (() => {
+    if (survivorCount === 1) return 'Here is one option';
+    if (survivorCount === 2) return 'Here are two options';
+    return `Here are ${survivorCount} options`;
+  })();
+  const standalone = (() => {
+    if (survivorCount === 1) return 'this option';
+    if (survivorCount === 2) return 'these two options';
+    return `these ${survivorCount} options`;
+  })();
+
+  // "Here are/is (all) (the) (three|two|both|3|2) option(s)" → opener
+  out = out.replace(
+    /\b(?:Here\s+are|Here\s+is|Below\s+are|Below\s+is|These\s+are)\s+(?:all\s+)?(?:the\s+)?(?:three|two|both|3|2)\s+options?\b/gi,
+    opener
+  );
+  // Standalone "(all) (the) (three|two|both) option(s)"
+  out = out.replace(
+    /\b(?:all\s+)?(?:the\s+)?(?:three|two|both)\s+options?\b/gi,
+    standalone
+  );
+  // "all three" not followed by "options" (rarer)
+  out = out.replace(
+    /\ball\s+three\b(?!\s+options?)/gi,
+    survivorCount === 1 ? 'this one' : `all ${survivorCount}`
+  );
+
+  return out;
 }
 
 // Renumber surviving "*Option N —" headers sequentially starting at 1, so the
@@ -336,6 +432,11 @@ function validateAndFixHvBom(replyText) {
   }
 
   workingText = renumberRemainingOptions(workingText);
+  workingText = rewriteFramingForSurvivorCount(
+    workingText,
+    survivors.length,
+    decisions.length
+  );
 
   // Repoint any "Recommended: Option N" line. If only one option survives,
   // it's now Option 1. If two or more survive but the recommendation pointed
@@ -377,6 +478,9 @@ function validateAndFixHvBom(replyText) {
 
 module.exports = {
   validateAndFixHvBom,
+  recordDropsForContact,
+  consumeDropsForContact,
+  formatPriorDropsContext,
   // exported for tests / future use
   parseOptionBlock,
   splitIntoOptionBlocks,
