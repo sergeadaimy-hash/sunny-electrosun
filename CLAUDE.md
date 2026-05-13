@@ -21,68 +21,7 @@ Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud
    - *§19 Hard nevers* gained four new entries to match: HV trigger rule restated; BOS-B never <7; never split clusters unevenly; never miscount racks (≤12 = 1 rack, 13+ = 2 racks, 1 PDU per cluster always).
 3. *§9 Optimal module count subsection added* (driven by a live failure case where Sunny picked 14 BOS-A modules for a 100 kWh target — overshooting by 7.5% and dragging in an extra PDU). New rule: for each series, compute BOTH the upper count (ceil) and the lower count (floor). Prefer the lower count when (a) undershoot is ≤3% of target, OR (b) the upper count would force an extra cluster, rack, or inverter that the lower count avoids. The lower count must still meet the series minimum per cluster. Strict-minimum wording from the customer ("at least", "minimum", "no less than") overrides the rule and forces upper. Section includes four worked examples (100 kWh / 95 kWh / 80 kWh / 120 kWh) marked as internal-only. Step 2 of HV selection logic rewritten to call out the rule. *§19 Hard nevers* gained one matching entry: never blindly ceil; apply Optimal module count. *Quick sanity checks* gained an "Did I apply Optimal module count?" first bullet.
 
-Live commit: `e3d361f` (pushed 2026-05-13 morning Beirut).
-
-**Same day, second push (2026-05-13 late morning Beirut)** addressed three live-test failures the brother flagged:
-
-A. *Welcome card swallowed the customer's first-turn question.* Live case: customer wrote "Good morning, Is 16kwh Deye lithium battery available?" — Sunny sent only the hardcoded welcome card and ignored the question. Root cause: `src/handler.js > processCustomerBatch` always sent the welcome card and `return`ed on the first message of every fresh conversation, regardless of whether the message had substantive content beyond the greeting. Fix: detect `firstMessageIsPureGreeting = handlerIsGreeting(combinedText)`. If TRUE → keep current behavior (welcome card, then return). If FALSE → send the welcome card AND fall through to the Opus reply path. A new `welcomeCardJustSent` flag bubbles into the `generateReply` call as an `expertContext` prefix: "WELCOME-ALREADY-SENT context: A welcome card with our addresses and contacts was just sent. Do NOT greet again. Do NOT repeat any address or phone number. Answer the customer's actual question directly in 1 to 2 short sentences." Net effect on the brother's case: customer now gets TWO outbound messages on first turn (welcome card + direct answer to "Is 16kWh Deye battery available?").
-
-B. *BOS-B card shown at 5 modules per cluster.* Live case: 160 kWh BOM offered BOS-B as Option 2 at 10 modules in 2 clusters (5 per cluster) — violates BOS-B min 7. The rule was already in §9 four places (table notes, selection logic step 4, sanity checks, hard never) but the model bypassed it. Strengthened by adding a "STOP — pre-flight checks before sending ANY HV BOM" block at the top of §9 (right after the section intro, before the inverter table) listing the six most-violated rules numbered with explicit instructions to drop the card if any fails. BOS-B min 7 is rule #1.
-
-C. *BOS-G option in BOM omitted the rack count and pricing.* Live case: BOS-G card listed Inverter / Battery / PDU but no Racks line. §5 BOM template already required a Racks line, but the model dropped it. Strengthened the BOM card spec in §5: every card MUST include all six lines (Inverter, Battery, Cluster split, Control Box, Racks, Cables) in order. Per-line price math (unit × qty) is now required when prices are in Warehouse Stock, with explicit fallback wording when rack pricing isn't on file: "Racks (19″): N (rack pricing confirmed with the team)". §19 hard nevers gained a matching entry banning BOM cards without a Racks line. Pre-flight rule #2 in §9 reiterates.
-
-Live commits: `a52b0be` (welcome + BOM rules) and `c31006f` (archive cleanup) pushed 2026-05-13.
-
-**Same day, third push (2026-05-13 early afternoon Beirut)** addressed a per-series rack mapping error. Live case: 13 BOS-A modules in one cluster, Sunny said "Racks (19″): 2 × 550k = 1.10M NGN" — but 13 BOS-A modules fit in 1× BOS-A-RACK14 (one rack, 550k NGN). The generic "13+ modules = 2 racks" rule from the previous prompt was a BOS-G assumption that doesn't apply to BOS-A. The brother specified the rack facts:
-
-- 3U rack is BOS-G only (NOT BOS-A, NOT BOS-B).
-- BOS-A uses two specific rack SKUs: BOS-A-RACK11 (11 batteries + 1 PDU) and BOS-A-RACK14 (13 batteries + 1 PDU).
-- BOS-B rack hardware not yet specified (treated as "confirmed with team").
-
-Changes in `src/prompts/system.md`:
-- New §9 subsection *Rack rules by series* with explicit per-series rack tables (3U for BOS-G, RACK11/RACK14 for BOS-A, "confirmed with team" for BOS-B).
-- §9 series table notes column now points at the rack hardware per series.
-- §9 *Clustering rules* rule #5 rewritten to point at the per-series rack table and explicitly forbid the generic "13+ = 2 racks" rule for BOS-A.
-- §9 *STOP — pre-flight checks* rule #4 rewritten to enumerate per-series rack rules.
-- §9 *HV selection logic* step 5 rewritten the same way.
-- §9 *Quick sanity checks* gained a BOS-A-specific check ("RACK11 for ≤11, RACK14 for 12–13, 2× RACK11 for 14–22? NOT 3U.").
-- §9 *Optimal module count* worked examples refreshed: the 100 kWh BOS-A case now correctly shows upper-14 needing 2× RACK11 vs lower-13 needing 1× RACK14, so rule (b) now also fires alongside (a). The 95 kWh case shows both upper-13 and lower-12 fitting in 1× RACK14 (no rack saved).
-- §5 BOM template *Racks* line now requires the explicit SKU for BOS-A and "Racks (3U): N" wording for BOS-G; BOS-B uses "Racks: N (rack hardware confirmed with the team)".
-- §5 example BOM cards updated: BOS-A 11-module option shows "Racks: 1× BOS-A-RACK11", BOS-G 16-module option shows "Racks (3U): 2".
-- §19 hard never about rack counts rewritten to point at the per-series table and explicitly forbid 3U for BOS-A.
-
-This push is uncommitted on local main. Serge will push.
-
-**Same day, fourth tune (2026-05-13 afternoon Beirut), pending Serge push:** swapped §9 entirely with the owner-supplied "Deye HV Inverter & Battery Configurator v2" content. The previous §9 + §5 HV BOM shape + related §19 nevers were snapshotted to `docs/archive/system-hv-section-2026-05-13-before-configurator-v2.md`.
-
-Material changes in this swap (vs the just-shipped state):
-
-- *Optimal module count rule RETIRED.* Sizing now uses pure ceil(total kWh ÷ module kWh) plus even cluster balancing. The earlier "round down within 3%" optimization is gone. Per the owner's worked reference: 230 kWh BOS-A → 30 modules round to 32 (balanced 8+8+8+8), not 28 or 29.
-- *BOS-A rack capacities updated.* BOS-A-RACK11 holds 10 batteries + 1 PDU (was 11). BOS-A-RACK14 holds 13 batteries + 1 PDU (unchanged).
-- *BOS-A rack picking rule rewritten.* 7-10 modules → 1× RACK11, 11-13 modules → 1× RACK14, 14-16 modules → 1× RACK14 + 1× RACK11, 17-21 modules → 2× RACK14. Previously: 1× RACK11 for 1-11 / 1× RACK14 for 12-13 / 2× RACK11 for 14-22.
-- *BOS-G module SKU named:* BOS-G-PACK 5.1 (51.2 V, 100 Ah, LiFePO4). BOS-G rack SKU named: 3U-RACK.
-- *Inverter table gains a Battery voltage column* (160 to 700/800/1000 V) and a footnote on three-phase 380/400 V, 50/60 Hz, IP65, up-to-10 parallel.
-- *BOM output format simplified.* No per-line price math in BOM cards. Prices remain governed by §6 (quote only on explicit ask).
-- *New §9.9 worked reference* (100 kW / 230 kWh, 2× 50K) embedded as an internal sanity check across BOS-A / BOS-B / BOS-G with recommended option.
-- *§19 cleaned:* dropped the "Never blindly use ceil" never (Optimal module count retired). Rack-counting never rewritten with the new BOS-A sizing guide.
-
-Live commit: `863ee89` pushed 2026-05-13.
-
-**Same day, fifth tune (2026-05-13 afternoon Beirut), v3 of the HV configurator.** v2 (`863ee89`) snapshotted to `docs/archive/system-hv-section-2026-05-13-configurator-v2.md`. v3 introduces a critical doctrine change driven by a live failure case: Sunny was filling all available inverter battery inputs (e.g. 32 BOS-A modules on 2× 50K → 4 clusters of 8) instead of picking the minimum cluster count (2 clusters of 16). v3 also splits BOS-B into clusters of fewer than 7 in some cases, which is invalid.
-
-Material changes in v3 vs v2:
-
-- *New §9.4 sizing flow as explicit Steps A through E,* with Step B "minimum clusters needed" promoted to the most prominent step: `min clusters = ceil(total modules ÷ max-per-cluster for this inverter+series)`. The earlier flow allowed the model to drift into using all available battery inputs.
-- *New hard rule §9.5 #5:* "Use the MINIMUM number of clusters, NOT the maximum the inverter allows."
-- *§9.8 mandatory checklist* gained an item: "Total clusters = MINIMUM possible (not max the inverter allows)?"
-- *BOS-B floor language strengthened* with a 🚫 prefix: "ABSOLUTE FLOOR: 7 modules per cluster. Anything less = BOS-B is INVALID for this project. Drop it."
-- *Worked examples §9.9 rewritten.* New Example A (150 kW / 360 kWh on 2× 80K) showcases the min-clusters rule across all three series. Example B (100 kW / 230 kWh) now correctly puts 32 BOS-A in 2 clusters of 16 (was 4 clusters of 8).
-- *New §9.10 Key Mental Model appendix* (six Wrong-behavior / Correct-rule pairs) reinforces the same rules in anti-pattern form.
-- *§19 gained a hard never:* "Never use more clusters than the MINIMUM needed" with the formula and the BOS-A example.
-
-Section §5 HV BOM shape and the other §19 nevers stayed the same as v2.
-
-This tune is uncommitted on local main, waiting on the user's push.
+This tune is uncommitted on local main alongside the earlier-uncommitted v3 swap and the late-afternoon variant/HOT bug fixes. Serge will push the stack.
 
 **Session of 2026-05-12 (evening, third push of the day)** swapped `src/prompts/system.md` to v3 with owner-supplied HV configurator content from the new "Deye HV Battery Selection" spec. The v2 distributor-counter prompt was archived to `docs/archive/system-v2-distributor-counter-2026-05-12.md`. Changes are confined to three sections, nothing else in the file touched:
 
