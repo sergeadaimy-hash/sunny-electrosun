@@ -4,9 +4,24 @@ This file is the working memory for Sunny. Read it before making any change. It 
 
 Detailed session-by-session changelog lives in `docs/session-history.md`. That file is the audit trail for "what shipped when and why"; this file is the always-true reference for what is currently in the codebase and what rules govern Sunny's behavior.
 
-## Current launch status (rebuild in progress, 2026-05-12 evening Beirut)
+## Current launch status (rebuild in progress, 2026-05-13 Beirut)
 
 Phase 1 (Setup), Phase 2 (Local end-to-end test), Phase 3 (Tune), Phase 5 (Cloud deploy) are closed.
+
+**Session of 2026-05-13** tuned `src/prompts/system.md` with three owner-supplied refinements (no full prompt swap; targeted edits inside the existing v3 file). The pre-tune v3 was snapshotted to `docs/archive/system-v3-hv-configurator-2026-05-13.md` (518 lines, matches commit `bc4d1d4` on origin/main).
+
+1. *Nigerian address forms in §4 (Voice and tone).* Sunny may now use "Sir" or "Oga" when the customer's name is not yet known. Rules: once per reply, drop them as soon as the customer shares a name, never stack ("Sir Oga"). Examples added inline.
+2. *§9 Engineering principles tightened to match the owner's latest HV configurator spec.* Conflicts and overlaps with the previous v3 content resolved as follows:
+   - *HV trigger* changed from "≥30kW inverter pulls system into HV" to "project needs more than 50 kWh of storage" as the third proactive HV trigger. The other two triggers (customer says HV, customer names an HV product) unchanged. Decision flow rewritten to match.
+   - *BOS-G range* widened from 5–12 to 5–16 modules per cluster (PDU max is 16; 13–16 modules need 2 racks).
+   - *BOS-B minimum* lifted from 5 to 7 modules per cluster, on both 30/50K and 80K inverter pairings. New hard rule: drop BOS-B silently if math gives <7 per cluster, use BOS-A or BOS-G instead.
+   - *New "Clustering and racking rules" subsection* added: fewest clusters; balanced splits (24 → 12+12 not 16+8); multi-inverter setups split batteries evenly (32 BOS-A on 2 inverters → 16+16 not 21+11); 1 PDU per cluster; rack rule (≤12 = 1 rack, 13–16 = 2 racks, 17–21 BOS-A on 80K only = 2 racks).
+   - *HV selection logic* rewritten as a 6-step flow ending in BOM card output. Includes a "Quick sanity checks" subsection (BOS-B ≥7?, BOS-G ≤16 with right rack count?, multi-inverter split even?, 1 PDU per cluster?).
+   - *§5 HV BOM shape example* updated to comply: BOM cards now include a "Cluster split" line, and the 50kW/80kWh example replaces the old BOS-B (5 modules, would now be dropped) with BOS-G (16 modules, 2 racks); BOS-A example fixed to 1 PDU + 1 rack (was 2 PDU + 1 rack).
+   - *§19 Hard nevers* gained four new entries to match: HV trigger rule restated; BOS-B never <7; never split clusters unevenly; never miscount racks (≤12 = 1 rack, 13+ = 2 racks, 1 PDU per cluster always).
+3. *§9 Optimal module count subsection added* (driven by a live failure case where Sunny picked 14 BOS-A modules for a 100 kWh target — overshooting by 7.5% and dragging in an extra PDU). New rule: for each series, compute BOTH the upper count (ceil) and the lower count (floor). Prefer the lower count when (a) undershoot is ≤3% of target, OR (b) the upper count would force an extra cluster, rack, or inverter that the lower count avoids. The lower count must still meet the series minimum per cluster. Strict-minimum wording from the customer ("at least", "minimum", "no less than") overrides the rule and forces upper. Section includes four worked examples (100 kWh / 95 kWh / 80 kWh / 120 kWh) marked as internal-only. Step 2 of HV selection logic rewritten to call out the rule. *§19 Hard nevers* gained one matching entry: never blindly ceil; apply Optimal module count. *Quick sanity checks* gained an "Did I apply Optimal module count?" first bullet.
+
+This tune is uncommitted on local main alongside the earlier-uncommitted v3 swap and the late-afternoon variant/HOT bug fixes. Serge will push the stack.
 
 **Session of 2026-05-12 (evening, third push of the day)** swapped `src/prompts/system.md` to v3 with owner-supplied HV configurator content from the new "Deye HV Battery Selection" spec. The v2 distributor-counter prompt was archived to `docs/archive/system-v2-distributor-counter-2026-05-12.md`. Changes are confined to three sections, nothing else in the file touched:
 
