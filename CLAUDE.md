@@ -68,6 +68,30 @@ Material changes in this swap (vs the just-shipped state):
 
 Live commit: `863ee89` pushed 2026-05-13.
 
+**Same day, sixth tune (2026-05-13 evening Beirut), HV BOM validator + slim prompt rewrite.** Driven by a live failure where v3 still produced an invalid BOM (24 BOS-B on 2× 80K split 6+6+6+6, violating both the min-clusters rule and the BOS-B 7-floor). Diagnosis: prompt-only enforcement of numeric rules is unreliable on LLMs no matter how many times the rule is repeated. Fix: add a deterministic code-level validator AND trim the prompt of repetition.
+
+Changes shipped this push (uncommitted on local main, Serge will push):
+
+A. *New module `src/hv_validator.js`* (302 lines). Pure-logic HV BOM validator with no external dependencies beyond the logger. Engineering constants are the single source of truth (the prompt mirrors them in §9 but the code is authoritative): MODULE_KWH per series, SERIES_MIN_PER_CLUSTER (BOS-G: 5, BOS-A: 7, BOS-B: 7), MAX_PER_CLUSTER per (inverter, series), SERIES_PDU.
+
+   Pipeline: `splitIntoOptionBlocks(text)` scans the reply for `*Option N — BOS-X*` headers (tolerates em-dash / en-dash / ASCII hyphen, optional asterisks) and returns block ranges. `parseOptionBlock(blockText)` extracts inverter SKU + qty, battery series + module count + kWh, cluster split (`"12+12"` / `"8+8 across 2 inverters"` / `"16"`), PDU model + qty, racks line, cables line. `computeExpectedClusterSplit(series, totalModules, inverterCode, inverterQty)` runs the §9.4 algorithm: `min clusters = ceil(total ÷ max-per-cluster)`, bump to multiple of `inverterQty` for even multi-inverter split, distribute modules evenly with remainder going to the first N clusters.
+
+   `validateOption(parsed)` decides one of {drop, passthrough, valid}: drop on floor violation (actual or expected cluster below series-min), too-many-clusters (actual > expected), uneven split (sorted actual ≠ sorted expected), pdu-mismatch (pdu_qty ≠ cluster count). Passthrough on incomplete parse.
+
+   `validateAndFixHvBom(replyText)` orchestrates. Strips offending option blocks back-to-front to preserve string indices, renumbers surviving options sequentially, repoints any `*Recommended: Option N*` line (remaps to new index if the recommendation pointed at a survivor, replaces with a generic "team will confirm" close if it pointed at a dropped option, OR if only one option survives, rewrites to `*Recommended:* Option 1`). Returns `{ok: true, text, changed, drops, survivors}` on partial drop, `{ok: false, text: null, droppedAll: true, drops}` when every option fails (caller sends a deflection).
+
+B. *Wired into `src/claude.js > generateReply`* as the 9th post-generation guard, placed AFTER `detectFabricatedVariant` and BEFORE the datasheet-marker guard. On `droppedAll`, the reply text is replaced with: "Let me confirm the exact configuration with the team and send you the options shortly." (caught by the existing reply-handoff backstop in handler.js, which then routes to silent_query). On partial drop, the fixed text is sent. Logs `claude.reply.hv_bom_options_dropped` or `claude.reply.hv_bom_all_options_invalid` with the original_reply, drops detail, survivors list, and fixed_reply for observability.
+
+   Sanity-tested against the live screenshot case (24 BOS-B on 2× 80K split 6+6+6+6): validator detects floor violation, strips ONLY the BOS-B option, keeps BOS-A and BOS-G with their per-line price math intact, renumbers Option 3 → Option 2, and neutralizes the recommendation. Non-HV replies pass through unchanged.
+
+C. *`src/prompts/system.md` re-engineered.* Pre-rework v3 (673 lines, `ff3b775`) snapshotted to `docs/archive/system-v3-pre-validator-rework-2026-05-13.md`. New version 514 lines (24% reduction) preserves every rule, fact, address, hard never, worked example, and dynamic-block reference. Repetition removed in §9: subsections collapsed from 10 (§9.1 to §9.10) to 7 (§9.1 to §9.7). The §9.5 "Hard rules" subsection dropped (rules live in §9.3 tables, §9.4 algorithm steps, §19 hard nevers). The §9.8 mandatory pre-send checklist dropped (replaced by the deterministic validator). The §9.10 "Key mental model" appendix dropped (validator enforces what the 6 anti-pattern paragraphs were trying to teach). The §5 HV BOM template merged into §9.5 where it logically belongs. §9.3 per-series details merged into one compact 3-row table plus a rack-picking subsection. §19 hard nevers tightened (still 30+ items, but each safety-critical rule kept and a few duplicates with body sections collapsed).
+
+   Section count unchanged (20 top-level sections), preserving admin-tab editor compatibility. Reply length, voice, pricing, stock, locations, installation, closing moves, promos, confusion handling, anti-repeat, dynamic blocks, industry context, worked examples, when-unsure sections all kept with minor wording tightening.
+
+   New: §9.7 explicitly tells the model the validator exists ("The reply pipeline runs a deterministic post-validator on every BOM. Options that violate min-clusters, the floor, or rack matching are silently stripped before send. Treat that as a backstop. Following §9.4 yourself is still your job.") so the model doesn't get confused when its own BOM gets edited downstream.
+
+This push is uncommitted on local main. Serge will push.
+
 **Same day, fifth tune (2026-05-13 afternoon Beirut), v3 of the HV configurator.** v2 (`863ee89`) snapshotted to `docs/archive/system-hv-section-2026-05-13-configurator-v2.md`. v3 introduces a critical doctrine change driven by a live failure case: Sunny was filling all available inverter battery inputs (e.g. 32 BOS-A modules on 2× 50K → 4 clusters of 8) instead of picking the minimum cluster count (2 clusters of 16). v3 also splits BOS-B into clusters of fewer than 7 in some cases, which is invalid.
 
 Material changes in v3 vs v2:

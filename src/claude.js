@@ -7,6 +7,7 @@ const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt, listItems: listWarehouseItems } = require('./warehouse');
 // datasheets retired from prompt 2026-05-10: now attached to warehouse items, looked up at send time
 const security = require('./security');
+const { validateAndFixHvBom } = require('./hv_validator');
 
 // Variant truth guard. Catches the recurring failure where the model asserts
 // a SIZE+PHASE combo that doesn't exist in Warehouse Stock (e.g. "20kW
@@ -643,6 +644,34 @@ async function generateReply(history, message, contact, attachments = [], option
           original_reply: text.slice(0, 400)
         });
         text = "Let me confirm the exact availability of that configuration with the team and get back to you shortly.";
+      }
+    }
+
+    // HV BOM math validator. Catches the failure modes the prompt cannot
+    // reliably prevent (BOS-B clusters below the 7-module floor, more
+    // clusters than the minimum needed, uneven splits). Invalid options are
+    // silently dropped from the reply; if every option fails, the reply
+    // falls back to a deflection so the customer never sees broken math.
+    if (text) {
+      const hv = validateAndFixHvBom(text);
+      if (hv.changed) {
+        if (hv.droppedAll) {
+          logger.warn('claude.reply.hv_bom_all_options_invalid', {
+            contactId: contact?.id,
+            drops: hv.drops,
+            original_reply: text.slice(0, 800)
+          });
+          text = "Let me confirm the exact configuration with the team and send you the options shortly.";
+        } else {
+          logger.warn('claude.reply.hv_bom_options_dropped', {
+            contactId: contact?.id,
+            drops: hv.drops,
+            survivors: hv.survivors,
+            original_reply: text.slice(0, 800),
+            fixed_reply: hv.text.slice(0, 800)
+          });
+          text = hv.text;
+        }
       }
     }
 
