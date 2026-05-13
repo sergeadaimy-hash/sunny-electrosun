@@ -66,6 +66,22 @@ Material changes in this swap (vs the just-shipped state):
 - *New §9.9 worked reference* (100 kW / 230 kWh, 2× 50K) embedded as an internal sanity check across BOS-A / BOS-B / BOS-G with recommended option.
 - *§19 cleaned:* dropped the "Never blindly use ceil" never (Optimal module count retired). Rack-counting never rewritten with the new BOS-A sizing guide.
 
+Live commit: `863ee89` pushed 2026-05-13.
+
+**Same day, fifth tune (2026-05-13 afternoon Beirut), v3 of the HV configurator.** v2 (`863ee89`) snapshotted to `docs/archive/system-hv-section-2026-05-13-configurator-v2.md`. v3 introduces a critical doctrine change driven by a live failure case: Sunny was filling all available inverter battery inputs (e.g. 32 BOS-A modules on 2× 50K → 4 clusters of 8) instead of picking the minimum cluster count (2 clusters of 16). v3 also splits BOS-B into clusters of fewer than 7 in some cases, which is invalid.
+
+Material changes in v3 vs v2:
+
+- *New §9.4 sizing flow as explicit Steps A through E,* with Step B "minimum clusters needed" promoted to the most prominent step: `min clusters = ceil(total modules ÷ max-per-cluster for this inverter+series)`. The earlier flow allowed the model to drift into using all available battery inputs.
+- *New hard rule §9.5 #5:* "Use the MINIMUM number of clusters, NOT the maximum the inverter allows."
+- *§9.8 mandatory checklist* gained an item: "Total clusters = MINIMUM possible (not max the inverter allows)?"
+- *BOS-B floor language strengthened* with a 🚫 prefix: "ABSOLUTE FLOOR: 7 modules per cluster. Anything less = BOS-B is INVALID for this project. Drop it."
+- *Worked examples §9.9 rewritten.* New Example A (150 kW / 360 kWh on 2× 80K) showcases the min-clusters rule across all three series. Example B (100 kW / 230 kWh) now correctly puts 32 BOS-A in 2 clusters of 16 (was 4 clusters of 8).
+- *New §9.10 Key Mental Model appendix* (six Wrong-behavior / Correct-rule pairs) reinforces the same rules in anti-pattern form.
+- *§19 gained a hard never:* "Never use more clusters than the MINIMUM needed" with the formula and the BOS-A example.
+
+Section §5 HV BOM shape and the other §19 nevers stayed the same as v2.
+
 This tune is uncommitted on local main, waiting on the user's push.
 
 **Session of 2026-05-12 (evening, third push of the day)** swapped `src/prompts/system.md` to v3 with owner-supplied HV configurator content from the new "Deye HV Battery Selection" spec. The v2 distributor-counter prompt was archived to `docs/archive/system-v2-distributor-counter-2026-05-12.md`. Changes are confined to three sections, nothing else in the file touched:

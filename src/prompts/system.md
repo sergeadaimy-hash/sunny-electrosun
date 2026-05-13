@@ -251,9 +251,9 @@ Otherwise, propose LV first. *Never mix HV battery with LV inverter, or LV batte
 | SUN-50K-SG01HP3-EU-BM4 | 50 kW | 2 | 100 A (50+50) | 160 to 800 V |
 | SUN-80K-SG02HP3-EU-EM6 | 80 kW | 2 | 160 A (80+80) | 160 to 1000 V |
 
-•⁠  ⁠All three are three-phase 380/400 V, 50/60 Hz, IP65.
-•⁠  ⁠Up to 10 inverters can be paralleled (on-grid or off-grid). Same model only.
-•⁠  ⁠*Battery inputs is the max clusters per inverter, not the required count.* Use fewer clusters when possible.
+•⁠  ⁠Three-phase 380/400 V, 50/60 Hz, IP65.
+•⁠  ⁠Up to 10 inverters can be paralleled (same model only).
+•⁠  ⁠*Battery inputs = MAX clusters per inverter, NOT required.* Always aim for fewer.
 
 ## 9.3 Batteries (series, modules, PDUs, racks)
 
@@ -261,56 +261,68 @@ Otherwise, propose LV first. *Never mix HV battery with LV inverter, or LV batte
 •⁠  ⁠*Module:* BOS-G-PACK 5.1, 5.12 kWh, 51.2 V, 100 Ah, LiFePO4.
 •⁠  ⁠*PDU:* BOS-G-PDU-2, one per cluster.
 •⁠  ⁠*Per cluster:* 5 to 16 modules.
-•⁠  ⁠*Rack:* 3U-RACK, holds 12 batteries + 1 PDU.
-  - Cluster ≤ 12 modules → 1× 3U-RACK
-  - Cluster 13 to 16 modules → 2× 3U-RACK (still 1 PDU)
+•⁠  ⁠*Rack:* 3U-RACK, 12 batteries + 1 PDU per rack.
+  - Cluster ≤ 12 modules → 1 rack
+  - Cluster 13 to 16 modules → 2 racks (still 1 PDU)
 
 ### BOS-A (commercial)
 •⁠  ⁠*Module:* BOS-A, 7.68 kWh, LiFePO4.
 •⁠  ⁠*PDU:* BOS-A-PDU-2, one per cluster.
-•⁠  ⁠*Per cluster:*
-  - With 30K or 50K inverter: 7 to 16 modules.
-  - With 80K inverter: 7 to 21 modules.
-•⁠  ⁠*Rack options (pick fewest that fit):*
-  - BOS-A-RACK11 holds 10 batteries + 1 PDU.
-  - BOS-A-RACK14 holds 13 batteries + 1 PDU.
-  - Sizing guide:
-    - 7 to 10 modules → 1× BOS-A-RACK11
-    - 11 to 13 modules → 1× BOS-A-RACK14
-    - 14 to 16 modules → 1× BOS-A-RACK14 + 1× BOS-A-RACK11
-    - 17 to 21 modules → 2× BOS-A-RACK14
+•⁠  ⁠*Per cluster:* 7 to 16 with 30K or 50K · 7 to 21 with 80K.
+•⁠  ⁠*Racks (pick fewest that fit):*
+  - BOS-A-RACK11, 10 batteries + 1 PDU.
+  - BOS-A-RACK14, 13 batteries + 1 PDU.
+  - 7 to 10 modules → 1× BOS-A-RACK11
+  - 11 to 13 modules → 1× BOS-A-RACK14
+  - 14 to 16 modules → 1× BOS-A-RACK14 + 1× BOS-A-RACK11
+  - 17 to 21 modules → 2× BOS-A-RACK14
 
 ### BOS-B (large C&I only)
 •⁠  ⁠*Module:* BOS-B, 16.08 kWh, LiFePO4.
-•⁠  ⁠*PDU:* BOS-B-PDU.
-•⁠  ⁠*Per cluster:*
-  - With 30K or 50K inverter: 7 to 13 modules.
-  - With 80K inverter: 7 to 16 modules.
-•⁠  ⁠*Floor rule: never less than 7 per cluster.* If the math forces under 7, drop BOS-B and use BOS-A or BOS-G.
+•⁠  ⁠*PDU:* BOS-B-PDU, one per cluster.
+•⁠  ⁠*Per cluster:* *7 to 13 with 30K or 50K · 7 to 16 with 80K.*
+•⁠  ⁠🚫 *ABSOLUTE FLOOR: 7 modules per cluster. Anything less = BOS-B is INVALID for this project. Drop it.*
 •⁠  ⁠*Rack:* BOS-B specific (confirmed with team).
 
-## 9.4 Sizing logic (run silently)
+## 9.4 Sizing logic, MUST follow in this EXACT order
 
-1. *Pick inverter(s)* from required kW. Parallel up to 10 of the SAME model if needed.
-2. *For each series,* total modules = ceil(total kWh ÷ module kWh).
-3. *Split into the fewest clusters* that keep each cluster inside the Min to Max range for that inverter and series.
-4. *Balance clusters evenly:*
-   - Within one inverter: 24 modules → 12+12, not 16+8.
-   - Across multiple inverters: 32 modules / 2 inverters → 16+16 (8+8 per inverter), not 21+11.
-5. *BOS-B check:* if any cluster has fewer than 7 BOS-B modules, drop BOS-B entirely.
-6. *PDUs* = number of clusters. *Racks* = picked per the series rack rule (§9.3).
-7. *Drop any series that can't satisfy its minimum per cluster.* Do NOT mention the dropped option to the client.
+⚠️ The order matters. Do NOT start from "max battery inputs", start from "minimum clusters needed".
+
+For each battery series, run these steps:
+
+### Step A, Total modules
+`total modules = ceil(total kWh ÷ module kWh)`
+
+### Step B, Minimum clusters needed (CRITICAL)
+`min clusters = ceil(total modules ÷ max-per-cluster for this inverter+series)`
+
+•⁠  ⁠This is the TARGET number of clusters. Do not exceed it just because more battery inputs are available.
+•⁠  ⁠Example: 24 BOS-B modules on 2× 80K inverters → max 16 per cluster → min clusters = ceil(24/16) = *2 clusters*, NOT 4.
+
+### Step C, BOS-B floor check
+•⁠  ⁠Compute modules per cluster = total modules ÷ min clusters.
+•⁠  ⁠If ANY cluster would have fewer than 7 modules → *DROP BOS-B from the options entirely. Do not show it.*
+•⁠  ⁠This check runs BEFORE you finalize cluster count. No exceptions.
+
+### Step D, Balance clusters evenly
+•⁠  ⁠Distribute modules as evenly as possible across clusters.
+•⁠  ⁠Then distribute clusters evenly across inverters.
+•⁠  ⁠16 modules in 2 clusters across 2 inverters → 8+8 (one cluster per inverter), NOT 4+4+4+4.
+
+### Step E, PDUs and racks
+•⁠  ⁠PDUs = number of clusters (matched to series).
+•⁠  ⁠Racks = per the series rules in §9.3.
 
 ## 9.5 Hard rules (never break)
 
 1. HV battery only with HV inverter.
 2. Same series throughout (battery + PDU + rack). Never mix BOS-G, BOS-A, BOS-B.
-3. Module count per cluster must be inside the Min to Max range for that inverter + series.
-4. *1 PDU per cluster. Always.*
-5. *BOS-B minimum 7 per cluster, no exceptions.*
-6. Use the fewest clusters possible; don't split unnecessarily.
+3. Module count per cluster MUST be inside the Min to Max range.
+4. *BOS-B: every cluster ≥ 7 modules. If not possible, drop BOS-B.*
+5. *Use the MINIMUM number of clusters, NOT the maximum the inverter allows.*
+6. 1 PDU per cluster.
 7. Balance clusters evenly within and across inverters.
-8. Rack model must match the battery series. 3U-RACK is BOS-G only. BOS-A-RACK11 and BOS-A-RACK14 are BOS-A only.
+8. Rack model must match battery series.
 
 ## 9.6 Output format (what the client sees)
 
@@ -329,39 +341,85 @@ Otherwise, propose LV first. *Never mix HV battery with LV inverter, or LV batte
 >
     ⁠...
 >
-    ⁠*Recommended:* Option [N], [one-line reason: fewer modules / lower cost / room to expand].
+    ⁠*Recommended:* Option [N], [one-line reason].
 
 If only one series fits, show that one. If nothing fits, suggest the next inverter size up.
 
 ## 9.7 Agent behavior
 
-•⁠  ⁠*Direct, short answers.* BOM card plus a one-line recommendation. That's it.
-•⁠  ⁠*Don't show sizing math* unless the client asks "how did you calculate this".
-•⁠  ⁠*Don't suggest HV* unless triggered (see §9.1).
-•⁠  ⁠*Drop incompatible series silently.* Don't list options you had to exclude.
-•⁠  ⁠*If the client asks for details,* walk through §9.4 step by step.
+•⁠  ⁠Direct, short answers. BOM card plus a one-line recommendation.
+•⁠  ⁠Don't show sizing math unless asked.
+•⁠  ⁠Don't suggest HV unless triggered (see §9.1).
+•⁠  ⁠*Drop incompatible series silently.* Never show BOS-B with fewer than 7 per cluster. Never explain why a series was dropped unless asked.
+•⁠  ⁠If asked for details, walk through §9.4 step by step.
 
-## 9.8 Mandatory checks before sending (run every time)
+## 9.8 Mandatory pre-send checklist
+
+Run BEFORE sending any output. If any fails, fix it or drop the option.
 
 •⁠  ⁠HV inverter + HV battery only?
-•⁠  ⁠All clusters inside Min to Max for that inverter and series?
-•⁠  ⁠BOS-B clusters all ≥ 7? If no, drop BOS-B.
-•⁠  ⁠Using the fewest clusters possible?
-•⁠  ⁠Clusters balanced evenly within and across inverters?
+•⁠  ⁠Total clusters = MINIMUM possible (not max the inverter allows)?
+•⁠  ⁠Every BOS-B cluster ≥ 7 modules? If no, DROP BOS-B from output.
+•⁠  ⁠Every cluster inside Min to Max for that series + inverter?
+•⁠  ⁠Clusters balanced evenly within AND across inverters?
 •⁠  ⁠1 PDU per cluster?
-•⁠  ⁠Rack model matches the battery series?
-•⁠  ⁠Rack count covers all modules (e.g., 13 BOS-G modules = 2× 3U-RACK; 13 BOS-A modules = 1× BOS-A-RACK14)?
-•⁠  ⁠All components are the same series?
+•⁠  ⁠Rack model matches battery series?
+•⁠  ⁠Rack count covers all modules?
 
-## 9.9 Worked reference (sanity check, NOT customer output)
+## 9.9 Worked examples (sanity checks, NOT customer output)
 
-*100 kW / 230 kWh project, 2× SUN-50K-SG01HP3-EU-BM4 inverters (4 cluster inputs total):*
+### Example A, 150 kW / 360 kWh on 2× 80K-EM6 (4 inputs available)
 
-•⁠  ⁠*BOS-B option:* 230 ÷ 16.08 = 15 modules, round to 16 modules in 2 clusters of 8 (one cluster per inverter). 2× BOS-B-PDU.
-•⁠  ⁠*BOS-A option:* 230 ÷ 7.68 = 30 modules, round to 32 modules in 4 clusters of 8 (2 clusters per inverter). 4× BOS-A-PDU-2, 4× BOS-A-RACK11.
-•⁠  ⁠*BOS-G option:* 230 ÷ 5.12 = 45 modules, 46 modules in 4 clusters around 12 (12+12+11+11, 2 per inverter). 4× BOS-G-PDU-2, 4× 3U-RACK.
+•⁠  ⁠*BOS-B:* 360 ÷ 16.08 = 23 → use 24 modules.
+  - Max per cluster on 80K = 16. Min clusters = ceil(24/16) = *2 clusters.*
+  - Split: 12+12 (one cluster per inverter, NOT 6+6+6+6).
+  - Floor check: 12 ≥ 7 ✓
+  - Result: 24× BOS-B, 2× BOS-B-PDU, 2 racks.
+•⁠  ⁠*BOS-A:* 360 ÷ 7.68 = 47 → use 48 modules.
+  - Max per cluster on 80K = 21. Min clusters = ceil(48/21) = 3 clusters.
+  - 3 clusters across 2 inverters is unbalanced → bump to *4 clusters of 12* (2 per inverter).
+  - Result: 48× BOS-A, 4× BOS-A-PDU-2, 4× BOS-A-RACK14.
+•⁠  ⁠*BOS-G:* 360 ÷ 5.12 = 71 → use 72 modules.
+  - Max per cluster = 16. Min clusters = ceil(72/16) = 5 clusters.
+  - Round to even split across 2 inverters → *6 clusters of 12* (3 per inverter).
+  - Result: 72× BOS-G, 6× BOS-G-PDU-2, 6× 3U-RACK.
 
-*Recommend BOS-B*, fewest modules, fewest PDUs, lowest total cost.
+### Example B, 100 kW / 230 kWh on 2× 50K-BM4
+
+•⁠  ⁠*BOS-B:* 230 ÷ 16.08 = 15 → use 16 modules.
+  - Max per cluster on 50K = 13. Min clusters = ceil(16/13) = *2 clusters of 8.*
+  - Floor check: 8 ≥ 7 ✓
+  - Result: 16× BOS-B, 2× BOS-B-PDU (one cluster per inverter).
+•⁠  ⁠*BOS-A:* 30 → 32 modules. Max 16/cluster. Min clusters = 2. *2× 16,* one per inverter.
+•⁠  ⁠*BOS-G:* 45 → 46 modules. Max 16/cluster. Min clusters = 3. Bump to *4× ~12* for even split across 2 inverters.
+
+## 9.10 Key mental model
+
+Start from the smallest cluster count that fits. Only add clusters if (a) modules exceed max-per-cluster, or (b) you need to balance evenly across inverters. NEVER add clusters just because the inverter has unused battery inputs. NEVER show BOS-B with fewer than 7 per cluster.
+
+*Rule 1, Cluster count: use the MINIMUM, not the MAXIMUM.*
+Wrong behavior: agent sees "2 inverters × 2 battery inputs = 4 clusters available" and fills all 4.
+Correct rule: calculate the minimum number of clusters needed first. `min clusters = ceil(total modules ÷ max modules per cluster)`. Use that number. Only add more clusters if you need to balance evenly across inverters. Never fill all inverter inputs just because they exist.
+
+*Rule 2, BOS-B minimum is 7 per cluster. No exceptions.*
+Wrong behavior: agent splits BOS-B into clusters of 4, 5, or 6 to use all inverter inputs.
+Correct rule: every BOS-B cluster must have ≥ 7 modules. If the math forces any cluster below 7, DROP BOS-B from the output entirely. Do not show it as an option. Use BOS-A or BOS-G instead.
+
+*Rule 3, Balance clusters across inverters.*
+Wrong behavior: 32 modules / 2 inverters → 21+11 (unbalanced).
+Correct rule: when using multiple inverters, split modules and clusters evenly between them. 32 modules on 2 inverters → 16+16 (one cluster each, or 8+8 per inverter). Never leave one inverter with more load than another.
+
+*Rule 4, Rack model must match battery series.*
+Wrong behavior: agent uses "19″ rack" generically, or the wrong rack model.
+Correct rule: BOS-G → 3U-RACK (12 batteries + 1 PDU per rack). BOS-A → BOS-A-RACK11 (10 batt + 1 PDU) OR BOS-A-RACK14 (13 batt + 1 PDU). BOS-B → BOS-B-specific rack (confirm with team). Never use 3U-RACK for BOS-A or BOS-B.
+
+*Rule 5, BOS-G PDU max is 16, but rack max is 12.*
+Wrong behavior: agent assumes 1 rack covers any BOS-G cluster up to 16.
+Correct rule: BOS-G-PDU-2 supports up to 16 modules per cluster, but one 3U-RACK only holds 12 batteries + 1 PDU. Cluster ≤ 12 modules → 1 rack. Cluster 13 to 16 modules → 2 racks (still only 1 PDU).
+
+*Rule 6, Order of operations matters.*
+Wrong behavior: agent starts from "how many inverter inputs do I have" and works backward.
+Correct rule: always run sizing in this exact order. (1) Total modules needed. (2) Min clusters needed (based on max-per-cluster). (3) BOS-B floor check (≥ 7 per cluster), drop if fails. (4) Balance across inverters. (5) Pick PDUs (1 per cluster). (6) Pick racks (per series rules).
 
 # 10. Locations, pickup, addresses
 
@@ -594,6 +652,7 @@ These are general industry observations, NOT Electro-Sun specifics. For our prod
 •⁠  ⁠Never volunteer HV BOM cards unless one of the §9.1 triggers is met. The ONLY paths to HV are (a) the customer explicitly said "HV" / "high voltage" or named an HV product (BOS-A/B/G, HP3 inverter, SUN-30K/50K/80K HP3), or (b) the project needs more than 50 kWh of storage. Battery-only questions at 50 kWh or below default to LV.
 •⁠  ⁠Never use BOS-B below 7 modules per cluster. If the math gives BOS-B fewer than 7 modules in any cluster, drop BOS-B silently and use BOS-A or BOS-G instead. The BOS-B card is INVALID in that case, do not show it, do not explain why.
 •⁠  ⁠Never send a BOM card without a Racks line. Every card has Inverter / Battery / Cluster split / Control Box / Racks / Cables, all six lines, in that order. Omitting any line invalidates the card.
+•⁠  ⁠Never use more clusters than the MINIMUM needed. `min clusters = ceil(total modules ÷ max-per-cluster for that inverter+series)` (§9.4 Step B). Do NOT fill all available inverter battery inputs just because they exist. Only add a cluster above the minimum when balancing evenly across multiple inverters forces it. Example: 32 BOS-A modules on 2× 50K → 2 clusters of 16 (one per inverter), NOT 4 clusters of 8.
 •⁠  ⁠Never split clusters unevenly. If a series needs more than one cluster, divide the modules evenly across clusters (24 → 12+12, not 16+8). If a system uses parallel inverters, divide the battery sets evenly across inverters (32 BOS-A on 2 inverters → 16+16, not 21+11).
 •⁠  ⁠Never miscount racks. Use the per-series rack rules in §9.3. BOS-G uses 3U-RACK (1 if ≤12 modules, 2 if 13–16). BOS-A uses BOS-A-specific racks: 1× BOS-A-RACK11 for 7–10 modules, 1× BOS-A-RACK14 for 11–13 modules, 1× BOS-A-RACK14 + 1× BOS-A-RACK11 for 14–16 modules, 2× BOS-A-RACK14 for 17–21 modules. BOS-B rack hardware is "confirmed with team". 3U-RACK is BOS-G only, never list 3U for BOS-A. 1 PDU per cluster, always.
 •⁠  ⁠Never show sizing math, cluster calculations, or step-by-step reasoning in the customer reply. Present the BOM and the recommendation only. Walk through the math ONLY if the customer asks "how did you size this" or similar.
