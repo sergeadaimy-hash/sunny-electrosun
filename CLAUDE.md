@@ -31,7 +31,27 @@ B. *BOS-B card shown at 5 modules per cluster.* Live case: 160 kWh BOM offered B
 
 C. *BOS-G option in BOM omitted the rack count and pricing.* Live case: BOS-G card listed Inverter / Battery / PDU but no Racks line. §5 BOM template already required a Racks line, but the model dropped it. Strengthened the BOM card spec in §5: every card MUST include all six lines (Inverter, Battery, Cluster split, Control Box, Racks, Cables) in order. Per-line price math (unit × qty) is now required when prices are in Warehouse Stock, with explicit fallback wording when rack pricing isn't on file: "Racks (19″): N (rack pricing confirmed with the team)". §19 hard nevers gained a matching entry banning BOM cards without a Racks line. Pre-flight rule #2 in §9 reiterates.
 
-This second push is uncommitted on local main. Serge will push together with the next batch.
+Live commits: `a52b0be` (welcome + BOM rules) and `c31006f` (archive cleanup) pushed 2026-05-13.
+
+**Same day, third push (2026-05-13 early afternoon Beirut)** addressed a per-series rack mapping error. Live case: 13 BOS-A modules in one cluster, Sunny said "Racks (19″): 2 × 550k = 1.10M NGN" — but 13 BOS-A modules fit in 1× BOS-A-RACK14 (one rack, 550k NGN). The generic "13+ modules = 2 racks" rule from the previous prompt was a BOS-G assumption that doesn't apply to BOS-A. The brother specified the rack facts:
+
+- 3U rack is BOS-G only (NOT BOS-A, NOT BOS-B).
+- BOS-A uses two specific rack SKUs: BOS-A-RACK11 (11 batteries + 1 PDU) and BOS-A-RACK14 (13 batteries + 1 PDU).
+- BOS-B rack hardware not yet specified (treated as "confirmed with team").
+
+Changes in `src/prompts/system.md`:
+- New §9 subsection *Rack rules by series* with explicit per-series rack tables (3U for BOS-G, RACK11/RACK14 for BOS-A, "confirmed with team" for BOS-B).
+- §9 series table notes column now points at the rack hardware per series.
+- §9 *Clustering rules* rule #5 rewritten to point at the per-series rack table and explicitly forbid the generic "13+ = 2 racks" rule for BOS-A.
+- §9 *STOP — pre-flight checks* rule #4 rewritten to enumerate per-series rack rules.
+- §9 *HV selection logic* step 5 rewritten the same way.
+- §9 *Quick sanity checks* gained a BOS-A-specific check ("RACK11 for ≤11, RACK14 for 12–13, 2× RACK11 for 14–22? NOT 3U.").
+- §9 *Optimal module count* worked examples refreshed: the 100 kWh BOS-A case now correctly shows upper-14 needing 2× RACK11 vs lower-13 needing 1× RACK14, so rule (b) now also fires alongside (a). The 95 kWh case shows both upper-13 and lower-12 fitting in 1× RACK14 (no rack saved).
+- §5 BOM template *Racks* line now requires the explicit SKU for BOS-A and "Racks (3U): N" wording for BOS-G; BOS-B uses "Racks: N (rack hardware confirmed with the team)".
+- §5 example BOM cards updated: BOS-A 11-module option shows "Racks: 1× BOS-A-RACK11", BOS-G 16-module option shows "Racks (3U): 2".
+- §19 hard never about rack counts rewritten to point at the per-series table and explicitly forbid 3U for BOS-A.
+
+This push is uncommitted on local main. Serge will push.
 
 **Session of 2026-05-12 (evening, third push of the day)** swapped `src/prompts/system.md` to v3 with owner-supplied HV configurator content from the new "Deye HV Battery Selection" spec. The v2 distributor-counter prompt was archived to `docs/archive/system-v2-distributor-counter-2026-05-12.md`. Changes are confined to three sections, nothing else in the file touched:
 
