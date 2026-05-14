@@ -68,6 +68,31 @@ Material changes in this swap (vs the just-shipped state):
 
 Live commit: `863ee89` pushed 2026-05-13.
 
+**Session of 2026-05-14 (late evening Beirut), thirteenth push.** Owner shipped `Section_9_Battery_Configurator_LV_and_HV_FINAL_v5-1.docx` and asked to replace §9 entirely. Parsed the docx with python (xml.etree, with table + heading detection), produced `/tmp/new_section_9.md`, and spliced it into `src/prompts/system.md` replacing the previous §9 (lines 246-697 → 246-794, +96 net lines).
+
+Material doctrine changes vs the previous §9:
+
+1. *LV battery pack lineup updated.* §9LV.3 now lists `SE-F5.12 / SE-F12 / SE-F16` (5.12 / 12 / 16 kWh). The previous lineup was `SE-G6.1 / SE-F16`. SE-G6.1 is retired; SE-F12 is new. All §9LV.4 sizing loops, §9LV.5 mix rules, §9LV.9 worked references, and §19 forbidden-example wording updated to the new lineup.
+2. *2% tolerance rule added in BOTH LV (§9LV.4 Step 2) and HV (§9HV.4 Step 1) sizing.* If the floor count (one fewer pack/module) lands within 2% below the storage target, use the floor instead of ceiling. Prevents over-sizing customers by a single pack/module just to clear the rounding. Three worked examples per side: 80 / 82 / 81 kWh LV; 230 / 200 / 196 kWh HV.
+3. *HV equal-modules-per-inverter is now MANDATORY (§9HV.4 Step 3).* "Every paralleled inverter carries the SAME number of modules. Not approximately equal, exactly equal." Total modules must be divisible by inverter count; bump up to next multiple. Worked examples: 30 modules on 4 inverters → 32 (8 per inverter); 47 on 2 → 48 (24 per inverter); 17 on 3 → 18 (6 per inverter, then floor-check or drop).
+4. *HV floor check is now "drop, never bump" (§9HV.4 Step 4).* If any cluster falls below the series minimum, drop the series silently. NEVER increase module count to clear the floor, that would over-store the customer. New worked example: 90 kWh on 2× SUN-30K with BOS-B → 3 per inverter → drop BOS-B entirely, don't bump to 14 modules.
+5. *Tie-break for LV inverter selection (§9LV.4 Step 1).* When multiple inverter models fit, prefer the lowest count (1× 16K beats 2× 12K). If counts tie, prefer the closest power match (avoid heavy oversizing).
+6. *Off-grid inverter pick rule (§9LV.2).* SUN-6K-OG only when the customer states the site has no grid connection. Every other 1-phase site → prefer the hybrid SG model (supports future grid connection).
+7. *New §9.X "Shared rules and glossary" section.* Replaces the duplicated mixing/customer-voice rules across §9LV and §9HV. Four subsections: §9.X.1 Mixing prohibitions, §9.X.2 Customer-voice rules, §9.X.3 Common rules (both LV and HV), §9.X.4 Glossary (12-term table covering LV, HV, Pack, Module, Cluster, Min/Max cluster, PDU, BOM, Parallel bus, Phase).
+8. *§9HV "no HV fits at all" fallback added (§9HV.4 end).* If even the largest inverter size cannot fit the load or storage, return to the customer with three options: (a) reduce storage target, (b) reduce backed-up load, or (c) split into two systems. Never invent a workaround. Never silently force LV.
+9. *§9HV.5 hard rules tightened.* New entry on §9.0-governs-entry: "If the customer originally requested LV and HV was suggested by §9.0 Check 4, the customer may still insist on LV, in which case exit §9HV and return to §9LV via §9.0 Check 5. Never refuse the LV-insist path."
+10. *Subsection numbers normalized.* The docx uses "§9 HV" (with space) and "§9.X" labels; spliced version normalizes to "§9HV" (no space) for consistency with §9LV, but keeps "§9.X" as the owner wrote it. All cross-references updated.
+
+Cross-reference clean-up outside §9:
+- §19 hard never with "Option 2: SE-G6.1 not in stock, skipped" example updated to SE-F12 (matches new pack lineup).
+- All other §9.x / §9LV.x / §9HV.x cross-refs in §5, §6, §19 verified consistent.
+
+HV BOM validator (`src/hv_validator.js`) NOT modified. Its existing logic already supports the new mandatory "equal modules per inverter" rule because `computeExpectedClusterSplit` bumps `minClusters` to a multiple of `inverterQty`, which implicitly enforces equal-per-inverter. The 2% tolerance is a model-side decision (the validator can't see the customer's target storage value), so the prompt rule is the only enforcement for that.
+
+Net prompt size: 1056 lines (was 893 before this push). §9 is now the longest section by far at ~550 lines, fully self-contained for LV + HV doctrine.
+
+This push is uncommitted on local main. Serge will push.
+
 **Session of 2026-05-14 (later evening Beirut), twelfth push.** Three live failures flagged by the owner:
 
 1. *Image 10, 5kVA case.* Customer asked "5kv inverter prize". Warehouse has no SUN-5K row (closest sizes: SUN-6K-OG01LP1 incoming, SUN-8K-SG05LP1 in stock). Instead of surfacing the 6kW or 8kW, Sunny escalated as silent_query (intent `pricing_question`) and replied with the canned "Noted. Will share the figure once confirmed." That canned text comes from `src/handler.js > stall guard` when both the model's first reply AND the stall-regenerated reply contain stall language. Doctrine fix: §6 gained an "if customer named a size with no exact row but adjacent sizes exist in Warehouse Stock, do NOT stall, do NOT silent_query, surface the closest match with topology and stock state" block, with a concrete reply template using the actual SKUs. §19 gained a matching hard never.
