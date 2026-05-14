@@ -763,8 +763,10 @@ async function generateReply(history, message, contact, attachments = [], option
       const before = text;
       let cleaned = text
         // BOM option headers read best with a colon: "Option 1: BOS-B" beats
-        // "Option 1, BOS-B". Special-case BEFORE the generic em/en-dash rule.
-        .replace(/(\*{0,2}\s*Option\s+\d+)\s*[—–]\s*(BOS-[ABG])/gi, '$1: $2')
+        // "Option 1, BOS-B". Handles HV series (BOS-A/B/G) AND LV packs (SE-F,
+        // SE-G, or any other SKU starting with a capital letter). Special-case
+        // BEFORE the generic em/en-dash rule.
+        .replace(/(\*{0,2}\s*Option\s+\d+)\s*[—–]\s*([A-Z])/g, '$1: $2')
         // En-dash between digits is a number range, keep as single hyphen
         .replace(/(\d)\s*–\s*(\d)/g, '$1-$2')
         // Em-dash with surrounding spaces becomes ", "

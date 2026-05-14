@@ -68,6 +68,30 @@ Material changes in this swap (vs the just-shipped state):
 
 Live commit: `863ee89` pushed 2026-05-13.
 
+**Session of 2026-05-14 (afternoon Beirut), tenth push.** Owner-supplied LV configurator + new §9.0 LV-vs-HV decision tree to replace the existing §9. The pre-tune §9 (HV-only, 151 lines) is preserved in git history under the previous push. New §9 expanded to three subsections:
+
+1. *§9.0 LV vs HV decision tree.* Five sequential checks: voltage named by customer (LV/HV literal) → use it; otherwise load ≤ 20 kW = small-app LV default; otherwise test LV ceilings (≤ 32 packs, ≤ 10 inverters paralleled, phase match) → if pass, recommend LV; if fail, suggest HV and wait; if customer insists on LV, re-size LV at full parallel; if still doesn't fit, offer to reduce scope or accept HV. Includes a visual ASCII tree and a "§9.0 hard rules — never break" block. Critically: storage size alone is NEVER a trigger for HV anymore. The previous "storage > 50 kWh = HV" rule is explicitly retired in §9.0 hard rules.
+
+2. *§9LV.1 to §9LV.9 LV Configurator (new).* Lists 10 LV Deye inverters (5K, 6K-OG, 8K, 10K, 12K x 2, 16K x 2, 18K, 20K) with phase + type. Lists 3 LV battery packs (SE-G5.1 Pro 5.12 kWh, SE-G6.1 6.14 kWh, SE-F16 16 kWh). Sizing flow: ceil(load/inverter kW) × 1.25 headroom for inverter count (must be ≤ 10); ceil(storage/pack kWh) for total packs (must be ≤ 32 system-wide, NOT per inverter); phase check; emit. Hard rules cover no-mixing (pack model, inverter model, phase), 32-pack pool ceiling, 10-inverter parallel ceiling. Output format is a BOM card per surviving pack with comm bus + parallel kit lines (no clusters, no PDU, no racks unlike HV). Worked references for 100/80, 30/50, 10/30, 5/15, 6/20 off-grid, 150/200 borderline, 200/600 LV-fails.
+
+3. *§9HV.1 to §9HV.10 HV Configurator.* Existing HV content preserved verbatim except: §9HV.1 trigger list rewritten to point at §9.0 routing (removed standalone "storage > 50 kWh" trigger and "HV-only inverter" implicit trigger, replaced with: customer named HV / customer named HV-only product / §9.0 Check 4 escalation accepted). §9HV.5 cross-reference to §9LV.5 added. Internal subsection numbers renamed from 9.2-9.10 to 9HV.2-9HV.10 for consistency.
+
+Cross-references reconciled:
+- §5 "HV BOM cards are governed by §9. only build when §9.1 triggers" updated to "Battery BOMs (LV or HV) are governed by §9. The §9.0 decision tree decides LV vs HV."
+- §19 hard nevers: dropped the "storage > 50 kWh" volunteer-HV trigger, replaced with two new entries: never volunteer a battery BOM unless customer asked for sizing; never auto-switch from LV to HV based on storage size or any other size threshold. §19 reference to "§9.3" updated to "§9HV.3".
+- §11 "Pivot back to supply: Want me to confirm what's in stock for the system size you're sizing?" CTA stripped per the new no-CTA §5 rule. Hold-the-line text remains; the customer pivots back to supply themselves.
+- §12 SERIOUS push-to-close rewritten. Old: "The Deye 12kW is X NGN, available. Want to proceed with pickup or delivery?". New: "The Deye 12kW is X NGN, available." Then stop. Let the customer say "I want to pay" themselves. Capture-for-follow-up clarified as a once-per-conversation clarifier, not a CTA.
+
+Code update: `src/claude.js` option-header dash-strip special case broadened from `BOS-[ABG]` only to any capital-letter-starting SKU, so LV BOM headers like "Option 1 — SE-F16" become "Option 1: SE-F16" instead of "Option 1, SE-F16".
+
+HV validator (`src/hv_validator.js`) unchanged. Its OPTION_HEADER_RE matches only BOS-[ABG], so LV BOM option blocks pass through untouched. Verified under unit test (LV BOM with 2 options through validateAndFixHvBom: changed=false, no drops).
+
+Owner mentioned the SE-G5.1 Pro and SE-G6.1 may not yet be in Warehouse Stock (the live warehouse shows SE-F5.12 as the LV pack row currently). Sunny will follow §6 "Warehouse Stock is the source of truth for what's offerable" and surface only the rows that exist in stock, while the §9LV.3 list informs sizing rules for any of the three packs once added.
+
+The LV-inverter-with-HV-battery `non_hv_inverter` validator drop reason from the 8th push still holds and is the right guard for the reverse case (HV BOM with LV inverter SKU).
+
+This push is uncommitted on local main. Serge will push.
+
 **Session of 2026-05-14 (morning Beirut), ninth push.** Owner-flagged three live failures: (a) customer asked "6kVA Deye inverter with 10kWh battery", Sunny silently upsized to the 8kW hybrid and never surfaced the 6kW off-grid row that IS in the warehouse (`SUN-6K-OG01LP1-EU-AM2`, LV single-phase, off-grid, incoming); (b) replies still cap with CTA-style questions like "Want to proceed with the inverter now and pre-order the batteries, or would you prefer to wait?", which Nigerian customers read as pushy; (c) replies are wall-of-text paragraphs instead of structured blocks with line breaks. Changes:
 
 A. *§5 rewritten.* Old "1 to 3 short sentences, ONE natural follow-up question" wording dropped. New rule: length scales with the answer (1-fact = 1 sentence; 2-fact = 1-2 sentences or 2-line block; 3+ facts = ALWAYS structured with line breaks, blank line between groups, max 6 blocks). Structured replies are no longer gated on "explicit multi-component ask", they are the default for any multi-fact answer. New explicit ban on CTA-style tails ("Want to proceed?", "Want me to send the account?", "Are you ready to pay?", "Should I send the proforma?", "Shall I confirm the order?", "Would you like to wait or pre-order?", "Want to pre-order?", "Ready to confirm?", "Do you want me to put it aside?"). Clarifying questions still allowed when the model genuinely needs info AND hasn't asked it yet. New worked examples replace the old "Ready to proceed?"-closer example.
