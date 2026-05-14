@@ -76,6 +76,117 @@ function detectFabricatedVariant(text, contactId) {
   return flagged.length ? flagged : null;
 }
 
+// BOM reply cleanup. Catches three recurring leaks the prompt cannot
+// reliably prevent on its own:
+//   (a) internal section / decision-tree references leaking to the customer
+//       ("§9.0 Check 2: load is 13kW (≤ 20kW), so LV is the default")
+//   (b) the model listing dropped options inline ("Option 2: SE-G6.1 Not in
+//       our current stock, skipped") instead of dropping them silently
+//   (c) BOM lines and Option headers glued together with no line breaks
+//
+// Runs after the dash-strip so option headers are already in colon form
+// ("Option 1: SE-F16"). Returns the cleaned reply and a summary of what
+// was touched so the caller can log it.
+function cleanupBomReply(text) {
+  if (!text || typeof text !== 'string') return { text, changed: false, reasons: [] };
+  const before = text;
+  const reasons = [];
+  let out = text;
+
+  // (a1) Strip "§9.0 Check 2: load is X (≤ Y), so LV is the default."-style
+  // doctrine leaks. These come straight out of the decision tree section.
+  // Match aggressively across the whole sentence.
+  const docPattern1 = /§\s*9(?:\.\d+|LV(?:\.\d+)?|HV(?:\.\d+)?)?(?:\s+Check\s+\d+)?[:\s][^\n.?!]*[.?!]?/gi;
+  if (docPattern1.test(out)) {
+    out = out.replace(docPattern1, '');
+    reasons.push('section_ref_stripped');
+  }
+
+  // (a2) "Check N:" / "Step N:" labels even without a §9 prefix.
+  const checkStep = /\b(?:Check|Step)\s+\d+\s*[:.\-—–]\s*[^\n.?!]{0,160}[.?!]?/gi;
+  if (checkStep.test(out)) {
+    out = out.replace(checkStep, '');
+    reasons.push('check_step_stripped');
+  }
+
+  // (a3) Parenthetical sizing reasoning: "(≤ 20kW)", "(≤ 32 packs)",
+  // "(<= 10 inverters)", "(≥ 50kWh)".
+  const parenReasoning = /\s*\(\s*[≤≥<>=]+\s*\d+(?:\.\d+)?\s*(?:kW|kVA|kWh|V|packs?|inverters?|modules?)\s*\)/gi;
+  if (parenReasoning.test(out)) {
+    out = out.replace(parenReasoning, '');
+    reasons.push('paren_reasoning_stripped');
+  }
+
+  // (a4) "so LV is the default" / "LV is the default" / "small-app default" /
+  // "decision tree" / "LV ceilings hold/break".
+  const defaultPhrases = [
+    /,?\s*so\s+(?:LV|HV)\s+is\s+the\s+default\.?/gi,
+    /\b(?:LV|HV)\s+is\s+the\s+(?:small[-\s]app(?:lication)?\s+)?default\.?/gi,
+    /\bsmall[-\s]app(?:lication)?\s+default\b/gi,
+    /\bdecision\s+tree\b/gi,
+    /\b(?:LV|HV)\s+ceilings?\s+(?:hold|break|fit|fail)\b[^\n.?!]*[.?!]?/gi,
+    /\bload\s+is\s+\d+\s*kW[^\n.?!]*default[^\n.?!]*[.?!]?/gi
+  ];
+  for (const re of defaultPhrases) {
+    if (re.test(out)) {
+      out = out.replace(re, '');
+      reasons.push('default_phrase_stripped');
+      break;
+    }
+  }
+
+  // (b) Strip inline "Option N: SKU (skipped / not in stock / dropped)" lines.
+  // Dropped options must be invisible to the customer.
+  const skippedOption = /\*{0,2}\s*Option\s+\d+:?\s*\*{0,2}\s*[A-Z][\w.-]*(?:\s+Pro)?[\s,.\-—–]{0,6}(?:Not\s+in\s+(?:our\s+)?(?:current\s+)?stock|skipped|dropped|unavailable|unviable|not\s+(?:viable|available|in\s+stock))[^\n.]*\.?/gi;
+  if (skippedOption.test(out)) {
+    out = out.replace(skippedOption, '');
+    reasons.push('skipped_option_stripped');
+  }
+
+  // (c1) Trim recommendation reasoning. Keep "Recommended: Option N" plus
+  // an optional ": SKU" tail. Drop everything after but preserve any
+  // closing markdown asterisks (so WhatsApp bold formatting stays paired).
+  const recReasoning = /(\*{0,2}\s*Recommended:?\s*\*{0,2}\s*Option\s+\d+(?:\s*:\s*[A-Z][\w.-]+(?:\s+Pro)?)?\s*\*{0,2})[^\n]*/gi;
+  let trimmed = false;
+  out = out.replace(recReasoning, (m, kept) => {
+    if (m.length > kept.length) trimmed = true;
+    return kept + '.';
+  });
+  if (trimmed) reasons.push('rec_reasoning_trimmed');
+
+  // (c2) Force blank line before "Option N:" and "Recommended:" headers when
+  // glued to the preceding sentence. Protect "Recommended: Option N" from
+  // being split: that's a single recommendation phrase, not a new option.
+  const REC_MARK = '\x00REC_OPT\x00';
+  out = out.replace(
+    /(\*{0,2}\s*Recommended\s*:\s*\*{0,2})\s+(\*{0,2}\s*Option\s+\d+\s*:)/gi,
+    '$1' + REC_MARK + '$2'
+  );
+  out = out.replace(/(\S)[ \t]+(\*{0,2}\s*Option\s+\d+\s*:)/g, '$1\n\n$2');
+  out = out.replace(/(\S)[ \t]+(\*{0,2}\s*Recommended\s*:)/gi, '$1\n\n$2');
+  out = out.replace(new RegExp(REC_MARK, 'g'), ' ');
+  // (c3) Force newline before BOM body labels when glued to the previous
+  // line ("Cables: battery comm bus + AC tie Option 2: ..." case after the
+  // skipped-option strip leaves a "Cables: ... " trailing space).
+  out = out.replace(
+    /(\S)[ \t]+(\*{0,2}\s*(?:Inverter|Battery|Parallel\s+kit|Cables|Cluster\s+split|Control\s+Box|Racks)\s*:)/g,
+    '$1\n$2'
+  );
+  if (out !== before) reasons.push('line_breaks_inserted');
+
+  // (d) Final cleanup: collapse 3+ newlines, trim trailing spaces, collapse
+  // double spaces, drop empty lines that became orphaned punctuation.
+  out = out
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^\s*[.,;:]\s*$/gm, '')
+    .replace(/\n\s*\n\s*\n/g, '\n\n')
+    .trim();
+
+  return { text: out, changed: out !== before, reasons };
+}
+
 const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-opus-4-7';
 const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-opus-4-7';
 
@@ -794,6 +905,24 @@ async function generateReply(history, message, contact, attachments = [], option
           dd_count: (before.match(/--/g) || []).length
         });
         text = cleaned;
+      }
+    }
+
+    // BOM cleanup, FINAL pass. Strips internal section refs, decision-tree
+    // reasoning, skipped-option lines, recommendation reasoning, and forces
+    // blank lines around Option N / Recommended headers. Doctrine leaks
+    // from the §9 LV/HV configurator have repeatedly slipped past the
+    // prompt rules; this is the deterministic backstop.
+    if (text) {
+      const cleanup = cleanupBomReply(text);
+      if (cleanup.changed) {
+        logger.warn('claude.reply.bom_cleanup_applied', {
+          contactId: contact?.id,
+          reasons: cleanup.reasons,
+          original_reply: text.slice(0, 800),
+          cleaned_reply: cleanup.text.slice(0, 800)
+        });
+        text = cleanup.text;
       }
     }
 

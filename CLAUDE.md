@@ -68,6 +68,39 @@ Material changes in this swap (vs the just-shipped state):
 
 Live commit: `863ee89` pushed 2026-05-13.
 
+**Session of 2026-05-14 (evening Beirut), eleventh push.** Owner flagged a live reply that leaked the §9.0 decision tree verbatim to the customer, listed dropped LV pack options inline, glued every block together with no line breaks, and tacked a reasoning paragraph onto the Recommended line. Concrete failure mode from the screenshot:
+
+```
+For 13kW / 65kWh on LV: §9.0 Check 2: load is 13kW (≤ 20kW), so LV is the default. Option 1: SE-F16
+Inverter: SUN-16K-SG01LP1-EU × 1
+...
+Cables: battery comm bus + AC tie Option 2: SE-G6.1 Not in our current stock, skipped. Option 3: SE-G5.1 Not in our current stock, skipped. Recommended: Option 1: SE-F16, 1 inverter covers 13kW with headroom, 5 packs gives you 80kWh which exceeds your 65kWh target cleanly.
+```
+
+Six distinct leaks in one reply. Prompt rules alone clearly cannot hold; shipped a deterministic backstop:
+
+A. *New `cleanupBomReply(text)` helper in `src/claude.js`.* Runs as the absolute final pass after the existing HV validator, dash strip, and all security guards. Six cleanup passes in order:
+   1. Strip "§9.0 Check 2: load is X..."-style doctrine leaks, also bare "§9.0", "§9LV.x", "§9HV.x", "Section 9" refs.
+   2. Strip "Check N:" / "Step N:" stems even without a §9 prefix.
+   3. Strip parenthetical sizing reasoning: "(≤ 20kW)", "(≤ 32 packs)", "(≥ 50kWh)", "(<= 10 inverters)".
+   4. Strip default-routing phrases: "so LV is the default", "LV is the default", "small-app default", "decision tree", "LV ceilings hold/break".
+   5. Strip inline "Option N: SKU (skipped|not in stock|dropped|unavailable|unviable)" sentences. Dropped options must be invisible.
+   6. Trim recommendation reasoning: keep only `Recommended: Option N` (optionally `: SKU`), preserve closing markdown asterisks for WhatsApp bold, drop everything after.
+   7. Force blank line before every "Option N:" and "Recommended:" header glued to a preceding sentence. Protect the "Recommended: Option N" pair from being split (uses a temporary marker, then restored).
+   8. Force single newline before glued BOM body labels (Inverter:/Battery:/Parallel kit:/Cables:/Cluster split:/Control Box:/Racks:).
+   9. Whitespace cleanup: collapse 3+ newlines, drop orphan punctuation lines, normalize double spaces.
+   Returns `{ text, changed, reasons }`. Logged as `claude.reply.bom_cleanup_applied` with the original and cleaned text plus the reason list.
+
+B. *§9LV.6 and §9HV.6 (BOM output format) rewritten as STRICT rules.* Numbered output rules (opening line, blank lines between blocks, no-reason recommendation), an explicit forbidden-tokens list (§9.0 / §9LV / §9HV / Check N / Step N / small-app default / ceilings hold / 32-pack ceiling / 10-inverter limit / battery inputs available / cluster inputs total), and a tightened template. Recommended line is now `Recommended: Option [N]` with NO reason, NO explanation, NO "because".
+
+C. *§9LV.7 and §9HV.7 (agent behavior) tightened.* Dropped options are SILENT (never listed, never named, never mentioned). Section references and decision-tree labels are internal-only. Recommended line never carries a reason.
+
+D. *§19 hard nevers gained five entries* covering the same surface area, expressed as concrete bans with examples of forbidden output ("Option 2: SE-G6.1 not in stock, skipped" specifically called out).
+
+Unit-tested cleanup against the exact screenshot text plus a clean-BOM passthrough and a non-BOM passthrough. All three behave correctly: leaks stripped, clean output preserved (including closing markdown asterisks), non-BOM text untouched.
+
+This push is uncommitted on local main. Serge will push.
+
 **Session of 2026-05-14 (afternoon Beirut), tenth push.** Owner-supplied LV configurator + new §9.0 LV-vs-HV decision tree to replace the existing §9. The pre-tune §9 (HV-only, 151 lines) is preserved in git history under the previous push. New §9 expanded to three subsections:
 
 1. *§9.0 LV vs HV decision tree.* Five sequential checks: voltage named by customer (LV/HV literal) → use it; otherwise load ≤ 20 kW = small-app LV default; otherwise test LV ceilings (≤ 32 packs, ≤ 10 inverters paralleled, phase match) → if pass, recommend LV; if fail, suggest HV and wait; if customer insists on LV, re-size LV at full parallel; if still doesn't fit, offer to reduce scope or accept HV. Includes a visual ASCII tree and a "§9.0 hard rules — never break" block. Critically: storage size alone is NEVER a trigger for HV anymore. The previous "storage > 50 kWh = HV" rule is explicitly retired in §9.0 hard rules.
