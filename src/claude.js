@@ -589,6 +589,44 @@ async function generateReply(history, message, contact, attachments = [], option
       }
     }
 
+    // CTA-tail guard. Strips a trailing call-to-action question like "Want to
+    // proceed?", "Should I send the account?", "Are you ready to pay?",
+    // "Would you like to wait or pre-order?". The prompt forbids them but the
+    // model still emits them. Skip the strip when the customer explicitly
+    // asked for guidance ("what do you recommend", "I'm ready to pay",
+    // "send me the account") because then a CTA closer is appropriate.
+    if (text && !options.allowTrailingQuestion) {
+      const customerMsg = String(message || '').trim();
+      const GUIDANCE_ASK_RE = /\b(recommend|suggest|advise|advice|what\s+do\s+you\s+(?:think|recommend)|what\s+would\s+you|which\s+is\s+better|best\s+for\s+me|help\s+me\s+(?:choose|decide|pick)|ready\s+to\s+(?:buy|pay|proceed|order)|i\s+want\s+to\s+pay|i'?ll\s+take\s+it|i'?m\s+ready|let'?s\s+(?:proceed|go|do\s+it)|sign\s+me\s+up|send\s+(?:me\s+)?(?:the\s+)?(?:account|proforma|invoice|details)|where\s+do\s+i\s+pay|how\s+do\s+i\s+pay)\b/i;
+      if (!GUIDANCE_ASK_RE.test(customerMsg)) {
+        const CTA_TAIL_RE = new RegExp(
+          '\\s*(?:' +
+          'Want\\s+to\\s+(?:proceed|order|pre-?order|wait|confirm|buy|pay|put|reserve|lock|secure)|' +
+          'Want\\s+(?:me|us|the\\s+team)\\s+to\\s+(?:send|share|prepare|process|put|reach|contact|reserve|hold|set|arrange|put\\s+aside|lock)|' +
+          'Would\\s+you\\s+(?:like|prefer)\\s+(?:to\\s+|me\\s+to\\s+|us\\s+to\\s+)?(?:proceed|order|pre-?order|wait|confirm|pay|send|share|prepare|reserve|hold|lock)|' +
+          'Should\\s+I\\s+(?:send|share|prepare|process|reserve|hold|put)|' +
+          'Shall\\s+I\\s+(?:send|share|prepare|process|reserve|hold|put|confirm|proceed)|' +
+          'Do\\s+you\\s+want\\s+(?:to\\s+(?:proceed|order|pre-?order|wait|confirm|pay|lock|reserve)|(?:me|us)\\s+to\\s+(?:send|share|prepare|reserve|hold))|' +
+          'Are\\s+you\\s+ready\\s+(?:to\\s+)?(?:proceed|pay|order|confirm|move)|' +
+          'Ready\\s+to\\s+(?:proceed|pay|order|confirm|move)' +
+          ')[^.?!]{0,200}\\?\\s*$',
+          'i'
+        );
+        if (CTA_TAIL_RE.test(text)) {
+          const stripped = text.replace(CTA_TAIL_RE, '').trim();
+          if (stripped) {
+            logger.warn('claude.reply.cta_tail_stripped', {
+              contactId: contact?.id,
+              customer_msg: customerMsg.slice(0, 80),
+              original_reply: text.slice(0, 300),
+              stripped_reply: stripped.slice(0, 300)
+            });
+            text = stripped;
+          }
+        }
+      }
+    }
+
     if (text) {
       const leakedMarkers = security.detectPromptLeak(text);
       if (leakedMarkers) {
