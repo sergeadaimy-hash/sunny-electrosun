@@ -785,6 +785,37 @@ async function generateReply(history, message, contact, attachments = [], option
       }
     }
 
+    // SKU-list dump guard. Catches the failure mode where the model
+    // enumerates the entire Deye inventory ("Here's what we have in stock:
+    // SUN-8K..., SUN-12K..., SUN-16K..., SUN-20K..., SE-F5.12, SE-F16,
+    // BOS-G-PACK..., BOS-A-PACK..., BOS-B-PACK..."), regardless of how the
+    // customer phrased it. §19 forbids reciting Warehouse Stock; this is the
+    // code-level backstop. Legitimate BOMs (3-option HV cards, multi-pack LV
+    // cards) are exempt because they carry "Option N:" structure.
+    if (text) {
+      const inverterSet = new Set(
+        (text.match(/\bSUN-\d+(?:\.\d+)?K\b/gi) || []).map(s => s.toUpperCase())
+      );
+      const batterySet = new Set(
+        (text.match(/\b(?:BOS-[ABG][A-Z0-9.-]*|SE-[FG][\d.]+(?:\s*Pro)?)\b/gi) || []).map(s => s.toUpperCase())
+      );
+      const optionHeaderCount = (text.match(/\*?\s*Option\s+\d+\s*[:—–-]/gi) || []).length;
+      const inverterDump = inverterSet.size >= 4;
+      const batteryDump = batterySet.size >= 4;
+      const totalDump = (inverterSet.size + batterySet.size) >= 6;
+      if (optionHeaderCount === 0 && (inverterDump || batteryDump || totalDump)) {
+        security.logSecurityEvent('sku_list_dump_blocked', {
+          contactId: contact?.id,
+          inverter_sku_count: inverterSet.size,
+          battery_sku_count: batterySet.size,
+          inverter_skus: Array.from(inverterSet).slice(0, 20),
+          battery_skus: Array.from(batterySet).slice(0, 20),
+          original_reply: text.slice(0, 400)
+        });
+        text = "Could you share what you're sizing for? Residential, commercial, a specific kW size or storage target. That way the team can point you at the right setup.";
+      }
+    }
+
     if (contact?.id && text) {
       try {
         const { getDb } = require('../db/init');
