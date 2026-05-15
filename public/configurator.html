@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electro-Sun Battery Configurator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --ink: #0F1A14;
+    --ink-2: #2C3833;
+    --muted: #5C6B66;
+    --faint: #9AA39F;
+    --paper: #FFFFFF;
+    --cream: #F4F2EE;
+    --cream-soft: #F7F7F5;
+    --border: #E5E5E2;
+    --border-strong: #D8D6D1;
+    --green: #1F7A47;
+    --green-hover: #1A6B3D;
+    --green-soft: #E7F2EC;
+    --green-faint: #F0F8F3;
+    --hot: #C0392B;
+    --hot-soft: #FCEAEA;
+    --warm: #B7791F;
+    --warm-soft: #FCF1DE;
+    --gold: #C9A227;
+    --shadow: 0 1px 0 rgba(15, 26, 20, 0.04), 0 6px 18px -10px rgba(15, 26, 20, 0.18);
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--cream);
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+  header.top {
+    margin-bottom: 24px;
+  }
+  header.top h1 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  header.top .tag {
+    color: var(--muted);
+    margin-top: 4px;
+    font-size: 14px;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 10px;
+    background: var(--green);
+    color: white;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    border-radius: 999px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+  .card h2 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .field {
+    margin-bottom: 14px;
+  }
+  .field label {
+    display: block;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .field input[type="number"] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    font-size: 15px;
+    font-family: inherit;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .field input[type="number"]:focus {
+    outline: none;
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px var(--green-soft);
+  }
+  .radio-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .radio-row label {
+    flex: 1 1 auto;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 13px;
+    color: var(--ink-2);
+    font-weight: 500;
+    margin: 0;
+    padding: 8px 10px;
+    background: var(--cream-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.12s ease;
+    min-width: 70px;
+  }
+  .radio-row input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .radio-row label.active {
+    background: var(--green);
+    color: white;
+    border-color: var(--green);
+    font-weight: 600;
+  }
+  .helper {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  button.primary {
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--green);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  button.primary:hover { background: var(--green-hover); }
+  button.ghost {
+    padding: 12px 16px;
+    background: var(--paper);
+    color: var(--ink-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button.ghost:hover { background: var(--cream-soft); }
+  /* Results */
+  .results {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .placeholder {
+    color: var(--faint);
+    text-align: center;
+    padding: 60px 20px;
+    font-size: 14px;
+  }
+  .routing {
+    padding: 14px 16px;
+    background: var(--green-faint);
+    border: 1px solid var(--green-soft);
+    border-radius: 10px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .routing.warn {
+    background: var(--warm-soft);
+    border-color: rgba(183, 121, 31, 0.25);
+  }
+  .routing.fail {
+    background: var(--hot-soft);
+    border-color: rgba(192, 57, 43, 0.25);
+  }
+  .routing .badge {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    background: var(--green);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    border-radius: 999px;
+    text-transform: uppercase;
+  }
+  .routing.warn .badge { background: var(--warm); }
+  .routing.fail .badge { background: var(--hot); }
+  .routing .body { flex: 1; font-size: 14px; color: var(--ink-2); }
+  .routing .body strong { color: var(--ink); }
+  .opener {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ink);
+    padding: 14px 18px;
+    background: var(--cream-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .bom {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--paper);
+    overflow: hidden;
+  }
+  .bom.recommended {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px var(--green-soft);
+  }
+  .bom .head {
+    padding: 12px 16px;
+    background: var(--cream-soft);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .bom.recommended .head { background: var(--green-faint); }
+  .bom .title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .bom .pill {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--green);
+    color: white;
+  }
+  .bom .lines {
+    padding: 14px 16px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .bom .lines .line {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 12px;
+  }
+  .bom .lines .line .lbl {
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .bom .lines .line .val { color: var(--ink); font-family: ui-monospace, "SF Mono", Consolas, Menlo, monospace; }
+  .recommend-line {
+    padding: 14px 18px;
+    background: var(--green);
+    color: white;
+    font-weight: 700;
+    font-size: 16px;
+    border-radius: 10px;
+    text-align: center;
+    letter-spacing: 0.3px;
+  }
+  .recommend-line.none {
+    background: var(--cream-soft);
+    color: var(--ink);
+    border: 1px solid var(--border);
+  }
+  details.notes {
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+  }
+  details.notes summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    user-select: none;
+  }
+  details.notes summary::-webkit-details-marker { display: none; }
+  details.notes summary::after { content: ' ▾'; }
+  details.notes[open] summary::after { content: ' ▴'; }
+  details.notes .inner {
+    border-top: 1px solid var(--border);
+    padding: 14px;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  details.notes .inner .drop {
+    padding: 8px 10px;
+    margin-top: 6px;
+    background: var(--cream-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  details.notes .inner .drop:first-child { margin-top: 0; }
+  details.notes .inner .drop b { color: var(--ink); }
+  details.notes .inner h4 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    margin: 12px 0 6px;
+    font-weight: 700;
+  }
+  details.notes .inner h4:first-child { margin-top: 0; }
+  details.notes .inner pre {
+    font-family: ui-monospace, "SF Mono", Consolas, Menlo, monospace;
+    font-size: 12px;
+    background: var(--cream);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    color: var(--ink-2);
+    white-space: pre;
+  }
+  footer.foot {
+    margin-top: 28px;
+    color: var(--faint);
+    font-size: 12px;
+    text-align: center;
+  }
+  .copy-btn {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .copy-btn:hover { background: var(--cream-soft); color: var(--ink-2); }
+  .copy-btn.ok { background: var(--green-soft); color: var(--green); border-color: var(--green-soft); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand">Electro-Sun</div>
+    <h1>Battery Configurator</h1>
+    <div class="tag">Deye LV and HV sizing per §9 doctrine. Customer-facing BOM, no math shown.</div>
+  </header>
+
+  <div class="layout">
+    <div class="card">
+      <h2>Project inputs</h2>
+
+      <div class="field">
+        <label for="load">Peak load (kW)</label>
+        <input id="load" type="number" inputmode="decimal" min="0" step="0.1" placeholder="e.g. 30">
+      </div>
+
+      <div class="field">
+        <label for="storage">Storage target (kWh)</label>
+        <input id="storage" type="number" inputmode="decimal" min="0" step="0.1" placeholder="e.g. 60">
+      </div>
+
+      <div class="field">
+        <label>Phase</label>
+        <div class="radio-row" data-name="phase">
+          <input type="radio" name="phase" id="phase-1" value="1" checked>
+          <label for="phase-1" class="active">1-phase</label>
+          <input type="radio" name="phase" id="phase-3" value="3">
+          <label for="phase-3">3-phase</label>
+        </div>
+        <div class="helper">Inverter phase must match site phase.</div>
+      </div>
+
+      <div class="field">
+        <label>Voltage preference</label>
+        <div class="radio-row" data-name="voltage">
+          <input type="radio" name="voltage" id="v-auto" value="auto" checked>
+          <label for="v-auto" class="active">Auto</label>
+          <input type="radio" name="voltage" id="v-lv" value="lv">
+          <label for="v-lv">LV</label>
+          <input type="radio" name="voltage" id="v-hv" value="hv">
+          <label for="v-hv">HV</label>
+        </div>
+        <div class="helper">Auto runs §9.0 (customer voice, then 20 kW small-app default, then LV ceilings).</div>
+      </div>
+
+      <div class="field">
+        <label>Grid</label>
+        <div class="radio-row" data-name="grid">
+          <input type="radio" name="grid" id="grid-on" value="on" checked>
+          <label for="grid-on" class="active">On-grid</label>
+          <input type="radio" name="grid" id="grid-off" value="off">
+          <label for="grid-off">Off-grid</label>
+        </div>
+        <div class="helper">Off-grid (no utility) forces 6 kW OG. Hybrid only otherwise.</div>
+      </div>
+
+      <div class="field">
+        <label>If LV ceilings fail</label>
+        <div class="radio-row" data-name="lvfail">
+          <input type="radio" name="lvfail" id="lvf-hv" value="hv" checked>
+          <label for="lvf-hv" class="active">Accept HV</label>
+          <input type="radio" name="lvfail" id="lvf-lv" value="lv">
+          <label for="lvf-lv">Insist LV</label>
+        </div>
+        <div class="helper">Simulates the customer reply to §9.0 Check 4.</div>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="run">Build BOM</button>
+        <button class="ghost" id="reset">Reset</button>
+      </div>
+    </div>
+
+    <div class="results" id="results">
+      <div class="card placeholder">
+        Enter load and storage, then press <strong>Build BOM</strong>.
+      </div>
+    </div>
+  </div>
+
+  <footer class="foot">
+    Engineering constants and rules are sourced from <code>src/prompts/system.md</code> §9 and mirrored in <code>src/hv_validator.js</code>.
+    BOM cards follow §9LV.6 and §9HV.6 templates verbatim.
+  </footer>
+</div>
+
+<script>
+'use strict';
+
+// Engineering constants. Single source of truth.
+// LV inverters carried by Electro-Sun (§9LV.2).
+const LV_INVERTERS = [
+  { code: 'SUN-20K-SG05LP3-EU-SM2',    kw: 20, phase: 3, type: 'hybrid' },
+  { code: 'SUN-18K-SG01LP1-EU-AM3-P',  kw: 18, phase: 1, type: 'hybrid' },
+  { code: 'SUN-16K-SG05LP3-EU-SM2',    kw: 16, phase: 3, type: 'hybrid' },
+  { code: 'SUN-16K-SG01LP1-EU',        kw: 16, phase: 1, type: 'hybrid' },
+  { code: 'SUN-12K-SG04LP3-EU',        kw: 12, phase: 3, type: 'hybrid' },
+  { code: 'SUN-12K-SG02LP1-EU-AM3-P',  kw: 12, phase: 1, type: 'hybrid' },
+  { code: 'SUN-10K-SG02LP1-EU-AM3-P',  kw: 10, phase: 1, type: 'hybrid' },
+  { code: 'SUN-8K-SG05LP1-EU-SM2-P',   kw: 8,  phase: 1, type: 'hybrid' },
+  { code: 'SUN-6K-OG01LP1-EU-AM2',     kw: 6,  phase: 1, type: 'offgrid' },
+  { code: 'SUN-5K-SG04LP1-EU-SM2',     kw: 5,  phase: 1, type: 'hybrid' }
+];
+
+// LV battery packs (§9LV.3).
+const LV_PACKS = [
+  { code: 'SE-F5.12', kwh: 5.12 },
+  { code: 'SE-F12',   kwh: 12 },
+  { code: 'SE-F16',   kwh: 16 }
+];
+
+// HV inverters (§9HV.2). All 3-phase.
+const HV_INVERTERS = [
+  { code: 'SUN-30K-SG02HP3-EU-AM3', kw: 30, phase: 3, maxClusters: 1 },
+  { code: 'SUN-50K-SG01HP3-EU-BM4', kw: 50, phase: 3, maxClusters: 2 },
+  { code: 'SUN-80K-SG02HP3-EU-EM6', kw: 80, phase: 3, maxClusters: 2 }
+];
+
+// HV battery series (§9HV.3). Max per cluster varies by paired inverter.
+const HV_SERIES = [
+  {
+    code: 'BOS-G',
+    moduleKwh: 5.12,
+    minPerCluster: 5,
+    maxPerCluster: { 30: 16, 50: 16, 80: 16 },
+    pdu: 'BOS-G-PDU-2'
+  },
+  {
+    code: 'BOS-A',
+    moduleKwh: 7.68,
+    minPerCluster: 7,
+    maxPerCluster: { 30: 16, 50: 16, 80: 21 },
+    pdu: 'BOS-A-PDU-2'
+  },
+  {
+    code: 'BOS-B',
+    moduleKwh: 16.08,
+    minPerCluster: 7,
+    maxPerCluster: { 30: 13, 50: 13, 80: 16 },
+    pdu: 'BOS-B-PDU'
+  }
+];
+
+const MAX_LV_PACKS = 32;
+const MAX_INVERTERS_PARALLEL = 10;
+const TOLERANCE = 0.02; // 2% per §9LV.4 Step 2 and §9HV.4 Step 1.
+
+// Radio buttons -> visual active state.
+document.querySelectorAll('.radio-row').forEach(row => {
+  row.addEventListener('click', (e) => {
+    const lbl = e.target.closest('label');
+    if (!lbl) return;
+    const forId = lbl.getAttribute('for');
+    if (!forId) return;
+    const input = document.getElementById(forId);
+    if (!input) return;
+    input.checked = true;
+    row.querySelectorAll('label').forEach(l => l.classList.remove('active'));
+    lbl.classList.add('active');
+  });
+});
+
+function getRadio(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : null;
+}
+
+document.getElementById('reset').addEventListener('click', () => {
+  document.getElementById('load').value = '';
+  document.getElementById('storage').value = '';
+  document.querySelectorAll('input[type="radio"]').forEach(r => { r.checked = false; });
+  ['phase-1','v-auto','grid-on','lvf-hv'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.checked = true;
+  });
+  document.querySelectorAll('.radio-row').forEach(row => {
+    row.querySelectorAll('label').forEach(l => l.classList.remove('active'));
+    const checked = row.querySelector('input[type="radio"]:checked');
+    if (checked) {
+      const lbl = row.querySelector(`label[for="${checked.id}"]`);
+      if (lbl) lbl.classList.add('active');
+    }
+  });
+  document.getElementById('results').innerHTML = '<div class="card placeholder">Enter load and storage, then press <strong>Build BOM</strong>.</div>';
+});
+
+document.getElementById('run').addEventListener('click', run);
+document.getElementById('load').addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+document.getElementById('storage').addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+
+function applyTolerance(target, unitKwh) {
+  // §9.4 2% tolerance. ideal = ceil. floor = ideal - 1. If floor * unit >= 0.98 * target, use floor.
+  const ideal = Math.ceil(target / unitKwh);
+  if (ideal <= 1) return ideal;
+  const floorCount = ideal - 1;
+  const floorKwh = floorCount * unitKwh;
+  if (floorKwh / target >= 1 - TOLERANCE) return floorCount;
+  return ideal;
+}
+
+// Distribute totalModules across nClusters as evenly as possible.
+// Remainder spreads across the first `extra` clusters (each gets +1).
+function evenSplit(total, nClusters) {
+  if (nClusters <= 0) return [];
+  const base = Math.floor(total / nClusters);
+  const extra = total % nClusters;
+  const out = [];
+  for (let i = 0; i < nClusters; i++) out.push(i < extra ? base + 1 : base);
+  return out;
+}
+
+// Pick the best LV inverter for the given load + phase + grid mode.
+// Returns { inverter, count } or null if no model fits within 10-parallel ceiling.
+function pickLvInverter(loadKw, phase, gridMode) {
+  const fits = [];
+  for (const inv of LV_INVERTERS) {
+    if (inv.phase !== phase) continue;
+    if (gridMode === 'off' && inv.type !== 'offgrid') continue;
+    if (gridMode === 'on' && inv.type === 'offgrid') continue;
+    const count = Math.ceil(loadKw / inv.kw);
+    if (count < 1 || count > MAX_INVERTERS_PARALLEL) continue;
+    fits.push({ inverter: inv, count, oversize: (count * inv.kw) / loadKw });
+  }
+  if (!fits.length) return null;
+  // Sort by lowest count, then closest power match (oversize ratio closest to 1).
+  fits.sort((a, b) => a.count - b.count || a.oversize - b.oversize || b.inverter.kw - a.inverter.kw);
+  return fits[0];
+}
+
+// Pick best HV inverter the same way.
+function pickHvInverter(loadKw) {
+  const fits = [];
+  for (const inv of HV_INVERTERS) {
+    const count = Math.ceil(loadKw / inv.kw);
+    if (count < 1 || count > MAX_INVERTERS_PARALLEL) continue;
+    fits.push({ inverter: inv, count, oversize: (count * inv.kw) / loadKw });
+  }
+  if (!fits.length) return null;
+  fits.sort((a, b) => a.count - b.count || a.oversize - b.oversize || b.inverter.kw - a.inverter.kw);
+  return fits[0];
+}
+
+// §9LV.4 sizing for one pack model.
+function sizeLvPack(pack, storageKwh, inverterCount) {
+  const ideal = Math.ceil(storageKwh / pack.kwh);
+  const packs = applyTolerance(storageKwh, pack.kwh);
+  if (packs > MAX_LV_PACKS) {
+    return { drop: true, reason: `${pack.code} needs ${packs} packs, exceeds the 32-pack pool.` };
+  }
+  if (packs < inverterCount) {
+    return { drop: true, reason: `${pack.code} pack count (${packs}) below inverter count (${inverterCount}); every inverter needs at least one pack on the bus.` };
+  }
+  const totalKwh = +(packs * pack.kwh).toFixed(2);
+  return {
+    drop: false,
+    pack,
+    packs,
+    totalKwh,
+    tolerance: ideal !== packs
+  };
+}
+
+// HV rack lookup per §9HV.3.
+function hvRacksFor(series, modulesPerInverter) {
+  // For a single inverter slice. Caller multiplies by inverter count.
+  if (modulesPerInverter === 0) return [];
+  if (series === 'BOS-G') {
+    // 3U-RACK, 12 batteries + 1 PDU per rack.
+    const racks = Math.ceil(modulesPerInverter / 12);
+    return [{ code: '3U-RACK', qty: racks }];
+  }
+  if (series === 'BOS-A') {
+    if (modulesPerInverter <= 10) return [{ code: 'BOS-A-RACK11', qty: 1 }];
+    if (modulesPerInverter <= 13) return [{ code: 'BOS-A-RACK14', qty: 1 }];
+    if (modulesPerInverter <= 16) return [{ code: 'BOS-A-RACK14', qty: 1 }, { code: 'BOS-A-RACK11', qty: 1 }];
+    if (modulesPerInverter <= 21) return [{ code: 'BOS-A-RACK14', qty: 2 }];
+    return [{ code: 'BOS-A-RACK14', qty: Math.ceil(modulesPerInverter / 13) }];
+  }
+  // BOS-B rack hardware not yet specified.
+  return [{ code: 'BOS-B rack', qty: null, note: 'confirmed with the team' }];
+}
+
+// Aggregate racks across inverters.
+function aggregateRacks(perInverter, inverterQty) {
+  const map = new Map();
+  for (const r of perInverter) {
+    const key = r.code + (r.note ? `|${r.note}` : '');
+    const prev = map.get(key) || { code: r.code, qty: 0, note: r.note };
+    if (r.qty != null) prev.qty = (prev.qty || 0) + r.qty * inverterQty;
+    map.set(key, prev);
+  }
+  return Array.from(map.values());
+}
+
+// §9HV.4 sizing for one battery series, given chosen inverter and inverter count.
+function sizeHvSeries(series, storageKwh, inverter, inverterQty) {
+  const maxPerCluster = series.maxPerCluster[inverter.kw];
+  // Step 1: total modules with 2% tolerance.
+  const idealModules = Math.ceil(storageKwh / series.moduleKwh);
+  let totalModules = applyTolerance(storageKwh, series.moduleKwh);
+
+  // Step 3: equal modules per inverter (mandatory). Bump up.
+  let bumpedFromEqual = false;
+  if (totalModules % inverterQty !== 0) {
+    const bumped = Math.ceil(totalModules / inverterQty) * inverterQty;
+    bumpedFromEqual = true;
+    totalModules = bumped;
+  }
+  const modulesPerInverter = totalModules / inverterQty;
+
+  // Step 2: min clusters per inverter.
+  const clustersPerInverter = Math.ceil(modulesPerInverter / maxPerCluster);
+  const totalClusters = clustersPerInverter * inverterQty;
+
+  // Step 4: floor check. Distribute modules per inverter as evenly as possible.
+  const perInverterSplit = evenSplit(modulesPerInverter, clustersPerInverter);
+  if (perInverterSplit.some(c => c < series.minPerCluster)) {
+    return {
+      drop: true,
+      reason: `${series.code} cluster of ${Math.min.apply(null, perInverterSplit)} below minimum ${series.minPerCluster}; series dropped per §9HV.4 Step 4.`
+    };
+  }
+
+  // Build the full cluster split string (replicated per inverter).
+  const fullSplit = [];
+  for (let i = 0; i < inverterQty; i++) fullSplit.push(...perInverterSplit);
+
+  // Racks (per single inverter).
+  const racksPerInverter = hvRacksFor(series.code, modulesPerInverter);
+  const racks = aggregateRacks(racksPerInverter, inverterQty);
+
+  const totalKwh = +(totalModules * series.moduleKwh).toFixed(2);
+  return {
+    drop: false,
+    series,
+    totalModules,
+    totalKwh,
+    inverterQty,
+    clustersPerInverter,
+    totalClusters,
+    split: fullSplit,
+    perInverterSplit,
+    racks,
+    bumpedFromEqual,
+    tolerance: idealModules !== Math.ceil(storageKwh / series.moduleKwh) // not used
+  };
+}
+
+// §9.0 routing.
+function route(loadKw, voltagePref, phase, lvFailChoice) {
+  // Check 1: voltage named.
+  if (voltagePref === 'lv') {
+    return { target: 'LV', mode: 'customer-voice', label: 'Customer named LV (§9.0 Check 1).' };
+  }
+  if (voltagePref === 'hv') {
+    return { target: 'HV', mode: 'customer-voice', label: 'Customer named HV (§9.0 Check 1).' };
+  }
+  // Check 2: small-app default.
+  if (loadKw <= 20) {
+    return { target: 'LV', mode: 'small-app', label: `Load ${loadKw} kW ≤ 20 kW, small-application default (§9.0 Check 2).` };
+  }
+  // Check 3: LV ceilings test. We need to know if LV fits. The largest LV pack is SE-F16,
+  // and the largest LV inverter on this phase decides the count ceiling.
+  // We DON'T finalize the pack here; we test feasibility.
+  const phaseN = parseInt(phase, 10);
+  const largestLv = LV_INVERTERS.filter(i => i.phase === phaseN && i.type === 'hybrid').sort((a, b) => b.kw - a.kw)[0];
+  if (!largestLv) {
+    return { target: 'HV', mode: 'lv-fail', label: `No LV inverter available for ${phaseN}-phase. Routing to HV.` };
+  }
+  const lvInvCount = Math.ceil(loadKw / largestLv.kw);
+  const lvOk = lvInvCount <= MAX_INVERTERS_PARALLEL;
+  if (!lvOk) {
+    if (lvFailChoice === 'lv') {
+      return {
+        target: 'LV',
+        mode: 'lv-insist',
+        label: `LV ceilings fail (would need ${lvInvCount} × ${largestLv.code}, cap is 10). Customer insisted LV (§9.0 Check 5).`
+      };
+    }
+    return {
+      target: 'HV',
+      mode: 'lv-fail',
+      label: `LV ceilings fail (would need ${lvInvCount} × ${largestLv.code}, cap is 10). Customer accepts HV (§9.0 Check 4).`
+    };
+  }
+  return {
+    target: 'LV',
+    mode: 'lv-fit',
+    label: `Load ${loadKw} kW > 20 kW but LV ceilings hold (${lvInvCount} × ${largestLv.code} ≤ 10). Default to LV (§9.0 Check 3).`
+  };
+}
+
+function fmt(n) {
+  if (Number.isInteger(n)) return String(n);
+  return String(+n.toFixed(2));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderBomCardLv(option, n, pack, packResult, inverterPick, totalKwh) {
+  return `
+    <div class="bom${option.recommended ? ' recommended' : ''}">
+      <div class="head">
+        <div class="title">Option ${n}: ${escapeHtml(pack.code)}</div>
+        ${option.recommended ? '<div class="pill">Recommended</div>' : ''}
+      </div>
+      <div class="lines">
+        <div class="line"><span class="lbl">Inverter:</span><span class="val">${escapeHtml(inverterPick.inverter.code)} × ${inverterPick.count}</span></div>
+        <div class="line"><span class="lbl">Battery:</span><span class="val">${escapeHtml(pack.code)} × ${packResult.packs} (${fmt(totalKwh)} kWh)</span></div>
+        <div class="line"><span class="lbl">Parallel kit:</span><span class="val">comm + power cables × ${packResult.packs}</span></div>
+        <div class="line"><span class="lbl">Cables:</span><span class="val">battery comm bus + AC tie</span></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderBomCardHv(option, n, sized, inverterPick) {
+  const splitStr = sized.split.join('+');
+  const racksHtml = sized.racks.map(r => {
+    if (r.qty == null) return `${escapeHtml(r.code)} (${escapeHtml(r.note || 'confirmed with the team')})`;
+    return `${escapeHtml(r.code)} × ${r.qty}`;
+  }).join(', ');
+  return `
+    <div class="bom${option.recommended ? ' recommended' : ''}">
+      <div class="head">
+        <div class="title">Option ${n}: ${escapeHtml(sized.series.code)}</div>
+        ${option.recommended ? '<div class="pill">Recommended</div>' : ''}
+      </div>
+      <div class="lines">
+        <div class="line"><span class="lbl">Inverter:</span><span class="val">${escapeHtml(inverterPick.inverter.code)} × ${inverterPick.count}</span></div>
+        <div class="line"><span class="lbl">Battery:</span><span class="val">${escapeHtml(sized.series.code)} × ${sized.totalModules} modules (${fmt(sized.totalKwh)} kWh)</span></div>
+        <div class="line"><span class="lbl">Cluster split:</span><span class="val">${splitStr}</span></div>
+        <div class="line"><span class="lbl">Control Box:</span><span class="val">${escapeHtml(sized.series.pdu)} × ${sized.totalClusters}</span></div>
+        <div class="line"><span class="lbl">Racks:</span><span class="val">${racksHtml}</span></div>
+        <div class="line"><span class="lbl">Cables:</span><span class="val">power + comm kit × ${sized.totalClusters}</span></div>
+      </div>
+    </div>
+  `;
+}
+
+function buildCustomerCopy(loadKw, storageKwh, target, options, recommendedIndex) {
+  // Mirrors §9LV.6 / §9HV.6 template exactly. No section refs, no math.
+  const lines = [`For ${fmt(loadKw)} kW / ${fmt(storageKwh)} kWh, here are your options:`];
+  options.forEach((opt, i) => {
+    lines.push('');
+    if (target === 'LV') {
+      lines.push(`*Option ${i + 1}: ${opt.pack.code}*`);
+      lines.push(`Inverter:     ${opt.inverter.code} × ${opt.inverterCount}`);
+      lines.push(`Battery:      ${opt.pack.code} × ${opt.packs} (${fmt(opt.totalKwh)} kWh)`);
+      lines.push(`Parallel kit: comm + power cables × ${opt.packs}`);
+      lines.push(`Cables:       battery comm bus + AC tie`);
+    } else {
+      const splitStr = opt.split.join('+');
+      const racksStr = opt.racks.map(r => r.qty == null ? `${r.code} (${r.note || 'confirmed with the team'})` : `${r.code} × ${r.qty}`).join(', ');
+      lines.push(`*Option ${i + 1}: ${opt.series.code}*`);
+      lines.push(`Inverter:      ${opt.inverter.code} × ${opt.inverterCount}`);
+      lines.push(`Battery:       ${opt.series.code} × ${opt.totalModules} modules (${fmt(opt.totalKwh)} kWh)`);
+      lines.push(`Cluster split: ${splitStr}`);
+      lines.push(`Control Box:   ${opt.pdu} × ${opt.totalClusters}`);
+      lines.push(`Racks:         ${racksStr}`);
+      lines.push(`Cables:        power + comm kit × ${opt.totalClusters}`);
+    }
+  });
+  lines.push('');
+  if (recommendedIndex >= 0) lines.push(`*Recommended: Option ${recommendedIndex + 1}*`);
+  return lines.join('\n');
+}
+
+function run() {
+  const loadKw = parseFloat(document.getElementById('load').value);
+  const storageKwh = parseFloat(document.getElementById('storage').value);
+  const phase = parseInt(getRadio('phase'), 10);
+  const voltagePref = getRadio('voltage');
+  const gridMode = getRadio('grid');
+  const lvFail = getRadio('lvfail');
+
+  const out = document.getElementById('results');
+
+  if (!Number.isFinite(loadKw) || loadKw <= 0) {
+    out.innerHTML = `<div class="card placeholder">Enter a peak load in kW.</div>`;
+    return;
+  }
+  if (!Number.isFinite(storageKwh) || storageKwh <= 0) {
+    out.innerHTML = `<div class="card placeholder">Enter a storage target in kWh.</div>`;
+    return;
+  }
+
+  // HV is 3-phase only. Catch the obvious mismatch up front.
+  if (voltagePref === 'hv' && phase === 1) {
+    out.innerHTML = `
+      <div class="card">
+        <div class="routing fail">
+          <div class="badge">Not buildable</div>
+          <div class="body"><strong>HV requires 3-phase.</strong> All Deye HV inverters (30K / 50K / 80K) are 3-phase only. Switch the site to 3-phase or stay on LV.</div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const routing = route(loadKw, voltagePref, phase, lvFail);
+
+  if (routing.target === 'LV') {
+    renderLv(loadKw, storageKwh, phase, gridMode, routing);
+  } else {
+    renderHv(loadKw, storageKwh, routing);
+  }
+}
+
+function renderLv(loadKw, storageKwh, phase, gridMode, routing) {
+  const out = document.getElementById('results');
+  const pick = pickLvInverter(loadKw, phase, gridMode);
+  if (!pick) {
+    out.innerHTML = `
+      <div class="routing fail">
+        <div class="badge">No LV inverter fits</div>
+        <div class="body">No LV inverter on ${phase}-phase ${gridMode === 'off' ? 'off-grid' : 'hybrid'} covers ${fmt(loadKw)} kW within the 10-parallel cap. Reduce load, switch grid mode, or escalate to HV.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const survivors = [];
+  const drops = [];
+  for (const pack of LV_PACKS) {
+    const res = sizeLvPack(pack, storageKwh, pick.count);
+    if (res.drop) drops.push({ pack: pack.code, reason: res.reason });
+    else survivors.push({ pack, ...res, inverter: pick.inverter, inverterCount: pick.count });
+  }
+
+  if (!survivors.length) {
+    // Per §9LV.4, return to §9.0 Check 4 (suggest HV).
+    out.innerHTML = renderRouting(routing) + `
+      <div class="routing fail">
+        <div class="badge">All LV packs dropped</div>
+        <div class="body">Every LV pack exceeds the 32-pack ceiling on ${fmt(storageKwh)} kWh. Per §9.0 Check 4, suggest HV. Re-run with voltage set to HV (or pick Insist LV to see the ceiling failure).</div>
+      </div>
+      ${renderInternalNotes({ routing, drops })}
+    `;
+    return;
+  }
+
+  // Recommendation: fewest packs (cleanest BOM).
+  survivors.sort((a, b) => a.packs - b.packs);
+  survivors[0].recommended = true;
+  // Keep display order by descending pack capacity (SE-F16 first, like the worked examples).
+  const display = survivors.slice().sort((a, b) => b.pack.kwh - a.pack.kwh);
+  const recommendedDisplayIndex = display.findIndex(s => s.recommended);
+
+  const opener = `<div class="opener">For ${fmt(loadKw)} kW / ${fmt(storageKwh)} kWh, here are your options:</div>`;
+  const cards = display.map((s, i) => renderBomCardLv(s, i + 1, s.pack, s, { inverter: s.inverter, count: s.inverterCount }, s.totalKwh)).join('');
+  const recLine = recommendedDisplayIndex >= 0
+    ? `<div class="recommend-line">Recommended: Option ${recommendedDisplayIndex + 1}</div>`
+    : '';
+
+  const customerCopy = buildCustomerCopy(loadKw, storageKwh, 'LV', display.map(s => ({
+    pack: s.pack, packs: s.packs, totalKwh: s.totalKwh, inverter: s.inverter, inverterCount: s.inverterCount
+  })), recommendedDisplayIndex);
+
+  out.innerHTML = `
+    ${renderRouting(routing)}
+    ${opener}
+    ${cards}
+    ${recLine}
+    ${renderInternalNotes({ routing, drops, inverterPick: pick, customerCopy })}
+  `;
+  bindCopy();
+}
+
+function renderHv(loadKw, storageKwh, routing) {
+  const out = document.getElementById('results');
+  const pick = pickHvInverter(loadKw);
+  if (!pick) {
+    out.innerHTML = renderRouting(routing) + `
+      <div class="routing fail">
+        <div class="badge">No HV inverter fits</div>
+        <div class="body">${fmt(loadKw)} kW exceeds the 10-parallel cap on the largest HV inverter. Reduce load or split into two systems.</div>
+      </div>
+    `;
+    return;
+  }
+
+  // Run all 3 series against the chosen inverter. If none survive, try the next size up.
+  let chosen = pick;
+  let series = HV_SERIES.map(s => ({ series: s, sized: sizeHvSeries(s, storageKwh, chosen.inverter, chosen.count) }));
+  let survivors = series.filter(x => !x.sized.drop);
+
+  if (!survivors.length) {
+    // Try larger inverters in order.
+    const larger = HV_INVERTERS.filter(i => i.kw > chosen.inverter.kw).sort((a, b) => a.kw - b.kw);
+    for (const inv of larger) {
+      const count = Math.ceil(loadKw / inv.kw);
+      if (count > MAX_INVERTERS_PARALLEL) continue;
+      const altPick = { inverter: inv, count };
+      const altSeries = HV_SERIES.map(s => ({ series: s, sized: sizeHvSeries(s, storageKwh, inv, count) }));
+      const altSurvivors = altSeries.filter(x => !x.sized.drop);
+      if (altSurvivors.length) {
+        chosen = altPick;
+        series = altSeries;
+        survivors = altSurvivors;
+        break;
+      }
+    }
+  }
+
+  const drops = series.filter(x => x.sized.drop).map(x => ({ series: x.series.code, reason: x.sized.reason }));
+
+  if (!survivors.length) {
+    out.innerHTML = renderRouting(routing) + `
+      <div class="routing fail">
+        <div class="badge">No HV configuration fits</div>
+        <div class="body">No HV series survives at ${fmt(storageKwh)} kWh on any inverter pairing. Options: (a) reduce storage target, (b) reduce backed-up load, or (c) split into two systems.</div>
+      </div>
+      ${renderInternalNotes({ routing, drops, inverterPick: chosen })}
+    `;
+    return;
+  }
+
+  // Recommendation: fewest clusters wins.
+  survivors.sort((a, b) => a.sized.totalClusters - b.sized.totalClusters || a.sized.totalModules - b.sized.totalModules);
+  survivors[0].recommended = true;
+  // Display order: BOS-G, BOS-A, BOS-B (table order in §9HV.3).
+  const order = { 'BOS-G': 0, 'BOS-A': 1, 'BOS-B': 2 };
+  const display = survivors.slice().sort((a, b) => order[a.series.code] - order[b.series.code]);
+  const recIndex = display.findIndex(s => s.recommended);
+
+  const opener = `<div class="opener">For ${fmt(loadKw)} kW / ${fmt(storageKwh)} kWh, here are your options:</div>`;
+  const cards = display.map((s, i) => renderBomCardHv(s, i + 1, s.sized, chosen)).join('');
+  const recLine = recIndex >= 0
+    ? `<div class="recommend-line">Recommended: Option ${recIndex + 1}</div>`
+    : '';
+
+  const customerCopy = buildCustomerCopy(loadKw, storageKwh, 'HV', display.map(s => ({
+    series: s.series,
+    totalModules: s.sized.totalModules,
+    totalKwh: s.sized.totalKwh,
+    inverter: chosen.inverter,
+    inverterCount: chosen.count,
+    split: s.sized.split,
+    pdu: s.series.pdu,
+    totalClusters: s.sized.totalClusters,
+    racks: s.sized.racks
+  })), recIndex);
+
+  out.innerHTML = `
+    ${renderRouting(routing)}
+    ${opener}
+    ${cards}
+    ${recLine}
+    ${renderInternalNotes({ routing, drops, inverterPick: chosen, customerCopy })}
+  `;
+  bindCopy();
+}
+
+function renderRouting(routing) {
+  const cls = routing.mode === 'lv-fail' ? 'warn' : routing.mode === 'lv-insist' ? 'warn' : '';
+  return `
+    <div class="routing ${cls}">
+      <div class="badge">${routing.target}</div>
+      <div class="body">${escapeHtml(routing.label)}</div>
+    </div>
+  `;
+}
+
+function renderInternalNotes({ routing, drops, inverterPick, customerCopy }) {
+  const dropHtml = (drops && drops.length)
+    ? drops.map(d => `<div class="drop"><b>${escapeHtml(d.pack || d.series)}</b> dropped: ${escapeHtml(d.reason)}</div>`).join('')
+    : '<div class="drop">All series passed §9.4 checks.</div>';
+  const pickLine = inverterPick
+    ? `<div>Inverter pick: <b>${escapeHtml(inverterPick.inverter.code)}</b> × ${inverterPick.count} (oversize ${(((inverterPick.count * inverterPick.inverter.kw) / parseFloat(document.getElementById('load').value)) * 100).toFixed(1)}%)</div>`
+    : '';
+  const copyBlock = customerCopy
+    ? `<h4>Customer-facing copy (paste into WhatsApp)</h4>
+       <div style="position:relative">
+         <button class="copy-btn" data-copy="customer" style="position:absolute; top:6px; right:6px">Copy</button>
+         <pre id="customer-copy">${escapeHtml(customerCopy)}</pre>
+       </div>`
+    : '';
+  return `
+    <details class="notes">
+      <summary>Internal notes (engineer only, not sent to customer)</summary>
+      <div class="inner">
+        <h4>§9.0 routing</h4>
+        <div>${escapeHtml(routing.label)} <span style="color:var(--faint)">(mode: ${escapeHtml(routing.mode)})</span></div>
+        ${pickLine ? '<h4>Inverter selection</h4>' + pickLine : ''}
+        <h4>Dropped series / packs</h4>
+        ${dropHtml}
+        ${copyBlock}
+      </div>
+    </details>
+  `;
+}
+
+function bindCopy() {
+  document.querySelectorAll('button[data-copy="customer"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const pre = document.getElementById('customer-copy');
+      if (!pre) return;
+      try {
+        await navigator.clipboard.writeText(pre.textContent);
+        btn.textContent = 'Copied';
+        btn.classList.add('ok');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('ok'); }, 1500);
+      } catch (e) {
+        btn.textContent = 'Press Ctrl+C';
+      }
+    });
+  });
+}
+</script>
+</body>
+</html>
