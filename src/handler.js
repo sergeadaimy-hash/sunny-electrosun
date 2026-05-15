@@ -117,6 +117,59 @@ function escalationsDisabled() {
   return String(process.env.DISABLE_ESCALATIONS || '').toLowerCase() === 'true';
 }
 
+// Topic-shift patterns: signals that the customer's new inbound is
+// substantively different from a "still waiting on the team" follow-up. A
+// match means the customer is engaging with a new product, identifying
+// themselves, or asking a question answerable from Warehouse Stock. In any of
+// those cases the right move is to auto-resolve the open pending_query and
+// let the classifier + escalation logic run cleanly on the new message.
+const TOPIC_SHIFT_PATTERNS = [
+  /\bi\s*(am|m)\s+(a\s+|the\s+)?(dealer|reseller|distributor|integrator|installer|contractor|engineer|end\s*user)\b/i,
+  /\bi\s*(am|m)\s+not\s+(an?\s+)?end\s*user\b/i,
+  /\bfor\s+(re)?sale\b|\bfor\s+my\s+(shop|store|business)\b|\bsamples?\s+in\s+my\s+shop\b/i,
+  /\bnot\s+for\s+personal\s+use\b|\bfor\s+commercial\s+use\b/i,
+  /\b(in\s+stock|available|what\s+sizes|what\s+models|what\s+about|do\s+you\s+(have|carry|stock|sell))\b/i,
+  /\b(available|what)\s+(batteries|inverters|panels|brands)\b/i,
+  /\b\d+(\.\d+)?\s*(kw|kva|kwh)\b/i,
+  /^\s*(residential|commercial|home|business|industrial|3\s*phase|single\s*phase|1\s*phase)[.,!?\s]*$/i,
+  /\b(deye|sungrow|jinko|ja\s+solar|longi|huawei|trina|canadian\s+solar)\b/i
+];
+
+function isLikelyTopicShift(newMessage) {
+  const text = String(newMessage || '').trim();
+  if (!text || text.length < 4) return false;
+  // Skip pure repetition or nag patterns: customer asking the same question
+  // or pinging Sunny ("are you there"). Those should stay on the follow-up
+  // path so the silence cooldown kicks in.
+  if (/^(when|where|how|hello|hi+|are\s+you\s+there|still\s+waiting|still\s+there|any\s+update|update\s*\?)[?.\s!]*$/i.test(text)) return false;
+  return TOPIC_SHIFT_PATTERNS.some(re => re.test(text));
+}
+
+function topicShiftAutoResolve(contactId, newMessageText) {
+  const open = getOpenPendingQueryForContact(contactId);
+  if (!open) return false;
+  if (!isLikelyTopicShift(newMessageText)) return false;
+  try {
+    resolvePendingQuery(open.id, '[auto-resolved: topic shift in new inbound]');
+    logEvent(contactId, 'silent_query_topic_shift_resolved', {
+      queryId: open.id,
+      message_preview: String(newMessageText || '').slice(0, 200)
+    });
+    logger.info('handler.pending_query_topic_shift_auto_resolved', {
+      contactId,
+      queryId: open.id,
+      message_preview: String(newMessageText || '').slice(0, 200)
+    });
+    return true;
+  } catch (err) {
+    logger.warn('handler.pending_query_topic_shift_resolve_fail', {
+      message: err.message,
+      queryId: open.id
+    });
+    return false;
+  }
+}
+
 // Returns the most recent open pending_query for the contact, OR null if no
 // open row exists OR the open row has aged past PENDING_QUERY_AUTO_EXPIRE_MS
 // (in which case it is auto-resolved as a side effect and null is returned).
@@ -777,6 +830,13 @@ async function processCustomerBatch(entry) {
       original_length: batchTrunc.original
     });
   }
+
+  // Fix C: detect substantive topic shift in the new inbound and auto-resolve
+  // any open pending_query so the classifier and downstream escalation logic
+  // see a clean state. Customers who pivot to a new question (dealer status,
+  // a different product category, a specific kW size) while waiting on the
+  // original query should be answered, not parked in the follow-up loop.
+  topicShiftAutoResolve(contact.id, safeCombinedText);
 
   const classifierMessage = msgs.length > 1
     ? `[Customer sent ${msgs.length} messages back to back]\n${safeCombinedText}`
