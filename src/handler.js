@@ -49,6 +49,15 @@ const UNSUPPORTED_REPLY = "This number receives text messages only. Please type 
 
 const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '15', 10);
 
+// Defensive timeout on open pending_queries rows. Without this, one early
+// silent_query misclassification opens a row that routes every subsequent
+// inbound through the follow-up loop until the owner manually resolves the
+// row via [QID:N] tag. The auto-expire releases the contact back into the
+// normal classification path after the timeout so the customer can be served
+// even if the brother is unavailable. The window_monitor 24h Meta-window
+// expiry is the OUTER bound; this is the much shorter INNER bound.
+const PENDING_QUERY_AUTO_EXPIRE_MS = Math.max(1, parseInt(process.env.PENDING_QUERY_AUTO_EXPIRE_MINUTES || '30', 10)) * 60 * 1000;
+
 const CASUAL_CONFIRM_RE = /^(o+k+(ay|ey|wy)?|alright|noted|got\s*it|sure|fine|cool|nice|great|perfect|thanks|thank\s*you|tnx|ty|appreciate(d)?|cheers|no\s*problem|np|👍|🙏|❤️|✅|done|gotcha|sounds\s*good|sg|👌|🆗|all\s*good|yep|yup|y(ea+|ah+)|alright\s*then|great\s*thanks|thanks\s*a\s*lot|much\s*appreciated|noted\s*thanks|hmm+|h+mm|interesting|hmm+\s*interesting|wow|really|i\s*see|isee|oh|aha|ahaa|ahh|right|wow\s*ok|ok\s*cool|ok\s*sure|sure\s*thing)[.!?,\s]*$/i;
 const PRODUCT_KEYWORDS_RE = /\b(kw|kva|kwh|panel|panels|battery|batteries|inverter|inverters|deye|jinko|ja|longi|sungrow|huawei|bos|hv|lv|hybrid|off\s*grid|on\s*grid|three\s*phase|single\s*phase|naira|ngn|price|cost|how\s*much|stock|available|quotation|invoice|proforma|brochure|datasheet|spec|kit|system)\b/i;
 // Gratitude is its own flavor of casual confirmation: customer is thanking
@@ -97,6 +106,40 @@ function handlerIsGreeting(text) {
 }
 function escalationsDisabled() {
   return String(process.env.DISABLE_ESCALATIONS || '').toLowerCase() === 'true';
+}
+
+// Returns the most recent open pending_query for the contact, OR null if no
+// open row exists OR the open row has aged past PENDING_QUERY_AUTO_EXPIRE_MS
+// (in which case it is auto-resolved as a side effect and null is returned).
+// Use this everywhere routing decisions key off "is there a pending row".
+function getOrAutoResolveStalePending(contactId) {
+  const open = getOpenPendingQueryForContact(contactId);
+  if (!open) return null;
+  const createdMs = new Date(open.created_at).getTime();
+  if (!Number.isFinite(createdMs)) return open;
+  const ageMs = Date.now() - createdMs;
+  if (ageMs <= PENDING_QUERY_AUTO_EXPIRE_MS) return open;
+  try {
+    resolvePendingQuery(open.id, '[auto-expired: no owner action within PENDING_QUERY_AUTO_EXPIRE_MINUTES]');
+    logEvent(contactId, 'silent_query_auto_expired', {
+      queryId: open.id,
+      age_ms: ageMs,
+      timeout_ms: PENDING_QUERY_AUTO_EXPIRE_MS
+    });
+    logger.info('handler.pending_query_auto_expired', {
+      contactId,
+      queryId: open.id,
+      age_minutes: Math.floor(ageMs / 60000),
+      timeout_minutes: Math.floor(PENDING_QUERY_AUTO_EXPIRE_MS / 60000)
+    });
+    return null;
+  } catch (err) {
+    logger.warn('handler.pending_query_auto_expire_fail', {
+      message: err.message,
+      queryId: open.id
+    });
+    return open;
+  }
 }
 
 function buildSpecialistLink(customerMessage) {
@@ -544,7 +587,7 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
   // brand-new escalation cooldown).
   let freshPendingId = null;
   if (escalationType === 'silent_query') {
-    const existingOpen = getOpenPendingQueryForContact(contact.id);
+    const existingOpen = getOrAutoResolveStalePending(contact.id);
     if (existingOpen && existingOpen.id) {
       const followThrottle = security.checkFollowupThrottle(contact.id);
       if (!followThrottle.allowed) {
@@ -898,7 +941,7 @@ async function processCustomerBatch(entry) {
   }
 
   const isHot = isHotEscalation;
-  const currentOpen = isHot ? null : getOpenPendingQueryForContact(contact.id);
+  const currentOpen = isHot ? null : getOrAutoResolveStalePending(contact.id);
   const customerIsGratitude = customerIsCasualConfirm && isGratitudeMessage(safeCombinedText);
   let expertContext = null;
   if (isHot) {
