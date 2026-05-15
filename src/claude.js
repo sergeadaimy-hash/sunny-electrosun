@@ -109,16 +109,58 @@ function cleanupBomReply(text) {
     reasons.push('check_step_stripped');
   }
 
-  // (a3) Parenthetical sizing reasoning: "(≤ 20kW)", "(≤ 32 packs)",
-  // "(<= 10 inverters)", "(≥ 50kWh)".
-  const parenReasoning = /\s*\(\s*[≤≥<>=]+\s*\d+(?:\.\d+)?\s*(?:kW|kVA|kWh|V|packs?|inverters?|modules?)\s*\)/gi;
+  // (a3) Parenthetical sizing reasoning. Catches "(≤ 20kW)", "(≤ 32 packs)",
+  // "(<= 10 inverters)", "(≥ 50kWh)", AND unit-less variants the model now
+  // emits like "(≤ 10 ✓)" / "(≤ 32 ✓)" / "(= 10, on the limit ✓)".
+  const parenReasoning = /\s*\(\s*[≤≥<>=]+\s*\d+(?:\.\d+)?[^()]*?[✓✗]?\s*\)/gi;
   if (parenReasoning.test(out)) {
     out = out.replace(parenReasoning, '');
     reasons.push('paren_reasoning_stripped');
   }
 
+  // (a5) Sizing math lines containing ceil(...). The model has been writing
+  // "Inverters: ceil(50 ÷ 20) = 3 × SUN-20K" / "Packs SE-F16: ceil(400 ÷ 16)
+  // = 25 packs" inline. Any line that contains a ceil() call IS internal
+  // math, never a customer-facing fact. Drop the whole line.
+  const calcLine = /^[^\n]*\bceil\s*\([^)\n]*\)[^\n]*$/gim;
+  if (calcLine.test(out)) {
+    out = out.replace(calcLine, '');
+    reasons.push('calc_line_stripped');
+  }
+
+  // (a6) Internal-process labels. Model sometimes echoes prompt headings
+  // like "**LV Pre-send checklist:**", "**Sizing logic:**", "**Floor
+  // check:**", "**Inverter count:**". These are §9 doctrine markers and
+  // must never reach the customer.
+  const internalLabels = /\*{0,2}\s*(?:LV\s+|HV\s+)?(?:Pre[-\s]send\s+checklist|Sizing\s+logic|Pack[-\s]pool\s+check|Floor\s+check|Phase\s+check|BOM\s+emit|Inverter\s+count|Total\s+packs|Total\s+modules|Min(?:imum)?\s+clusters|Equal\s+modules\s+per\s+inverter|Tie[-\s]break)\s*:?\s*\*{0,2}\s*/gi;
+  if (internalLabels.test(out)) {
+    out = out.replace(internalLabels, '');
+    reasons.push('internal_label_stripped');
+  }
+
+  // (a7) Meta-narration phrases the model uses to "think out loud" before
+  // emitting the BOM. "Running the configuration now.", "Only SE-F16
+  // survives.", "Walk through the math". Apply ALL patterns.
+  const narrationPatterns = [
+    /\bRunning\s+the\s+(?:configuration|sizing|math|numbers)[^\n.?!]*[.?!]?/gi,
+    /\bOnly\s+(?:SE-[FG][\d.]+(?:\s*Pro)?|BOS-[ABG][A-Z0-9.-]*)\s+(?:survives|fits|passes)[^\n.?!]*[.?!]?/gi,
+    /\bFor\s+each\s+(?:battery\s+)?(?:pack|series)[^\n.?!]*[.?!]?/gi,
+    /\bWalk(?:ing)?\s+through\s+the\s+(?:math|sizing|configuration)[^\n.?!]*[.?!]?/gi,
+    /\bLet\s+me\s+(?:compute|calculate|run)[^\n.?!]*[.?!]?/gi
+  ];
+  let narrationStripped = false;
+  for (const re of narrationPatterns) {
+    if (re.test(out)) {
+      out = out.replace(re, '');
+      narrationStripped = true;
+    }
+  }
+  if (narrationStripped) reasons.push('narration_stripped');
+
   // (a4) "so LV is the default" / "LV is the default" / "small-app default" /
-  // "decision tree" / "LV ceilings hold/break".
+  // "decision tree" / "LV ceilings hold/break". Apply ALL patterns, not just
+  // the first match (the previous `break` caused later patterns to be
+  // skipped and leaks slipped through).
   const defaultPhrases = [
     /,?\s*so\s+(?:LV|HV)\s+is\s+the\s+default\.?/gi,
     /\b(?:LV|HV)\s+is\s+the\s+(?:small[-\s]app(?:lication)?\s+)?default\.?/gi,
@@ -127,13 +169,14 @@ function cleanupBomReply(text) {
     /\b(?:LV|HV)\s+ceilings?\s+(?:hold|break|fit|fail)\b[^\n.?!]*[.?!]?/gi,
     /\bload\s+is\s+\d+\s*kW[^\n.?!]*default[^\n.?!]*[.?!]?/gi
   ];
+  let defaultStripped = false;
   for (const re of defaultPhrases) {
     if (re.test(out)) {
       out = out.replace(re, '');
-      reasons.push('default_phrase_stripped');
-      break;
+      defaultStripped = true;
     }
   }
+  if (defaultStripped) reasons.push('default_phrase_stripped');
 
   // (b) Strip inline "Option N: SKU (skipped / not in stock / dropped)" lines.
   // Dropped options must be invisible to the customer.
@@ -141,6 +184,25 @@ function cleanupBomReply(text) {
   if (skippedOption.test(out)) {
     out = out.replace(skippedOption, '');
     reasons.push('skipped_option_stripped');
+  }
+
+  // (b2) Dropped-pack/series lines WITHOUT "Option N:" wrapper. Catches the
+  // newer leak shape "SE-F12: ceil(400 ÷ 12) = 34 packs → exceeds 32 cap,
+  // dropped silently." and "BOS-B: 6 modules → fails minimum, dropped."
+  const droppedSku = /\b(?:SE-[FG][\d.]+(?:\s*Pro)?|BOS-[ABG][A-Z0-9.-]*)\s*:\s*[^.\n]*?(?:dropped|exceeds|fails|silent(?:ly)?|cap(?!acity)|minimum|floor)[^\n.]*\.?/gi;
+  if (droppedSku.test(out)) {
+    out = out.replace(droppedSku, '');
+    reasons.push('dropped_sku_stripped');
+  }
+
+  // (b3) Pre-send checklist survivor rows. The model echoes lines like
+  // "SE-F16: 25 packs, 3 inverters ✓" or "BOS-A: 26 modules, 2 clusters ✓"
+  // straight from §9LV.8 / §9HV.8. These restate what the BOM card already
+  // shows below, in checklist format. Strip them.
+  const checklistRow = /\b(?:SE-[FG][\d.]+(?:\s*Pro)?|BOS-[ABG][A-Z0-9.-]*)\s*:\s*\d+\s+(?:packs?|modules?)\b[^\n]*[✓✗][^\n.]*\.?/gi;
+  if (checklistRow.test(out)) {
+    out = out.replace(checklistRow, '');
+    reasons.push('checklist_row_stripped');
   }
 
   // (c1) Trim recommendation reasoning. Keep "Recommended: Option N" plus
@@ -174,13 +236,22 @@ function cleanupBomReply(text) {
   );
   if (out !== before) reasons.push('line_breaks_inserted');
 
-  // (d) Final cleanup: collapse 3+ newlines, trim trailing spaces, collapse
-  // double spaces, drop empty lines that became orphaned punctuation.
+  // (d) Final cleanup. Drop orphan punctuation lines, leftover comma+dash
+  // glue from stripped narration ("., - For 50kW..."), repeated whitespace,
+  // and collapse 3+ newlines.
   out = out
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/[ \t]{2,}/g, ' ')
-    .replace(/^\s*[.,;:]\s*$/gm, '')
+    // lines that are only punctuation/dashes
+    .replace(/^\s*[-.,;:*•]+[\s.,;:*•-]*$/gm, '')
+    // line ENDS with comma/colon/semicolon + dash (residue from stripped narration)
+    .replace(/[,;:]\s*[-–—]\s*$/gm, '')
+    // line STARTS with leftover punctuation cluster from stripped narration
+    // ("- ., - For ..." after stripping "Only SE-F16 survives."). Require
+    // at least one of .,;: in the cluster so legitimate bullet lines like
+    // "- Battery: SE-F16" are NOT stripped.
+    .replace(/(^|\n)[ \t]*-?\s*[,;:.][\s,;:.\-–—]*(?=[A-Za-z*])/g, '$1')
     .replace(/\n\s*\n\s*\n/g, '\n\n')
     .trim();
 
@@ -632,14 +703,24 @@ async function generateReply(history, message, contact, attachments = [], option
       const priceMatches = text.match(priceRegex) || [];
       if (priceMatches.length >= 1) {
         const stripped = text.replace(priceRegex, '').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
-        const hasDanglingLabel = /:\s*[.,;!?]/.test(stripped);
+        // Dangling-label detection. Catches:
+        //   (a) "label: ." pattern (original)
+        //   (b) "...promo price of." / "...at a price of." / "...for of." /
+        //       "...costs of." / "...rate of." trailing-of fragments where
+        //       the stripped price left a hanging preposition (this is the
+        //       Charles screenshot case: "incoming, new shipment coming end
+        //       of this week at a special promo price of.")
+        const hasDanglingColon = /:\s*[.,;!?]/.test(stripped);
+        const hasDanglingPrep = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s+(?:of|at|for|is)\s*[.,;!?]/i.test(stripped);
+        const hasDanglingLabel = hasDanglingColon || hasDanglingPrep;
         logger.warn('claude.reply.prices_stripped', {
           contactId: contact?.id,
           customer_msg: String(message || '').slice(0, 100),
           original_reply: text.slice(0, 200),
           stripped_reply: stripped.slice(0, 200),
           price_matches: priceMatches.length,
-          dangling_label: hasDanglingLabel
+          dangling_label: hasDanglingLabel,
+          dangling_kind: hasDanglingColon ? 'colon' : (hasDanglingPrep ? 'preposition' : null)
         });
         text = (!stripped || hasDanglingLabel)
           ? "Could you share more about your project so I can guide you better?"

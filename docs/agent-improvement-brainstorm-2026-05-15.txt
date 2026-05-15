@@ -1,0 +1,199 @@
+SUNNY AGENT, IMPROVEMENT BRAINSTORM
+===================================
+Captured 2026-05-15 for future reference. No implementation done; this is
+the diagnosis and recommendation set Claude proposed when Serge asked
+"how can this agent reply be more efficient and less mistakes and bugs?"
+
+
+WHAT THE FIX-LIST IS TELLING US
+-------------------------------
+
+Last 12 pushes break down roughly:
+  ~5 added a code guard after a prompt rule failed
+  ~3 added a "hard never" line in §19 after a prompt rule failed
+  ~2 added a doctrine block in §6 or §8 after a prompt rule failed
+  ~2 added or rewrote §9 from scratch
+
+Pattern: prompt → model violates → patch with code, then add another never
+to the prompt. Short-term that works, but the patches stack. 16 sequential
+post-generation cleanup passes now, ordering-fragile. Each pass exists
+because the prompt didn't hold the model. We're firefighting symptoms.
+
+Three concrete problems behind this:
+
+1. One Opus call is doing too many jobs. Persona + tone gatekeeper + stock
+   fact-checker + battery configurator + price quoter + handoff signaler +
+   safety nervous system all in one shot. Long prompts dilute instruction-
+   following, degradation is measurable past ~3-5k tokens, we are well
+   past that (1033 lines).
+
+2. §9 is a 550-line in-context program. The model treats §9 as both
+   doctrine AND a script. Doctrine leakage ("§9.0 Check 2: load is 13kW
+   (≤20kW), so LV is the default") happens because the prompt structure
+   itself, "Check N", "Step N", "§9.0", IS the model's mental model. It
+   can't help echoing what it's been told to think in. The BOM cleanup
+   guard exists purely to scrub these leaks.
+
+3. 50+ "Never X" rules in §19. Negative instructions are well-known to be
+   weaker than positive ones. "Never put a reason on the Recommended line"
+   is a brittle ban. "The Recommended line is exactly: 'Recommended:
+   Option N'. Period." is a positive shape, much stickier. Half of §19
+   could be rewritten this way.
+
+
+THE FIVE GAPS WORTH FILLING
+---------------------------
+
+GAP 1: TOOL-IFY THE BATTERY CONFIGURATOR
+
+Biggest win on the table. Right now §9 lives in the model's context window,
+and we've watched the model leak it back to customers, ignore parts of it,
+or echo its structural labels. Replace it with a tool the model calls:
+
+  proposeBom(load_kw, storage_kwh, phase, voltage_pref, site_off_grid)
+    → returns validated JSON BOM
+
+Implementation: a deterministic JS function that runs the §9.0 decision
+tree, picks inverters, sizes packs/modules, applies the 2% tolerance,
+balances clusters, drops invalid series, returns a structured BOM. The
+model only does what it's actually good at: deciding when to call the
+tool and rendering the JSON into a warm Nigerian message.
+
+What this kills:
+  • §9 leaves the prompt entirely (~550 lines).
+  • The HV validator becomes redundant.
+  • BOM cleanup becomes redundant.
+  • The doctrine-leak strip becomes redundant.
+  • Dropped-options listing becomes impossible.
+  • Sizing math is 100% deterministic.
+  • Edge cases (2% tolerance, equal modules per inverter, BOS-B floor)
+    execute in code, not LLM reasoning.
+
+This single change probably eliminates 40% of the current safety guards.
+
+
+GAP 2: STRUCTURED OUTPUT FOR REPLIES
+
+Right now: model emits free-form English → we parse it with regex → strip
+the bad parts. Backwards. Structured output flips it:
+
+  Reply JSON: {
+    salutation?: string,
+    blocks: [
+      { type: "fact", label, value },
+      { type: "bom_card", option, lines },
+      { type: "recommendation", option_num },
+      { type: "datasheet_attached", item_id }
+    ],
+    closer?: { type: "question" | "ack", text }
+  }
+
+Renderer formats it for WhatsApp. The model NEVER produces the final wire
+text. Formatting bugs (line breaks, dash strip, BOM glued blocks) become
+structurally impossible. Anthropic's tool-use API gives you this for free.
+
+
+GAP 3: TRIM THE PROMPT AGGRESSIVELY
+
+§19 has 50+ "Never X" entries. Many redundant with §5/§6/§7 (price rules,
+voice rules). Many addressed by the post-gen guards. Pick the 10 highest-
+priority rules, drop the rest. Reframe each as a positive shape with one
+concrete example. Target: §19 fits on one screen.
+
+Same exercise on §5 (currently spends 70 lines on what to do AND what not
+to do). Cut "what not to do", leave it in §19 if it's truly load-bearing.
+Same on §8.
+
+Rule of thumb: if a rule appears in 3+ places in the prompt, it's not
+landing. Move it to code.
+
+
+GAP 4: TWO-STAGE REPLIES, CHEAPER MODELS
+
+Right now every reply is one Opus call with the full prompt + warehouse +
+datasheets + conversation state + expert context. ~$0.03-0.05 per message.
+
+Better:
+
+  Stage A (Sonnet or Haiku, cheap): Read the message + history. Output
+  structured intent: { what_customer_wants, relevant_warehouse_rows,
+  relevant_datasheets, sizing_needed: bool }. Smart retriever.
+
+  Stage B (Opus, only when needed): Compose the reply given ONLY the
+  curated facts from Stage A. Tiny system prompt because we already know
+  the intent.
+
+For ~70% of messages (greetings, single-product price asks, simple acks),
+Stage A's structured output is enough to drive a template reply with no
+Stage B. Reserve Opus for sizing/configuration/multi-option flows.
+
+Net savings: ~50-70% on LLM cost, AND attention isn't diluted on Stage B
+because its context is curated.
+
+
+GAP 5: FAILURE REPLAY TEST SUITE
+
+Every conversation Serge has flagged as broken is gold and currently nothing
+happens with it. Build a tiny eval harness:
+
+  • Snapshot the bad reply + the original customer turn + the warehouse
+    state at the time.
+  • On every prompt edit (or every deploy), replay all 30-50 snapshots
+    through generateReply.
+  • Score: did the model produce a leak? Did it suggest the right inverter
+    size? Did it dump SKUs? Quick rubric.
+  • Block deploy if regressions appear.
+
+No human-eval needed for most cases, the same regexes that strip leaks can
+be inverted into "did this leak?" checks. We'd catch the §9.0 doctrine
+leak BEFORE it ships.
+
+
+TACTICAL ADVICE ON THE PROMPT ITSELF
+------------------------------------
+
+A handful of things that wouldn't require major rearchitecture:
+
+• XML-tag the system prompt sections. <voice>...</voice>, <rules>...
+  </rules>, <context>...</context>. Anthropic's docs literally recommend
+  this. The model parses tagged sections more reliably than markdown
+  headers.
+
+• Stop using "*Never X*" and switch to positive shapes. "The Recommended
+  line ends in a period and nothing else after the option number." beats
+  "Never put a reason on the Recommended line."
+
+• One concrete example per rule, no general principle without it. The
+  model latches onto examples way harder than abstract rules. We already
+  do this partly, could be 100%.
+
+• Move history scrubbing to write-time. When Sunny sends "Direct line:
+  wa.me/...", store the version without the link in messages.body. Saves
+  a runtime strip and prevents leakage into future turns. Same for dash
+  conversion: store clean text, render clean text.
+
+• Per-rule violation tracking. Add a simple counter in the post-gen
+  logger: "rule X fired this many times this month." Surfaces which rules
+  the model actually ignores so we know which ones to harden vs which
+  ones to drop.
+
+• Cache warehouse formatting. The full warehouse block goes into every
+  reply prompt right now (~2KB). Cache via Anthropic's prompt caching (we
+  already use this on the master prompt) and have it invalidate only when
+  warehouse changes.
+
+• Stop telling the model what the validators do. §9HV.7 has "the reply
+  pipeline runs a deterministic post-validator on every BOM." The model
+  can use this as an excuse to be sloppy ("the validator will fix it").
+  Pull all references to downstream guards out of the prompt.
+
+
+TOP RECOMMENDATION
+------------------
+
+Tool-ify §9. Everything else compounds from there. Once §9 isn't in the
+prompt, the model gets dramatically simpler, the cleanup guards mostly
+disappear, and we stop adding to the firefight pile.
+
+
+END.

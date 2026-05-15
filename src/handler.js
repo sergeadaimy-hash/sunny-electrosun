@@ -1196,12 +1196,19 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  // Append the specialist (owner) wa.me link to any reply where the customer
-  // is in HOT-lead handoff OR Sunny couldn't fully answer (silent_query). This
-  // gives the customer a direct path to the team in both cases. Skip when the
-  // LLM already produced a wa.me link or when classification didn't escalate.
-  const escalatedThisTurn = !!(classification.needs_escalation && classification.escalation_type);
-  if (escalatedThisTurn && !linkAlreadyInText) {
+  // Append the specialist (owner) wa.me link ONLY on HOT-lead handoff. The
+  // 2026-05-15 owner feedback: appending the link on silent_query/pricing
+  // replies (where Sunny is asking for the customer's number, or saying
+  // "the team will check") is spammy and confuses the customer about who's
+  // actually handling them. The link makes sense ONLY when the customer
+  // explicitly committed (sent_account / pay-now phrasing) and we are
+  // genuinely passing them to a specialist. Skip if the LLM already
+  // produced a wa.me link itself.
+  const isHotHandoffThisTurn = !!(
+    classification.needs_escalation &&
+    classification.escalation_type === 'hot_lead'
+  );
+  if (isHotHandoffThisTurn && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);
     if (link) {
       outboundText = `${outboundText}\n\nDirect line to the specialist: ${link}`;

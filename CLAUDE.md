@@ -68,6 +68,36 @@ Material changes in this swap (vs the just-shipped state):
 
 Live commit: `863ee89` pushed 2026-05-13.
 
+**Session of 2026-05-15 (afternoon Beirut), fourteenth push.** Three live failures from the Charles and Xtocom Quality screenshots, three tactical patches:
+
+1. *BOM cleanup broadened (six new strippers).* The image 15 leak (Xtocom Quality, church 50kW/400kWh) showed the model dumping the entire §9LV.4 sizing math, §9LV.8 pre-send checklist, dropped-pack reasoning, and meta-narration. Existing cleanup didn't catch any of it because the regexes were tuned for v1 leak shapes.
+
+   New patterns added to `src/claude.js > cleanupBomReply`:
+   - `(a3)` parenthetical regex broadened from "(≤ 20kW)" to also catch unit-less variants like "(≤ 10 ✓)" / "(≤ 32 ✓)" / "(= 10, on the limit ✓)".
+   - `(a5)` `calc_line` strips any line containing `ceil(...)` math.
+   - `(a6)` `internalLabels` strips `**LV Pre-send checklist:**`, `**Sizing logic:**`, `**Floor check:**`, `**Inverter count:**`, `**Total packs:**`, `**Min clusters:**`, `**Equal modules per inverter:**`, `**Tie-break:**`, etc.
+   - `(a7)` `narration` strips "Running the configuration now.", "Only SE-F16 survives.", "For each battery pack/series", "Walk through the math/sizing", "Let me compute/calculate/run".
+   - `(b2)` `droppedSku` strips dropped lines without "Option N:" prefix: `SE-F12: ceil(...) → exceeds 32 cap, dropped silently`, `BOS-B: 6 modules → fails minimum, dropped`.
+   - `(b3)` `checklistRow` strips survivor rows like `SE-F16: 25 packs, 3 inverters ✓`.
+   - `(d)` final cleanup widened to drop leftover punctuation+dash glue ("., - ") at line starts after narration strip.
+   - Bug fix: removed the `break` in the `defaultPhrases` and `narrationPatterns` loops so ALL matching patterns can fire (previously only the first match in each loop applied, letting later leaks slip through).
+
+   Verified under unit test against the exact Xtocom Quality leak text: cleaned output retains only the BOM card and recommendation. Legit 2-option BOM passes through with only the trailing-period normalization.
+
+2. *Dangling-label detection widened.* The Charles screenshot showed Sunny's first reply ending in "at a special promo price of." after the price-strip removed the actual figure. Dangling-label detection only checked for `: punct` colon-pattern; "of." has no colon so the check missed.
+
+   `src/claude.js` price-strip block now also flags trailing-preposition patterns: `\b(price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s+(of|at|for|is)\s*[.,;!?]`. When detected, the reply is replaced with the standard "Could you share more about your project so I can guide you better?" deflection. Logged as `claude.reply.prices_stripped` with new field `dangling_kind` ('colon' | 'preposition').
+
+3. *Customer-side wa.me link restricted to HOT-lead handoff only.* The Charles screenshot (image 14) showed the link being appended on every silent_query reply, including "Can I take your number?" and "the team will check shortly". This is spammy and confusing.
+
+   `src/handler.js` change: the link append now requires `classification.escalation_type === 'hot_lead'` instead of any escalation. Silent_query, pricing_question, and all other escalation types no longer get the link. The link only appears when Sunny is genuinely passing the customer to a specialist after explicit commitment phrasing ("send me the account", "i want to pay", etc.). Variable renamed to `isHotHandoffThisTurn` to avoid collision with the existing `isHotEscalation` defined upstream.
+
+Open data-hygiene issue (NOT code, owner-side): the `coming_note` for the SUN-6K-OG warehouse row says "special Promo price 559k", but the customer (Charles) said "I thought the promo price was NGN549,000". Sunny correctly sourced "559k" verbatim from Warehouse Stock and rendered "559,000 NGN" per Nigerian shorthand. Either the customer misremembered or the coming_note has a typo. Owner to confirm with brother and edit the warehouse note in the admin if needed.
+
+Also saved: `docs/agent-improvement-brainstorm-2026-05-15.txt` captures the broader architectural recommendations (tool-ify §9, structured output for replies, two-stage cheaper models, failure replay test suite, prompt-trim + positive-shape rewrites). Reference for future sessions when we move beyond tactical patches.
+
+This push is uncommitted on local main. Serge will push.
+
 **Session of 2026-05-14 (late evening Beirut), thirteenth push.** Owner shipped `Section_9_Battery_Configurator_LV_and_HV_FINAL_v5-1.docx` and asked to replace §9 entirely. Parsed the docx with python (xml.etree, with table + heading detection), produced `/tmp/new_section_9.md`, and spliced it into `src/prompts/system.md` replacing the previous §9 (lines 246-697 → 246-794, +96 net lines).
 
 Material doctrine changes vs the previous §9:
