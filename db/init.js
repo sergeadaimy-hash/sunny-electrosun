@@ -87,7 +87,8 @@ function applyMigrations(db) {
       { name: 'budget_mentioned', type: 'TEXT' }
     ],
     pending_queries: [
-      { name: 'expiring_warning_sent_at', type: 'TIMESTAMP' }
+      { name: 'expiring_warning_sent_at', type: 'TIMESTAMP' },
+      { name: 'last_assistant_reply_at', type: 'TIMESTAMP' }
     ],
     conversations: [
       { name: 'human_handled', type: 'INTEGER NOT NULL DEFAULT 0' },

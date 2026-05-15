@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS pending_queries (
   resolved_at TIMESTAMP,
   owner_reply_text TEXT,
   expiring_warning_sent_at TIMESTAMP,
+  last_assistant_reply_at TIMESTAMP,
   FOREIGN KEY (contact_id) REFERENCES contacts(id)
 );
 

@@ -216,6 +216,13 @@ function markPendingQueryExpired(queryId) {
   db.prepare("UPDATE pending_queries SET status = 'expired' WHERE id = ?").run(queryId);
 }
 
+function touchPendingQueryAssistantReply(queryId) {
+  if (!queryId) return;
+  const db = getDb();
+  db.prepare('UPDATE pending_queries SET last_assistant_reply_at = ? WHERE id = ?')
+    .run(nowIso(), queryId);
+}
+
 function getContactById(contactId) {
   const db = getDb();
   return db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId) || null;
@@ -282,6 +289,7 @@ module.exports = {
   markPendingQueryWarned,
   findExpiredPendingQueries,
   markPendingQueryExpired,
+  touchPendingQueryAssistantReply,
   getContactById,
   getConversationById,
   setConversationHandled,

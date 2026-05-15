@@ -13,6 +13,7 @@ const {
   findPendingByAlertId,
   resolvePendingQuery,
   getOpenPendingQueryForContact,
+  touchPendingQueryAssistantReply,
   getContactById,
   getMessagesForConversation
 } = require('./memory');
@@ -57,6 +58,14 @@ const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '1
 // even if the brother is unavailable. The window_monitor 24h Meta-window
 // expiry is the OUTER bound; this is the much shorter INNER bound.
 const PENDING_QUERY_AUTO_EXPIRE_MS = Math.max(1, parseInt(process.env.PENDING_QUERY_AUTO_EXPIRE_MINUTES || '30', 10)) * 60 * 1000;
+
+// Follow-up reply silence cooldown. Once an assistant reply has been produced
+// while a pending_queries row was already open (i.e. a follow-up turn, not
+// the initial silent_query reply), suppress further LLM-generated replies on
+// subsequent inbounds within this window. The owner still gets follow-up
+// pings via notifyOwnerForEscalation; the customer just stops getting more
+// "Could you share what you're sizing for?" loop messages.
+const PENDING_QUERY_REPLY_SILENCE_MS = Math.max(1, parseInt(process.env.PENDING_QUERY_REPLY_SILENCE_MINUTES || '10', 10)) * 60 * 1000;
 
 const CASUAL_CONFIRM_RE = /^(o+k+(ay|ey|wy)?|alright|noted|got\s*it|sure|fine|cool|nice|great|perfect|thanks|thank\s*you|tnx|ty|appreciate(d)?|cheers|no\s*problem|np|👍|🙏|❤️|✅|done|gotcha|sounds\s*good|sg|👌|🆗|all\s*good|yep|yup|y(ea+|ah+)|alright\s*then|great\s*thanks|thanks\s*a\s*lot|much\s*appreciated|noted\s*thanks|hmm+|h+mm|interesting|hmm+\s*interesting|wow|really|i\s*see|isee|oh|aha|ahaa|ahh|right|wow\s*ok|ok\s*cool|ok\s*sure|sure\s*thing)[.!?,\s]*$/i;
 const PRODUCT_KEYWORDS_RE = /\b(kw|kva|kwh|panel|panels|battery|batteries|inverter|inverters|deye|jinko|ja|longi|sungrow|huawei|bos|hv|lv|hybrid|off\s*grid|on\s*grid|three\s*phase|single\s*phase|naira|ngn|price|cost|how\s*much|stock|available|quotation|invoice|proforma|brochure|datasheet|spec|kit|system)\b/i;
@@ -942,6 +951,34 @@ async function processCustomerBatch(entry) {
 
   const isHot = isHotEscalation;
   const currentOpen = isHot ? null : getOrAutoResolveStalePending(contact.id);
+
+  // Reply-once-on-follow-up suppression. If a pending_queries row is open
+  // AND we've already produced an assistant reply on a prior turn while it
+  // was open, suppress further LLM-generated replies for
+  // PENDING_QUERY_REPLY_SILENCE_MS. The owner alert path still fires
+  // (handled inside notifyOwnerForEscalation as a follow-up ping), the
+  // customer just stops getting more "Could you share..." stalls.
+  if (currentOpen && currentOpen.last_assistant_reply_at) {
+    const sinceLastReplyMs = Date.now() - new Date(currentOpen.last_assistant_reply_at).getTime();
+    if (Number.isFinite(sinceLastReplyMs) && sinceLastReplyMs < PENDING_QUERY_REPLY_SILENCE_MS) {
+      logger.info('handler.followup_reply_suppressed_silence_cooldown', {
+        contactId: contact.id,
+        queryId: currentOpen.id,
+        since_last_reply_ms: sinceLastReplyMs,
+        cooldown_ms: PENDING_QUERY_REPLY_SILENCE_MS
+      });
+      try {
+        logEvent(contact.id, 'silent_query_followup_suppressed', {
+          queryId: currentOpen.id,
+          since_last_reply_ms: sinceLastReplyMs
+        });
+      } catch (err) {
+        logger.warn('handler.followup_suppress_log_fail', { message: err.message });
+      }
+      return;
+    }
+  }
+
   const customerIsGratitude = customerIsCasualConfirm && isGratitudeMessage(safeCombinedText);
   let expertContext = null;
   if (isHot) {
@@ -1264,6 +1301,22 @@ async function processCustomerBatch(entry) {
     intent: isHot ? 'hot_lead_handoff' : (expertContext ? 'silent_query_followup' : classification.intent),
     language: classification.language
   });
+  // Touch the open pending_query's last_assistant_reply_at so that subsequent
+  // inbounds within PENDING_QUERY_REPLY_SILENCE_MS get suppressed by the
+  // reply-once-on-follow-up guard above. Only applies when a pending row is
+  // open at the moment of sending; HOT and normal-classify paths don't have
+  // an open row to track.
+  if (currentOpen && currentOpen.id) {
+    try {
+      touchPendingQueryAssistantReply(currentOpen.id);
+    } catch (err) {
+      logger.warn('handler.touch_pending_assistant_reply_fail', {
+        contactId: contact.id,
+        queryId: currentOpen.id,
+        message: err.message
+      });
+    }
+  }
   logger.info('handler.batch.replied', {
     contactId: contact.id,
     batch_size: msgs.length,
