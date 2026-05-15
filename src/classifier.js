@@ -21,6 +21,20 @@ function hasHotTrigger(text) {
   return HOT_TRIGGER_RE.test(text || '');
 }
 
+// Dealer pricing signal: customer has self-identified as a dealer/reseller
+// AND is asking for pricing (list, dealer rates, wholesale, volume pricing).
+// This pattern routes to escalation_type='dealer_pricing' in handler.js,
+// which has a dedicated header for the owner alert and a customer-side
+// reply that promises the dealer team will follow up with volume tier
+// pricing (no public price dump, no specialist wa.me link).
+const DEALER_SELF_ID_RE = /\b(i\s*(am|m)\s+(a\s+|the\s+)?(dealer|reseller|distributor|integrator|importer|wholesaler)|for\s+(re)?sale|for\s+my\s+(shop|store|business)|samples?\s+in\s+my\s+shop|not\s+for\s+personal\s+use|for\s+commercial\s+use|trading\s+(in|with)\s+(deye|inverter|battery|solar))\b/i;
+const PRICING_LIST_ASK_RE = /\b(price\s+list|pricing|dealer\s+(price|rate|pricing|cost)|wholesale|volume\s+pric|how\s+much|prices?\s+(for|of)|cost\s+of|i\s+want\s+(the\s+)?(price|pricing|list)|available.*(prices?|list)|send\s+me\s+(the\s+)?(price|pricing|list))\b/i;
+
+function isDealerPricingAsk(text) {
+  const t = String(text || '');
+  return DEALER_SELF_ID_RE.test(t) && PRICING_LIST_ASK_RE.test(t);
+}
+
 const AFFIRMATION_RE = /^(yes|yea+h?|yep+|yup+|sure|ok+|okay+|of\s+course|sounds\s+good|let'?s\s+(do\s+(it|that|this)|go|proceed)|go\s+ahead|absolutely|definitely|i'?m\s+ready|ready|please\s+do|do\s+it|alright|all\s+right|fine|cool|great|good|na'?am|aye|na'?am)[\s.!,]*$/i;
 // Leading-affirmation: customer's message STARTS with "yes" / "sure" / "ok" /
 // etc. but then continues with more content (their name, pickup details). We
@@ -174,6 +188,26 @@ async function runClassification(contact, history, message) {
     result.lead_temperature = 'WARM';
     result.needs_escalation = false;
     result.escalation_type = null;
+  }
+
+  // Dealer-pricing promoter. Runs AFTER all HOT logic so a dealer who also
+  // commits to pay ("send me account") still wins HOT routing. Otherwise, if
+  // the customer self-identifies as a dealer/reseller AND asks for pricing
+  // (list, dealer rates, wholesale, volume pricing), route to dealer_pricing
+  // so the owner gets a DEALER-headed alert and the customer gets the dealer
+  // team handoff context instead of the generic silent_query stall.
+  if (
+    result.escalation_type !== 'hot_lead' &&
+    isDealerPricingAsk(body)
+  ) {
+    logger.info('classifier.dealer_pricing_promoted', {
+      contactId: contact.id,
+      original_escalation_type: result.escalation_type,
+      original_needs_escalation: result.needs_escalation,
+      message_preview: body.slice(0, 200)
+    });
+    result.needs_escalation = true;
+    result.escalation_type = 'dealer_pricing';
   }
 
   if (result.needs_escalation && !result.escalation_type) {

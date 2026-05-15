@@ -231,6 +231,23 @@ function formatElapsed(ms) {
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
+function buildDealerPricingContext() {
+  return [
+    '# Dealer pricing handoff context (treat as authoritative)',
+    'The customer has self-identified as a dealer, reseller, distributor, or shop owner asking about products for resale, AND is asking for pricing (price list, dealer rates, volume pricing, samples for shop, etc.).',
+    '',
+    'Voice rules in this state:',
+    '- Acknowledge the dealer ask in ONE short sentence, in the customer\'s own language. Examples: "Got it, dealer pricing.", "Understood, you\'re sourcing for resale.", "Noted, dealer enquiry."',
+    '- Then say the dealer team will reach out shortly with volume tier pricing and the dealer rate sheet.',
+    '- Do NOT quote any prices, even ranges. Dealer pricing is NOT public; it depends on volume and is negotiated case by case.',
+    '- Do NOT promise a specific timeline ("within 24h", "by tomorrow"). Use "shortly" or "soon".',
+    '- Use third person ("the dealer team", "our team"). No first-person stalls ("I will get back to you").',
+    '- Two sentences max. No CTA tail.',
+    '- Do NOT include any URL or phone number; the system does NOT append a specialist link for dealer flows.',
+    '- Do NOT ask further qualifying questions (the team will gather those when they reach out).'
+  ].join('\n');
+}
+
 function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
   if (isHot) {
     return [
@@ -381,11 +398,19 @@ const ADMIN_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sunny-electrosun
 
 const ESCALATION_HEADERS = {
   hot_lead: 'HOT LEAD, customer is ready to pay.',
+  dealer_pricing: 'DEALER PRICING REQUEST, customer wants volume tier pricing.',
   negotiation: 'NEGOTIATION, customer is asking for a discount or counter-offer.',
   repeat_complex: 'REPEAT CLIENT, returning customer with a complex ask.',
   big_project: 'BIG PROJECT, 30kW+ install / EPC enquiry.',
   silent_query: 'FOLLOW-UP NEEDED, customer is waiting on a team answer.'
 };
+
+// Escalation types that should create a pending_queries row and route
+// subsequent inbounds through the follow-up branch. silent_query is the
+// historical default; dealer_pricing was added 2026-05-15 so dealer
+// follow-ups get the same loop-prevention treatment plus a dealer-specific
+// reply tone.
+const PENDING_BACKED_ESCALATIONS = new Set(['silent_query', 'dealer_pricing']);
 
 function escalationHeader(type) {
   return ESCALATION_HEADERS[type] || ESCALATION_HEADERS.silent_query;
@@ -648,7 +673,7 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
   // a fresh pending query AND fire a brand-new alert (subject to the
   // brand-new escalation cooldown).
   let freshPendingId = null;
-  if (escalationType === 'silent_query') {
+  if (PENDING_BACKED_ESCALATIONS.has(escalationType)) {
     const existingOpen = getOrAutoResolveStalePending(contact.id);
     if (existingOpen && existingOpen.id) {
       const followThrottle = security.checkFollowupThrottle(contact.id);
@@ -664,7 +689,7 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
           openPending: existingOpen,
           freshPendingId: null,
           ownerNotified: false,
-          escalationType: 'silent_query',
+          escalationType,
           throttled: true
         };
       }
@@ -713,7 +738,7 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
         openPending: existingOpen,
         freshPendingId: null,
         ownerNotified: !!(followSendRes && followSendRes.ok),
-        escalationType: 'silent_query'
+        escalationType
       };
     }
   }
@@ -747,19 +772,20 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
     }
   }
 
-  // Create the pending_queries row for silent_query so subsequent customer
-  // messages route through the open-pending follow-up path (single ping per
-  // cooldown window) instead of hammering the brother with brand-new alerts.
-  if (escalationType === 'silent_query') {
+  // Create the pending_queries row for any pending-backed escalation type
+  // (silent_query, dealer_pricing) so subsequent customer messages route
+  // through the open-pending follow-up path (single ping per cooldown window)
+  // instead of hammering the brother with brand-new alerts.
+  if (PENDING_BACKED_ESCALATIONS.has(escalationType)) {
     try {
       freshPendingId = createPendingQuery({
         contactId: contact.id,
         customerMessageId: lastMsg && lastMsg.id,
         customerMessageText: safeCombinedText,
-        classifierIntent: classification.intent || 'silent_query'
+        classifierIntent: classification.intent || escalationType
       });
     } catch (err) {
-      logger.warn('handler.escalation.create_pending_query_fail', { message: err.message });
+      logger.warn('handler.escalation.create_pending_query_fail', { message: err.message, escalationType });
     }
   }
 
@@ -1043,6 +1069,11 @@ async function processCustomerBatch(entry) {
   let expertContext = null;
   if (isHot) {
     expertContext = buildExpertContext({ isHot: true });
+  } else if (
+    classification.needs_escalation &&
+    classification.escalation_type === 'dealer_pricing'
+  ) {
+    expertContext = buildDealerPricingContext();
   } else if (customerIsGratitude) {
     expertContext = [
       '# Gratitude context (treat as authoritative)',
