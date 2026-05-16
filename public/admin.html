@@ -1642,6 +1642,86 @@
       gap: 6px;
     }
     .wh-staple-hint { font-size: 11px; color: var(--faint); }
+    .wh-photos {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--border);
+    }
+    .wh-ph-head {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .wh-ph-label { font-size: 12px; color: var(--faint); }
+    .wh-ph-count { font-size: 13px; color: var(--green); font-weight: 600; }
+    .wh-ph-empty { font-size: 13px; color: var(--faint); }
+    .wh-ph-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .wh-ph-actions input[type="file"] {
+      font-size: 12px;
+      max-width: 240px;
+    }
+    .wh-ph-status { font-size: 12px; color: var(--faint); }
+    .wh-ph-status.err { color: #b91c1c; }
+    .wh-ph-status.ok { color: var(--green); }
+    .wh-ph-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .wh-ph-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .wh-ph-thumb {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #eef1ed;
+      display: block;
+    }
+    .wh-ph-caption {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 12px;
+      padding: 4px 6px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .wh-ph-row {
+      display: flex;
+      gap: 4px;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .wh-ph-row .wh-ph-pos {
+      font-size: 11px;
+      color: var(--faint);
+    }
+    .wh-ph-row button {
+      font-size: 11px;
+      padding: 2px 6px;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .wh-ph-row button:hover { background: #f4f6f4; }
+    .wh-ph-row button.danger { color: #b91c1c; border-color: #f5c2c2; }
+    .wh-ph-row button.danger:hover { background: #fdecec; }
     .wh-empty {
       padding: 30px;
       text-align: center;
@@ -2855,7 +2935,56 @@ function renderWarehouseItem(it) {
 
   const locs = WH_LOCATIONS.map(loc => renderWarehouseLocation(it, loc)).join('');
   const datasheet = renderWarehouseDatasheet(it);
-  return '<div class="wh-item" data-wh-item="' + it.id + '">' + head + '<div class="wh-locations">' + locs + '</div>' + datasheet + '</div>';
+  const photos = renderWarehousePhotos(it);
+  return '<div class="wh-item" data-wh-item="' + it.id + '">' + head + '<div class="wh-locations">' + locs + '</div>' + datasheet + photos + '</div>';
+}
+
+function renderWarehousePhotos(it) {
+  const photos = Array.isArray(it.photos) ? it.photos : [];
+  const cards = photos.map((p, idx) => {
+    const src = '/api/warehouse/photos/' + p.id + '/file?key=' + encodeURIComponent(apiKey || '');
+    const caption = escapeHtml(p.caption || '');
+    const sizeKb = p.size_bytes ? ' &middot; ' + Math.round(p.size_bytes / 1024) + ' KB' : '';
+    return [
+      '<div class="wh-ph-card" data-wh-photo="' + p.id + '">',
+      '<img class="wh-ph-thumb" src="' + src + '" alt="' + escapeHtml(p.filename || 'photo') + '" loading="lazy">',
+      '<input class="wh-ph-caption" type="text" placeholder="Caption (optional, max 280 chars)" maxlength="280" value="' + caption + '" data-wh-ph-field="caption">',
+      '<div class="wh-ph-row">',
+      '<span class="wh-ph-pos" title="Sort position">#' + (idx + 1) + sizeKb + '</span>',
+      '<div>',
+      idx > 0 ? '<button data-wh-ph-action="up" title="Move up">↑</button>' : '',
+      idx < photos.length - 1 ? '<button data-wh-ph-action="down" title="Move down">↓</button>' : '',
+      '<button class="danger" data-wh-ph-action="archive" title="Remove from customer-facing photos">×</button>',
+      '</div>',
+      '</div>',
+      '</div>'
+    ].join('');
+  }).join('');
+
+  const grid = photos.length ? '<div class="wh-ph-grid">' + cards + '</div>' : '';
+  const count = photos.length;
+  const sendCap = 3; // mirror PHOTO_SEND_CAP default in warehouse.js
+  const visibleNote = count > sendCap
+    ? '<span class="wh-ph-empty">Sunny sends only the first ' + sendCap + ' (by position) when a customer asks for photos. Reorder to choose which ones.</span>'
+    : '';
+
+  return [
+    '<div class="wh-photos">',
+    '<div class="wh-ph-head">',
+    '<span class="wh-ph-label">Photos (JPG/PNG/WebP, max 5MB each, sent inline when customer asks for photos)</span>',
+    count
+      ? '<span class="wh-ph-count">' + count + ' photo' + (count === 1 ? '' : 's') + '</span>'
+      : '<span class="wh-ph-empty">No photos attached.</span>',
+    '</div>',
+    '<div class="wh-ph-actions">',
+    '<input type="file" data-wh-ph-file accept="image/png,image/jpeg,image/jpg,image/webp" multiple>',
+    '<button class="btn primary" data-wh-action="upload-photos">Upload</button>',
+    '<span class="wh-ph-status" data-wh-ph-status></span>',
+    '</div>',
+    visibleNote,
+    grid,
+    '</div>'
+  ].join('');
 }
 
 function renderWarehouseDatasheet(it) {
@@ -2989,6 +3118,36 @@ function bindWarehouseItemHandlers(root) {
       if (stapleCb) {
         stapleCb.addEventListener('change', () => toggleWarehouseStaple(itemId, !!stapleCb.checked, dsRoot));
       }
+    }
+
+    const phRoot = itemEl.querySelector('.wh-photos');
+    if (phRoot) {
+      phRoot.querySelectorAll('[data-wh-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.dataset.whAction === 'upload-photos') uploadWarehousePhotos(itemId, phRoot);
+        });
+      });
+      phRoot.querySelectorAll('[data-wh-photo]').forEach(card => {
+        const photoId = parseInt(card.dataset.whPhoto, 10);
+        const photos = (warehouseLastItems.find(i => i.id === itemId) || {}).photos || [];
+        const idx = photos.findIndex(p => p.id === photoId);
+        card.querySelectorAll('[data-wh-ph-action]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const action = btn.dataset.whPhAction;
+            if (action === 'archive') archiveWarehousePhoto(itemId, photoId);
+            if (action === 'up' && idx > 0) reorderWarehousePhoto(itemId, photoId, photos[idx - 1].sort_order, photos[idx - 1].id);
+            if (action === 'down' && idx < photos.length - 1) reorderWarehousePhoto(itemId, photoId, photos[idx + 1].sort_order, photos[idx + 1].id);
+          });
+        });
+        const captionInput = card.querySelector('[data-wh-ph-field="caption"]');
+        if (captionInput) {
+          captionInput.addEventListener('blur', () => {
+            const current = (photos.find(p => p.id === photoId) || {}).caption || '';
+            if (captionInput.value === current) return;
+            saveWarehousePhotoCaption(itemId, photoId, captionInput.value, phRoot);
+          });
+        }
+      });
     }
 
     itemEl.querySelectorAll('[data-wh-loc]').forEach(locEl => {
@@ -3175,6 +3334,100 @@ async function toggleWarehouseStaple(itemId, value, dsRoot) {
     // revert UI
     const cb = dsRoot.querySelector('[data-wh-staple]');
     if (cb) cb.checked = !value;
+  }
+}
+
+async function uploadWarehousePhotos(itemId, phRoot) {
+  const fileInput = phRoot.querySelector('[data-wh-ph-file]');
+  const status = phRoot.querySelector('[data-wh-ph-status]');
+  const files = fileInput && fileInput.files ? Array.from(fileInput.files) : [];
+  status.className = 'wh-ph-status';
+  if (!files.length) { status.textContent = 'Pick at least one image first.'; status.className = 'wh-ph-status err'; return; }
+  const MAX = 5 * 1024 * 1024;
+  for (const f of files) {
+    if (f.size > MAX) {
+      status.textContent = '"' + f.name + '" is too large (max 5MB).';
+      status.className = 'wh-ph-status err';
+      return;
+    }
+  }
+  status.textContent = 'Uploading ' + files.length + ' photo' + (files.length === 1 ? '' : 's') + '...';
+  let okCount = 0;
+  let failCount = 0;
+  for (const file of files) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+      await apiFetch('/warehouse/items/' + itemId + '/photos', {
+        method: 'POST',
+        body: JSON.stringify({
+          filename: file.name,
+          mime_type: file.type || 'image/jpeg',
+          base64
+        })
+      });
+      okCount++;
+    } catch (err) {
+      failCount++;
+      // Keep going so a single bad file doesn't abort the batch.
+      console.error('photo upload failed for', file.name, err);
+    }
+  }
+  if (failCount === 0) {
+    status.textContent = 'Uploaded ' + okCount + '.';
+    status.className = 'wh-ph-status ok';
+  } else {
+    status.textContent = 'Uploaded ' + okCount + ', ' + failCount + ' failed.';
+    status.className = 'wh-ph-status err';
+  }
+  await loadWarehouse();
+}
+
+async function saveWarehousePhotoCaption(itemId, photoId, caption, phRoot) {
+  const status = phRoot.querySelector('[data-wh-ph-status]');
+  try {
+    await apiFetch('/warehouse/items/' + itemId + '/photos/' + photoId, {
+      method: 'POST',
+      body: JSON.stringify({ caption })
+    });
+    if (status) { status.textContent = 'Caption saved.'; status.className = 'wh-ph-status ok'; }
+    await loadWarehouse();
+  } catch (err) {
+    if (status) { status.textContent = 'Caption save failed: ' + err.message; status.className = 'wh-ph-status err'; }
+  }
+}
+
+// Swap sort_order between the photo being moved and its neighbor, so the UI
+// up/down arrows produce a stable ordering across reloads.
+async function reorderWarehousePhoto(itemId, photoId, neighborSortOrder, neighborPhotoId) {
+  try {
+    const items = warehouseLastItems.find(i => i.id === itemId);
+    const photo = items && (items.photos || []).find(p => p.id === photoId);
+    const mySortOrder = photo ? photo.sort_order : 0;
+    await apiFetch('/warehouse/items/' + itemId + '/photos/' + photoId, {
+      method: 'POST',
+      body: JSON.stringify({ sort_order: neighborSortOrder })
+    });
+    await apiFetch('/warehouse/items/' + itemId + '/photos/' + neighborPhotoId, {
+      method: 'POST',
+      body: JSON.stringify({ sort_order: mySortOrder })
+    });
+    await loadWarehouse();
+  } catch (err) {
+    alert('Reorder failed: ' + err.message);
+  }
+}
+
+async function archiveWarehousePhoto(itemId, photoId) {
+  if (!confirm('Remove this photo from the customer-facing set? It will be hidden but kept in the database.')) return;
+  try {
+    await apiFetch('/warehouse/items/' + itemId + '/photos/' + photoId, { method: 'DELETE' });
+    await loadWarehouse();
+  } catch (err) {
+    alert('Remove failed: ' + err.message);
   }
 }
 

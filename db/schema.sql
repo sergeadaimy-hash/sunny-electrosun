@@ -177,8 +177,27 @@ CREATE TABLE IF NOT EXISTS datasheets (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS warehouse_item_photos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER NOT NULL,
+  filename TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  caption TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  meta_media_id TEXT,
+  meta_media_uploaded_at TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (item_id) REFERENCES warehouse_items(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_datasheets_status ON datasheets(status);
 CREATE INDEX IF NOT EXISTS idx_catalog_section ON catalog_items(section);
+CREATE INDEX IF NOT EXISTS idx_warehouse_item_photos_item ON warehouse_item_photos(item_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_warehouse_item_photos_status ON warehouse_item_photos(status);
 
 CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);

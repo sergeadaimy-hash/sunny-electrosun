@@ -144,8 +144,34 @@ async function sendDocument(to, mediaId, filename, caption) {
   }
 }
 
+async function sendImage(to, mediaId, caption) {
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'image',
+    image: {
+      id: mediaId,
+      caption: caption || undefined
+    }
+  };
+  if (!payload.image.caption) delete payload.image.caption;
+
+  try {
+    const res = await axios.post(endpoint(), payload, { headers: authHeaders(), timeout: 20000 });
+    const messageId = res.data?.messages?.[0]?.id || null;
+    logger.info('whatsapp.image.ok', { to, mediaId, messageId });
+    return { ok: true, messageId, raw: res.data };
+  } catch (err) {
+    const status = err.response?.status;
+    const data = err.response?.data;
+    logger.error('whatsapp.image.fail', { to, mediaId, status, data: safe(data), message: err.message });
+    return { ok: false, status, error: data || err.message };
+  }
+}
+
 function safe(obj) {
   try { return JSON.parse(JSON.stringify(obj)); } catch { return String(obj); }
 }
 
-module.exports = { sendMessage, sendTemplate, downloadMedia, uploadMediaToMeta, sendDocument };
+module.exports = { sendMessage, sendTemplate, downloadMedia, uploadMediaToMeta, sendDocument, sendImage };

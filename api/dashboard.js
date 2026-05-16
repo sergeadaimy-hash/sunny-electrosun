@@ -46,7 +46,12 @@ const {
   setStock: setWarehouseStock,
   adjustQuantity: adjustWarehouseQuantity,
   setDatasheet: setWarehouseDatasheet,
-  removeDatasheet: removeWarehouseDatasheet
+  removeDatasheet: removeWarehouseDatasheet,
+  listPhotosForItem: listWarehousePhotos,
+  addPhotoForItem: addWarehousePhoto,
+  updatePhotoForItem: updateWarehousePhoto,
+  removePhotoForItem: removeWarehousePhoto,
+  getPhotoById: getWarehousePhotoById
 } = warehouseModule;
 
 const router = express.Router();
@@ -559,6 +564,76 @@ router.post('/warehouse/items/:id/datasheet/reextract', async (req, res) => {
     const text = await warehouseModule.extractDatasheetTextForItem(id);
     if (text === null) return res.status(404).json({ error: 'no datasheet attached or file missing' });
     res.json({ ok: true, id, chars: (text || '').length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Per-item Photos: list, upload one (base64), update caption/sort_order,
+// archive (soft) or hard-delete with ?hard=1. The GET /warehouse response
+// already inlines active photos per item, but this list endpoint is useful
+// for an admin-only "show archived" view if/when added.
+router.get('/warehouse/items/:id/photos', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    const includeArchived = req.query.include_archived === '1' || req.query.include_archived === 'true';
+    const photos = listWarehousePhotos(id, { includeArchived });
+    res.json({ count: photos.length, photos });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/warehouse/items/:id/photos', express.json({ limit: '8mb' }), (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  try {
+    const filename = String(req.body?.filename || '').trim();
+    const mimeType = String(req.body?.mime_type || '').trim();
+    const base64 = String(req.body?.base64 || '');
+    const caption = req.body?.caption == null ? null : String(req.body.caption);
+    if (!filename) return res.status(400).json({ error: 'filename required' });
+    if (!mimeType) return res.status(400).json({ error: 'mime_type required' });
+    if (!base64) return res.status(400).json({ error: 'base64 file content required' });
+    const photo = addWarehousePhoto(id, { filename, mimeType, base64, caption });
+    res.json({ ok: true, id, photo });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/warehouse/items/:id/photos/:photoId', (req, res) => {
+  const photoId = parseInt32(req.params.photoId, 0);
+  try {
+    const photo = updateWarehousePhoto(photoId, req.body || {});
+    res.json({ ok: true, photo });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/warehouse/items/:id/photos/:photoId', (req, res) => {
+  const photoId = parseInt32(req.params.photoId, 0);
+  try {
+    const hard = req.query.hard === '1' || req.query.hard === 'true';
+    const removed = removeWarehousePhoto(photoId, { hard });
+    if (!removed) return res.status(404).json({ error: 'photo not found' });
+    res.json({ ok: true, photoId, hard });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Binary fetch for admin thumbnail rendering. Auth still applies (the
+// router-wide middleware accepts ?key= so <img src> tags work).
+router.get('/warehouse/photos/:photoId/file', (req, res) => {
+  const photoId = parseInt32(req.params.photoId, 0);
+  try {
+    const photo = getWarehousePhotoById(photoId);
+    if (!photo || !photo.file_path) return res.status(404).json({ error: 'photo not found' });
+    if (!require('fs').existsSync(photo.file_path)) return res.status(404).json({ error: 'photo file missing on disk' });
+    res.setHeader('Content-Type', photo.mime_type || 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    require('fs').createReadStream(photo.file_path).pipe(res);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

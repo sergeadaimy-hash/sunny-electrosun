@@ -19,7 +19,7 @@ const {
 } = require('./memory');
 const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
-const { sendMessage, downloadMedia, uploadMediaToMeta, sendDocument } = require('./whatsapp');
+const { sendMessage, downloadMedia, uploadMediaToMeta, sendDocument, sendImage } = require('./whatsapp');
 const warehouse = require('./warehouse');
 const { DB_PATH } = require('../db/init');
 // owner teaching retired 2026-05-10: owner edits master prompt directly via admin Rules editor
@@ -977,6 +977,168 @@ async function processCustomerBatch(entry) {
         message: err.message,
         stack: err.stack && err.stack.slice(0, 400)
       });
+    }
+  }
+
+  // Photo request fast-path: customer asks for photos / pictures / images of an
+  // item. Mirrors the datasheet fast-path: regex gate, size-token matcher, Meta
+  // upload (with 25-day cache), send. Differences: sends up to PHOTO_SEND_CAP
+  // images (default 3) ordered by sort_order, each as a WhatsApp image (not a
+  // document), captions optional and rendered inline by WhatsApp.
+  //
+  // No-match path is louder than datasheets: send a short fallback to the
+  // customer AND escalate as silent_query so the owner knows there's a photo
+  // gap to fill. Returns early in both the success and the fallback case, so
+  // Opus is never given a chance to invent a description of the product.
+  const PHOTO_REQUEST_RE = /\b(photos?|pictures?|pics?|images?|snaps?|show\s+me|see\s+(what|how)\s+it\s+looks|what\s+does\s+it\s+look\s+like|how\s+does\s+it\s+look|got\s+(any\s+)?(photos?|pics?))\b/i;
+  const customerAskedForPhotos = PHOTO_REQUEST_RE.test(safeCombinedText);
+  let photosSentThisTurn = false;
+  if (customerAskedForPhotos) {
+    try {
+      const recentText = (priorHistory || []).slice(-6).map(m => String(m.content || '')).join(' ');
+      const productsAsked = String(refreshedContact.products_asked_about || '');
+      const brandPref = String(refreshedContact.brand_preference || '');
+      const enrichedHistory = [recentText, productsAsked, brandPref].filter(Boolean).join(' ');
+      const match = warehouse.findItemPhotosByQuery(safeCombinedText, enrichedHistory);
+      logger.info('handler.photos.lookup', {
+        contactId: contact.id,
+        message_preview: safeCombinedText.slice(0, 120),
+        match_found: !!(match && match.item && match.photos && match.photos.length),
+        matched_item_id: match && match.item && match.item.id,
+        matched_model: match && match.item && match.item.model,
+        match_score: match && match.score,
+        photo_count: match && match.photos ? match.photos.length : 0
+      });
+      if (match && match.item && match.photos && match.photos.length) {
+        const item = match.item;
+        let sentCount = 0;
+        let lastSendFail = null;
+        for (const photo of match.photos) {
+          let mediaId = photo.meta_media_id;
+          const fresh = mediaId && warehouse.isMetaMediaFresh(photo.meta_media_uploaded_at);
+          if (!fresh) {
+            try {
+              mediaId = await uploadMediaToMeta(photo.file_path, photo.mime_type, photo.filename);
+              warehouse.setPhotoMetaMediaCache(photo.id, mediaId);
+              logger.info('handler.photos.uploaded_to_meta', {
+                contactId: contact.id,
+                warehouse_item_id: item.id,
+                photo_id: photo.id,
+                meta_media_id_set: !!mediaId
+              });
+            } catch (uploadErr) {
+              logger.error('handler.photos.upload_to_meta_failed', {
+                contactId: contact.id,
+                warehouse_item_id: item.id,
+                photo_id: photo.id,
+                filename: photo.filename,
+                mime: photo.mime_type,
+                path_exists: require('fs').existsSync(photo.file_path || ''),
+                message: uploadErr.message
+              });
+              lastSendFail = uploadErr.message;
+              continue;
+            }
+          }
+          // Caption rule: per-photo caption if set; otherwise only the FIRST
+          // image carries a "<brand> <model> photo, from Electro-Sun" caption
+          // so the customer's chat has at least one label. Subsequent images
+          // come captionless to avoid repetition.
+          let caption;
+          if (photo.caption && String(photo.caption).trim()) {
+            caption = String(photo.caption).trim();
+          } else if (sentCount === 0) {
+            caption = `${item.brand} ${item.model} photo, from Electro-Sun`;
+          } else {
+            caption = undefined;
+          }
+          const imgRes = await sendImage(lastMsg.from, mediaId, caption);
+          if (imgRes && imgRes.ok) {
+            const noteText = `[Photo sent: ${item.brand} ${item.model}${caption ? ' — ' + caption : ''}]`;
+            appendMessage(conversation.id, 'outbound', noteText, {
+              whatsapp_message_id: imgRes.messageId,
+              intent: 'photo_sent',
+              language: classification.language || 'english'
+            });
+            sentCount++;
+          } else {
+            lastSendFail = imgRes && (imgRes.error || imgRes.status);
+            logger.warn('handler.photos.send_fail', {
+              contactId: contact.id,
+              warehouse_item_id: item.id,
+              photo_id: photo.id,
+              status: imgRes && imgRes.status,
+              error: imgRes && imgRes.error
+            });
+          }
+        }
+        if (sentCount > 0) {
+          photosSentThisTurn = true;
+          logger.info('handler.photos.sent', {
+            contactId: contact.id,
+            warehouse_item_id: item.id,
+            sent_count: sentCount,
+            requested_count: match.photos.length
+          });
+          return;
+        }
+        // Every photo failed to send. Fall through to the no-match fallback
+        // below so the customer still gets a coherent reply (rather than
+        // silence) and the owner gets pinged.
+        logger.warn('handler.photos.all_sends_failed_falling_back_to_text', {
+          contactId: contact.id,
+          warehouse_item_id: item.id,
+          last_error: lastSendFail
+        });
+      } else {
+        logger.info('handler.photos.no_match', {
+          contactId: contact.id,
+          message_preview: safeCombinedText.slice(0, 120)
+        });
+      }
+
+      // No-photo fallback: customer asked for photos but we either could not
+      // match an item or the matched item has no photos on file. Send a short
+      // text and escalate as silent_query so the owner can either send the
+      // photos manually or upload them for the next request.
+      const fallbackText = 'Let me ask the team to share photos of that shortly.';
+      const sendRes = await sendMessage(lastMsg.from, fallbackText);
+      appendMessage(conversation.id, 'outbound', fallbackText, {
+        whatsapp_message_id: sendRes && sendRes.messageId,
+        intent: 'photo_request_fallback',
+        language: classification.language || 'english'
+      });
+      if (!escalationsDisabled()) {
+        try {
+          await notifyOwnerForEscalation({
+            contact: refreshedContact,
+            classification: {
+              ...classification,
+              needs_escalation: true,
+              escalation_type: 'silent_query',
+              intent: 'photo_request'
+            },
+            safeCombinedText,
+            lastMsg,
+            batchSize: msgs.length,
+            source: 'photos_no_match'
+          });
+        } catch (notifyErr) {
+          logger.error('handler.photos.notify_owner_fail', {
+            contactId: contact.id,
+            message: notifyErr.message
+          });
+        }
+      }
+      return;
+    } catch (err) {
+      logger.error('handler.photos.error', {
+        contactId: contact.id,
+        message: err.message,
+        stack: err.stack && err.stack.slice(0, 400)
+      });
+      // On unexpected error, fall through to normal Opus reply rather than
+      // leaving the customer in silence.
     }
   }
 

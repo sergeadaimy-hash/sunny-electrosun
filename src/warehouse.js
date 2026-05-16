@@ -15,6 +15,11 @@ const MAX_DATASHEET_BYTES = parseInt(process.env.DATASHEET_MAX_BYTES || String(1
 const ALLOWED_DATASHEET_MIMES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const META_MEDIA_TTL_DAYS = 25;
 
+const PHOTOS_DIR = process.env.WAREHOUSE_PHOTOS_DIR || path.join(path.dirname(DB_PATH), 'warehouse_photos');
+const MAX_PHOTO_BYTES = parseInt(process.env.PHOTO_MAX_BYTES || String(5 * 1024 * 1024), 10);
+const ALLOWED_PHOTO_MIMES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+const PHOTO_SEND_CAP = parseInt(process.env.PHOTO_SEND_CAP || '3', 10);
+
 // Per-item cap on injected datasheet text. ~2KB per item × ~4 items in scope per
 // reply keeps the Datasheet Knowledge block under 8KB even on busy turns.
 const DATASHEET_TEXT_PER_ITEM_CAP = parseInt(process.env.DATASHEET_TEXT_PER_ITEM_CAP || '2000', 10);
@@ -23,6 +28,14 @@ const DATASHEET_SCOPE_HISTORY_TURNS = parseInt(process.env.DATASHEET_SCOPE_HISTO
 
 function ensureDatasheetsDir() {
   if (!fs.existsSync(DATASHEETS_DIR)) fs.mkdirSync(DATASHEETS_DIR, { recursive: true });
+}
+
+function ensurePhotosDir() {
+  if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
+}
+
+function isAllowedPhotoMime(mime) {
+  return !!mime && ALLOWED_PHOTO_MIMES.includes(String(mime).toLowerCase());
 }
 
 function sanitizeFilename(name) {
@@ -89,12 +102,27 @@ function listItems() {
     if (!stockByItem[row.item_id]) stockByItem[row.item_id] = {};
     stockByItem[row.item_id][row.location] = row;
   }
+  // Fetch active photos for all items in one query; group by item_id for the
+  // per-item attachment. Sorted so the first N (PHOTO_SEND_CAP) are deterministic.
+  const photoRows = db.prepare(
+    `SELECT id, item_id, filename, mime_type, size_bytes, caption, sort_order,
+            meta_media_id, meta_media_uploaded_at, created_at
+     FROM warehouse_item_photos
+     WHERE item_id IN (${items.map(() => '?').join(',')}) AND status = 'active'
+     ORDER BY item_id, sort_order ASC, id ASC`
+  ).all(...items.map(it => it.id));
+  const photosByItem = {};
+  for (const row of photoRows) {
+    if (!photosByItem[row.item_id]) photosByItem[row.item_id] = [];
+    photosByItem[row.item_id].push(row);
+  }
   return items.map(it => ({
     ...it,
     stock: {
       abuja: stockByItem[it.id]?.abuja || null,
       lagos: stockByItem[it.id]?.lagos || null
-    }
+    },
+    photos: photosByItem[it.id] || []
   }));
 }
 
@@ -621,12 +649,209 @@ function formatDatasheetKnowledgeForPrompt(currentMessage, recentHistory) {
   return lines.join('\n').trim();
 }
 
+// ---------------------------------------------------------------------------
+// Item Photos (per-item, many-per-item, sent as WhatsApp images on request)
+// ---------------------------------------------------------------------------
+// Mirrors the datasheet pattern but lives in its own table (warehouse_item_photos)
+// because each item can have multiple photos with their own captions, sort order,
+// and Meta media cache. Files live under WAREHOUSE_PHOTOS_DIR (default
+// <DB dir>/warehouse_photos/). Allowed mimes: JPG / PNG / WebP (no PDF here).
+// Max 5MB per photo by default (override via PHOTO_MAX_BYTES).
+// ---------------------------------------------------------------------------
+
+function listPhotosForItem(itemId, { includeArchived = false } = {}) {
+  const db = getDb();
+  const where = includeArchived ? '' : "AND status = 'active'";
+  return db.prepare(
+    `SELECT id, item_id, filename, mime_type, size_bytes, caption, sort_order,
+            meta_media_id, meta_media_uploaded_at, status, created_at, updated_at
+     FROM warehouse_item_photos
+     WHERE item_id = ? ${where}
+     ORDER BY sort_order ASC, id ASC`
+  ).all(itemId);
+}
+
+function getPhotoById(photoId) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT id, item_id, filename, file_path, mime_type, size_bytes, caption,
+            sort_order, meta_media_id, meta_media_uploaded_at, status,
+            created_at, updated_at
+     FROM warehouse_item_photos WHERE id = ?`
+  ).get(photoId) || null;
+}
+
+function addPhotoForItem(itemId, { filename, base64, mimeType, caption } = {}) {
+  const db = getDb();
+  const item = db.prepare('SELECT id FROM warehouse_items WHERE id = ?').get(itemId);
+  if (!item) throw new Error('item not found');
+  if (!isAllowedPhotoMime(mimeType)) throw new Error('photo mime not allowed: ' + mimeType);
+  if (!base64) throw new Error('photo file content required');
+
+  const buffer = Buffer.from(base64, 'base64');
+  if (!buffer.length) throw new Error('empty photo file');
+  if (buffer.length > MAX_PHOTO_BYTES) {
+    throw new Error('photo too large: ' + buffer.length + ' bytes (max ' + MAX_PHOTO_BYTES + ')');
+  }
+
+  ensurePhotosDir();
+  const safeName = sanitizeFilename(filename || 'photo');
+  const hash = crypto.randomBytes(8).toString('hex');
+  const finalName = hash + '_' + safeName;
+  const finalPath = path.join(PHOTOS_DIR, finalName);
+  fs.writeFileSync(finalPath, buffer);
+
+  const maxOrder = db.prepare(
+    "SELECT COALESCE(MAX(sort_order), -1) AS m FROM warehouse_item_photos WHERE item_id = ? AND status = 'active'"
+  ).get(itemId).m;
+  const sortOrder = maxOrder + 1;
+  const ts = nowIso();
+  const captionClean = caption == null ? null : String(caption).trim().slice(0, 280) || null;
+
+  const info = db.prepare(`
+    INSERT INTO warehouse_item_photos
+      (item_id, filename, file_path, mime_type, size_bytes, caption, sort_order, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+  `).run(itemId, safeName, finalPath, mimeType, buffer.length, captionClean, sortOrder, ts, ts);
+
+  logger.info('warehouse.photo.attached', {
+    itemId, photoId: info.lastInsertRowid, filename: safeName, size_bytes: buffer.length
+  });
+  return getPhotoById(info.lastInsertRowid);
+}
+
+function updatePhotoForItem(photoId, { caption, sort_order } = {}) {
+  const db = getDb();
+  const photo = getPhotoById(photoId);
+  if (!photo) throw new Error('photo not found');
+  const updates = [];
+  const values = [];
+  if (caption !== undefined) {
+    const captionClean = caption == null ? null : String(caption).trim().slice(0, 280) || null;
+    updates.push('caption = ?');
+    values.push(captionClean);
+  }
+  if (sort_order !== undefined) {
+    const so = Math.max(0, Math.round(Number(sort_order)) || 0);
+    updates.push('sort_order = ?');
+    values.push(so);
+  }
+  if (!updates.length) return photo;
+  updates.push('updated_at = ?');
+  values.push(nowIso());
+  values.push(photoId);
+  db.prepare(`UPDATE warehouse_item_photos SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  return getPhotoById(photoId);
+}
+
+// Soft archive by default so an accidental click is recoverable from the DB.
+// Hard delete (with file unlink) is opt-in via { hard: true }.
+function removePhotoForItem(photoId, { hard = false } = {}) {
+  const db = getDb();
+  const photo = getPhotoById(photoId);
+  if (!photo) return false;
+  if (hard) {
+    if (photo.file_path && fs.existsSync(photo.file_path)) {
+      try { fs.unlinkSync(photo.file_path); }
+      catch (err) { logger.warn('warehouse.photo.unlink_fail', { photoId, message: err.message }); }
+    }
+    db.prepare('DELETE FROM warehouse_item_photos WHERE id = ?').run(photoId);
+    logger.info('warehouse.photo.deleted_hard', { photoId, itemId: photo.item_id });
+  } else {
+    db.prepare(
+      "UPDATE warehouse_item_photos SET status = 'archived', updated_at = ? WHERE id = ?"
+    ).run(nowIso(), photoId);
+    logger.info('warehouse.photo.archived', { photoId, itemId: photo.item_id });
+  }
+  return true;
+}
+
+function setPhotoMetaMediaCache(photoId, mediaId) {
+  const db = getDb();
+  db.prepare(
+    'UPDATE warehouse_item_photos SET meta_media_id = ?, meta_media_uploaded_at = ?, updated_at = ? WHERE id = ?'
+  ).run(mediaId, nowIso(), nowIso(), photoId);
+}
+
+// Find the warehouse item whose photos best match the customer's request.
+// Mirrors findItemDatasheetByQuery: size-token gate first (so "16kw photo" goes
+// to the 16kW row, not the 80kW one), token-overlap tiebreaker. Only items
+// with at least one ACTIVE photo are considered.
+function findItemPhotosByQuery(message, recentText = '') {
+  const db = getDb();
+  const items = db.prepare(`
+    SELECT wi.id, wi.brand, wi.model, wi.notes, wi.section
+    FROM warehouse_items wi
+    WHERE EXISTS (
+      SELECT 1 FROM warehouse_item_photos p
+      WHERE p.item_id = wi.id AND p.status = 'active'
+    )
+  `).all();
+  if (!items.length) return null;
+
+  const querySizes = extractSizeNumbers(message);
+  let candidates = items;
+  if (querySizes.size > 0) {
+    const sizeMatched = items.filter(it => {
+      const itemSizes = extractSizeNumbers(
+        [it.brand, it.model, it.notes].filter(Boolean).join(' ')
+      );
+      for (const q of querySizes) {
+        if (itemSizes.has(q)) return true;
+      }
+      const blob = [it.brand, it.model, it.notes]
+        .filter(Boolean).join(' ').toLowerCase();
+      for (const q of querySizes) {
+        const re = new RegExp(`(?:^|[^\\d.])${q.replace(/\./g, '\\.')}(?![\\d])`);
+        if (re.test(blob)) return true;
+      }
+      return false;
+    });
+    if (sizeMatched.length > 0) candidates = sizeMatched;
+  }
+
+  const queryTokens = new Set(tokenize(message + ' ' + recentText));
+  let best = null;
+  let bestScore = 0;
+  for (const it of candidates) {
+    const itemTokens = tokenize([it.brand, it.model, it.notes, it.section].filter(Boolean).join(' '));
+    let score = 0;
+    for (const t of itemTokens) {
+      if (queryTokens.has(t)) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = it;
+    }
+  }
+
+  let matchedItem = null;
+  let matchScore = 0;
+  if (best) {
+    matchedItem = best;
+    matchScore = bestScore;
+  } else if (querySizes.size > 0 && candidates.length === 1) {
+    matchedItem = candidates[0];
+    matchScore = 0;
+  } else {
+    return null;
+  }
+
+  const photos = listPhotosForItem(matchedItem.id).slice(0, PHOTO_SEND_CAP);
+  if (!photos.length) return null;
+  return { item: matchedItem, photos, score: matchScore };
+}
+
 module.exports = {
   LOCATIONS,
   STATES,
   DATASHEETS_DIR,
   MAX_DATASHEET_BYTES,
+  PHOTOS_DIR,
+  MAX_PHOTO_BYTES,
+  PHOTO_SEND_CAP,
   isAllowedMime,
+  isAllowedPhotoMime,
   listItems,
   getItem,
   addItem,
@@ -645,5 +870,12 @@ module.exports = {
   setStaple,
   formatDatasheetKnowledgeForPrompt,
   pickDatasheetItemsForScope,
-  repairAllStockStates
+  repairAllStockStates,
+  listPhotosForItem,
+  getPhotoById,
+  addPhotoForItem,
+  updatePhotoForItem,
+  removePhotoForItem,
+  setPhotoMetaMediaCache,
+  findItemPhotosByQuery
 };
