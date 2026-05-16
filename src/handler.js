@@ -896,20 +896,50 @@ async function processCustomerBatch(entry) {
   // attempt to match a Warehouse Stock item that has a PDF attached and send that file.
   // Falls through to normal LLM reply on no match or send failure.
   const DATASHEET_REQUEST_RE = /\b(data\s*sheet|datasheet|brochure|spec\s*sheet|specification\s*sheet|specs?\s*(sheet|pdf|file|document)|technical\s*(sheet|specs?)|product\s*(sheet|brochure|manual|guide|pdf)|user\s*(manual|guide))\b/i;
-  if (DATASHEET_REQUEST_RE.test(safeCombinedText)) {
+  const customerAskedForDatasheet = DATASHEET_REQUEST_RE.test(safeCombinedText);
+  let datasheetSentThisTurn = false;
+  if (customerAskedForDatasheet) {
     try {
       const recentText = (priorHistory || []).slice(-6).map(m => String(m.content || '')).join(' ');
       const productsAsked = String(refreshedContact.products_asked_about || '');
       const brandPref = String(refreshedContact.brand_preference || '');
       const enrichedHistory = [recentText, productsAsked, brandPref].filter(Boolean).join(' ');
       const match = warehouse.findItemDatasheetByQuery(safeCombinedText, enrichedHistory);
+      logger.info('handler.datasheet.lookup', {
+        contactId: contact.id,
+        message_preview: safeCombinedText.slice(0, 120),
+        match_found: !!(match && match.item),
+        matched_item_id: match && match.item && match.item.id,
+        matched_model: match && match.item && match.item.model,
+        match_score: match && match.score,
+        has_path: !!(match && match.item && match.item.datasheet_path),
+        has_mime: !!(match && match.item && match.item.datasheet_mime),
+        cached_media_id: !!(match && match.item && match.item.datasheet_meta_media_id)
+      });
       if (match && match.item && match.item.datasheet_path) {
         const item = match.item;
         let mediaId = item.datasheet_meta_media_id;
         const fresh = mediaId && warehouse.isMetaMediaFresh(item.datasheet_meta_uploaded_at);
         if (!fresh) {
-          mediaId = await uploadMediaToMeta(item.datasheet_path, item.datasheet_mime, item.datasheet_filename);
-          warehouse.setItemDatasheetMetaCache(item.id, mediaId);
+          try {
+            mediaId = await uploadMediaToMeta(item.datasheet_path, item.datasheet_mime, item.datasheet_filename);
+            warehouse.setItemDatasheetMetaCache(item.id, mediaId);
+            logger.info('handler.datasheet.uploaded_to_meta', {
+              contactId: contact.id,
+              warehouse_item_id: item.id,
+              meta_media_id_set: !!mediaId
+            });
+          } catch (uploadErr) {
+            logger.error('handler.datasheet.upload_to_meta_failed', {
+              contactId: contact.id,
+              warehouse_item_id: item.id,
+              filename: item.datasheet_filename,
+              mime: item.datasheet_mime,
+              path_exists: require('fs').existsSync(item.datasheet_path || ''),
+              message: uploadErr.message
+            });
+            throw uploadErr;
+          }
         }
         const caption = `${item.brand} ${item.model} datasheet, from Electro-Sun`;
         const docRes = await sendDocument(lastMsg.from, mediaId, item.datasheet_filename, caption);
@@ -925,12 +955,15 @@ async function processCustomerBatch(entry) {
             warehouse_item_id: item.id,
             score: match.score
           });
+          datasheetSentThisTurn = true;
           return;
         }
         logger.warn('handler.datasheet.send_fail_fallback_to_text', {
           contactId: contact.id,
           warehouse_item_id: item.id,
-          status: docRes && docRes.status
+          status: docRes && docRes.status,
+          error: docRes && docRes.error,
+          meta_response: docRes && JSON.stringify(docRes).slice(0, 400)
         });
       } else {
         logger.info('handler.datasheet.no_match', {
@@ -941,7 +974,8 @@ async function processCustomerBatch(entry) {
     } catch (err) {
       logger.error('handler.datasheet.error', {
         contactId: contact.id,
-        message: err.message
+        message: err.message,
+        stack: err.stack && err.stack.slice(0, 400)
       });
     }
   }
@@ -1165,9 +1199,15 @@ async function processCustomerBatch(entry) {
       ? welcomeContext + '\n\n' + finalExpertContext
       : welcomeContext;
   }
+  // B9 hint: customer asked for a datasheet but the fast-path did NOT send
+  // one (no match found OR Meta upload/send failed). Tell generateReply so
+  // the post-generation guard there can rewrite any "the datasheet is
+  // attached" hallucination into a safe "team will share shortly" message.
+  const datasheetRequestedButNotSent = customerAskedForDatasheet && !datasheetSentThisTurn;
   const reply = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
     expertContext: finalExpertContext,
-    allowTrailingQuestion: customerIsGratitude
+    allowTrailingQuestion: customerIsGratitude,
+    datasheetRequestedButNotSent
   });
   if (!reply.ok || !reply.text) {
     try {

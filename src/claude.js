@@ -840,6 +840,28 @@ async function generateReply(history, message, contact, attachments = [], option
       }
     }
 
+    // B9 guard: datasheet hallucination. If the customer asked for a
+    // datasheet but the handler's fast-path did NOT actually send one
+    // (no warehouse match, or Meta upload/send failed), the LLM tends to
+    // claim "the system is attaching it now" / "the datasheet is on file
+    // and will be attached" / "datasheet is attached". Both are lies;
+    // nothing actually got sent. Replace with a safe, honest message.
+    if (text && options.datasheetRequestedButNotSent) {
+      const datasheetTopic = /\b(?:data\s*sheet|datasheet|brochure|spec\s*sheet|technical\s*sheet)\b/i;
+      const sendingClaim = /\b(?:attach(?:ed|ing|es)?|on\s*file|is\s*attached|will\s*attach|auto[-\s]?attach(?:es|ed|ing)?|automatically\s*attach(?:es|ed|ing)?|coming\s*through|on\s*its\s+way|sending\s+(?:it|now|shortly)|system\s+(?:will|is|auto)\s*(?:send|attach)|i'?ll\s+(?:send|attach)|am\s+attaching)\b/i;
+      // The hallucination can put the topic and the sending claim in either
+      // order ("the datasheet is attached" OR "the system auto-attaches the
+      // datasheet"). Require both somewhere in the reply, not adjacent.
+      if (datasheetTopic.test(text) && sendingClaim.test(text)) {
+        logger.warn('claude.reply.datasheet_hallucination_blocked', {
+          contactId: contact?.id,
+          customer_msg: String(message || '').slice(0, 120),
+          original_reply: text.slice(0, 250)
+        });
+        text = "We don't have that datasheet ready to send on the spot. The team will share it with you shortly.";
+      }
+    }
+
     // B8 guard: "asks for info already given". If the customer's CURRENT
     // message contains a specific kW/kVA/kWh size AND the reply asks them
     // again for size/storage/kW/system size, replace with a deflection that
