@@ -699,20 +699,41 @@ async function generateReply(history, message, contact, attachments = [], option
     }
     const customerAskedPrice = currentAsked || priorAsked;
     if (text && !customerAskedPrice) {
-      const priceRegex = /\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*(?:M|m|k|K)?\s*NGN\b[)]?|\s*(?:[(–—-]\s*)?\b\d+(?:[.,]\d+)?\s*[Mm]\b[)]?|\s*\(\s*\d+(?:[.,]\d+)?\s*[kK]\s*\)|\s*\(\s*\d+(?:[.,]\d+)?\s*[Mm]\s*\)/g;
+      // Widened price regex (B7 fix): the previous \d+(?:[.,]\d+)? body only
+      // captured "850,000 NGN" but missed the leading "1," in
+      // "1,850,000 NGN", so the strip left an orphan "Price: 1," in the
+      // output (Emmanuel screenshot 2026-05-16). The new body
+      // \d{1,3}(?:,\d{3})*(?:\.\d+)? handles Nigerian thousands-comma
+      // formatting plus the M/k/K abbreviated forms.
+      const priceRegex = /\s*(?:[(–—-]\s*)?\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:M|m|k|K)?\s*NGN\b[)]?|\s*(?:[(–—-]\s*)?\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*[Mm]\b[)]?|\s*\(\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*[kK]\s*\)|\s*\(\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*[Mm]\s*\)/g;
       const priceMatches = text.match(priceRegex) || [];
       if (priceMatches.length >= 1) {
         const stripped = text.replace(priceRegex, '').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
         // Dangling-label detection. Catches:
-        //   (a) "label: ." pattern (original)
-        //   (b) "...promo price of." / "...at a price of." / "...for of." /
-        //       "...costs of." / "...rate of." trailing-of fragments where
-        //       the stripped price left a hanging preposition (this is the
-        //       Charles screenshot case: "incoming, new shipment coming end
-        //       of this week at a special promo price of.")
+        //   (a) "label: ." pattern (original colon + punct)
+        //   (b) "...promo price of." trailing-preposition pattern
+        //   (c) NEW: "Price:" / "Cost:" / "Total:" at end of line with no
+        //       content after the colon (Emmanuel screenshot case)
+        //   (d) NEW: "Price: <orphan digit>," shape, e.g. "Price: 1," left
+        //       behind by an under-matched price regex (defensive backstop
+        //       in case the regex misses an edge case)
         const hasDanglingColon = /:\s*[.,;!?]/.test(stripped);
         const hasDanglingPrep = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s+(?:of|at|for|is)\s*[.,;!?]/i.test(stripped);
-        const hasDanglingLabel = hasDanglingColon || hasDanglingPrep;
+        const hasDanglingLabelEol = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*(?:$|\n|\*)/im.test(stripped);
+        const hasDanglingOrphanDigit = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*\d{1,4}\s*[,.]\s*(?:$|\n|\*)/im.test(stripped);
+        // Catches "Price: × 2 =" / "Total: =" / "Cost: ," shapes left behind
+        // when the regex stripped one or both numbers from a multiplied total,
+        // leaving the math operator scaffolding as the only content after
+        // the colon. If everything between the colon and end-of-line is
+        // non-letter punctuation/digits, that's a dangling math fragment.
+        const hasDanglingMathFragment = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*[^a-zA-Z\n]{1,30}(?:$|\n|\*)/im.test(stripped);
+        const hasDanglingLabel = hasDanglingColon || hasDanglingPrep || hasDanglingLabelEol || hasDanglingOrphanDigit || hasDanglingMathFragment;
+        const danglingKind = hasDanglingColon ? 'colon'
+          : hasDanglingPrep ? 'preposition'
+          : hasDanglingLabelEol ? 'label_eol'
+          : hasDanglingOrphanDigit ? 'orphan_digit'
+          : hasDanglingMathFragment ? 'math_fragment'
+          : null;
         logger.warn('claude.reply.prices_stripped', {
           contactId: contact?.id,
           customer_msg: String(message || '').slice(0, 100),
@@ -720,7 +741,7 @@ async function generateReply(history, message, contact, attachments = [], option
           stripped_reply: stripped.slice(0, 200),
           price_matches: priceMatches.length,
           dangling_label: hasDanglingLabel,
-          dangling_kind: hasDanglingColon ? 'colon' : (hasDanglingPrep ? 'preposition' : null)
+          dangling_kind: danglingKind
         });
         text = (!stripped || hasDanglingLabel)
           ? "Could you share more about your project so I can guide you better?"
