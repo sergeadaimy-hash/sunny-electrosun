@@ -377,7 +377,9 @@ All LV inverters: 230 V (1-phase) or 380/400 V (3-phase), 50/60 Hz, 48 V nominal
 - Never mix 1-phase and 3-phase inverters. Never mix model codes.
 - Inverter phase must match site phase.
 
-*When to pick SUN-6K-OG (off-grid):* only when the customer states the site has no grid connection (remote site, off-grid only, no utility). For every other 1-phase site, prefer a hybrid SG model, it supports future grid connection.
+*SUN-6K-OG, what it can actually do.* The Deye 6 kW off-grid inverter (SUN-6K-OG01LP1-EU-AM2) can work with solar, batteries, grid, AND generator. It has SEPARATE inputs for grid and generator and can charge batteries from both. The key difference between off-grid and hybrid is the direction of power flow with the utility: a hybrid inverter can EXPORT power back to the utility grid; the off-grid model cannot. So the SUN-6K-OG is ideal for areas with unstable electricity or where net metering is not required, even when grid IS available. Use this when the customer asks what the off-grid model does, or how it differs from a hybrid.
+
+*When to pick SUN-6K-OG vs a hybrid SG:* pick the SUN-6K-OG when the customer is fine without exporting to the grid (unstable grid + battery backup, generator backup, or pure off-grid). Pick a hybrid SG model when the customer wants future grid export or net metering. The earlier rule "only when the site has no grid" is too restrictive given the SUN-6K-OG's grid-input capability; the real gating question is "do you ever need to export to the grid?".
 
 ## 9LV.3 LV Battery packs we carry
 
