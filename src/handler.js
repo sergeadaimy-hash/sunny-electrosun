@@ -1394,16 +1394,21 @@ async function processCustomerBatch(entry) {
   });
   // Touch the open pending_query's last_assistant_reply_at so that subsequent
   // inbounds within PENDING_QUERY_REPLY_SILENCE_MS get suppressed by the
-  // reply-once-on-follow-up guard above. Only applies when a pending row is
-  // open at the moment of sending; HOT and normal-classify paths don't have
-  // an open row to track.
-  if (currentOpen && currentOpen.id) {
+  // reply-once-on-follow-up guard above. Covers two cases:
+  //   (1) currentOpen was already set when the turn started (follow-up reply
+  //       on an existing pending row).
+  //   (2) The pending row was created THIS turn by notifyOwnerForEscalation
+  //       (first dealer_pricing or silent_query turn). currentOpen was null
+  //       when read at the top, but escResult.freshPendingId now points at
+  //       the freshly-created row that needs touching too.
+  const pendingIdToTouch = (currentOpen && currentOpen.id) || (escResult && escResult.freshPendingId) || null;
+  if (pendingIdToTouch) {
     try {
-      touchPendingQueryAssistantReply(currentOpen.id);
+      touchPendingQueryAssistantReply(pendingIdToTouch);
     } catch (err) {
       logger.warn('handler.touch_pending_assistant_reply_fail', {
         contactId: contact.id,
-        queryId: currentOpen.id,
+        queryId: pendingIdToTouch,
         message: err.message
       });
     }
