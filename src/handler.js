@@ -170,6 +170,21 @@ function topicShiftAutoResolve(contactId, newMessageText) {
   }
 }
 
+// Parse a timestamp that might be in ISO 8601 format ("2026-05-15T14:00:00.000Z")
+// OR SQLite's CURRENT_TIMESTAMP default format ("2026-05-15 14:00:00", no T,
+// no Z, implicitly UTC). The application writes ISO via nowIso() but legacy
+// rows inserted via the schema default may carry the SQLite shape and would
+// otherwise return NaN on some Node builds, defeating the auto-expire guard.
+function parsePendingTimestamp(ts) {
+  if (!ts) return NaN;
+  const direct = new Date(ts).getTime();
+  if (Number.isFinite(direct)) return direct;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(String(ts))) {
+    return new Date(String(ts).replace(' ', 'T') + 'Z').getTime();
+  }
+  return NaN;
+}
+
 // Returns the most recent open pending_query for the contact, OR null if no
 // open row exists OR the open row has aged past PENDING_QUERY_AUTO_EXPIRE_MS
 // (in which case it is auto-resolved as a side effect and null is returned).
@@ -177,8 +192,15 @@ function topicShiftAutoResolve(contactId, newMessageText) {
 function getOrAutoResolveStalePending(contactId) {
   const open = getOpenPendingQueryForContact(contactId);
   if (!open) return null;
-  const createdMs = new Date(open.created_at).getTime();
-  if (!Number.isFinite(createdMs)) return open;
+  const createdMs = parsePendingTimestamp(open.created_at);
+  if (!Number.isFinite(createdMs)) {
+    logger.warn('handler.pending_query_created_at_unparseable', {
+      contactId,
+      queryId: open.id,
+      created_at: open.created_at
+    });
+    return open;
+  }
   const ageMs = Date.now() - createdMs;
   if (ageMs <= PENDING_QUERY_AUTO_EXPIRE_MS) return open;
   try {
