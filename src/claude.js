@@ -840,6 +840,31 @@ async function generateReply(history, message, contact, attachments = [], option
       }
     }
 
+    // B8 guard: "asks for info already given". If the customer's CURRENT
+    // message contains a specific kW/kVA/kWh size AND the reply asks them
+    // again for size/storage/kW/system size, replace with a deflection that
+    // acknowledges the size instead. Catches the Buchi screenshot pattern:
+    //   Customer: "How much is 20kw batteries?"
+    //   Sunny: "Could you share what you're sizing for? Residential,
+    //           commercial, a specific kW size or storage target."
+    // (the customer just gave the size; Sunny asks for size again).
+    if (text) {
+      const customerMsg = String(message || '');
+      const sizeMatch = customerMsg.match(/\b(\d+(?:\.\d+)?\s*(?:kva|kw|kwh))\b/i);
+      const customerNamedSize = !!sizeMatch;
+      const replyAsksForSize = /\b(?:specific\s+(?:kw|size|kva|kwh)|storage\s+target|what\s+(?:kw|size|capacity|storage|are\s+you\s+sizing)|which\s+(?:kw|size|capacity|system\s+size)|what\s+(?:product|model|system\s+size)\s+are\s+you|sizing\s+for[\?:]?\s+(?:residential|commercial))\b/i.test(text);
+      if (customerNamedSize && replyAsksForSize) {
+        const namedSize = sizeMatch[1].replace(/\s+/g, '');
+        logger.warn('claude.reply.asks_for_size_already_given', {
+          contactId: contact?.id,
+          customer_named_size: namedSize,
+          customer_msg: customerMsg.slice(0, 120),
+          original_reply: text.slice(0, 200)
+        });
+        text = `Noted, ${namedSize}. The team will pull the closest matching options from stock and share shortly.`;
+      }
+    }
+
     if (text) {
       const leakedMarkers = security.detectPromptLeak(text);
       if (leakedMarkers) {
