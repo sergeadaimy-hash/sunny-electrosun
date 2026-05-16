@@ -71,7 +71,11 @@ function parseInt32(v, fallback) {
 router.get('/contacts', (req, res) => {
   const db = getDb();
   const { category, from, to } = req.query;
-  const limit = Math.min(200, parseInt32(req.query.limit, 50));
+  // Default page is 50; the admin UI requests larger pages explicitly. The
+  // hard cap is high (10000) so a single page can load the entire address
+  // book without losing contacts in the UI. The DB itself never deletes
+  // contacts, so all rows are reachable.
+  const limit = Math.min(10000, parseInt32(req.query.limit, 50));
   const offset = parseInt32(req.query.offset, 0);
 
   const where = [];

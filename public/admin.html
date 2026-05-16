@@ -2038,12 +2038,16 @@ function renderOwnerChat(data) {
 
 // CONTACTS
 
+let contactsDbTotal = 0;
 async function loadContacts() {
   const tbody = document.getElementById('contacts-tbody');
   tbody.innerHTML = '<tr><td colspan="12" class="contacts-empty">Loading.</td></tr>';
   try {
-    const data = await apiFetch('/contacts?limit=200');
+    // Request a large page so the entire address book renders in one shot.
+    // Server cap (api/dashboard.js) was raised from 200 to 10000 on 2026-05-16.
+    const data = await apiFetch('/contacts?limit=10000');
     allContacts = data.contacts || [];
+    contactsDbTotal = (typeof data.total === 'number') ? data.total : allContacts.length;
     contactsLoaded = true;
     renderContacts();
   } catch (err) {
@@ -2091,7 +2095,13 @@ function renderContacts() {
   const cutoffIso = periodCutoff(period);
 
   const filtered = allContacts.filter(c => passesContactFilter(c, search, category, temperature, cutoffIso));
-  document.getElementById('contacts-stats').textContent = filtered.length + ' of ' + allContacts.length + ' contacts';
+  // Display: filtered (current view) / loaded (paged slice from API) / total
+  // (true count in the DB). The third number is the load-bearing one for "did
+  // we lose any contacts" questions.
+  const stats = (filtered.length === allContacts.length && allContacts.length === contactsDbTotal)
+    ? contactsDbTotal + ' contacts'
+    : filtered.length + ' of ' + allContacts.length + ' shown (' + contactsDbTotal + ' total in DB)';
+  document.getElementById('contacts-stats').textContent = stats;
 
   const tbody = document.getElementById('contacts-tbody');
   if (!filtered.length) {
