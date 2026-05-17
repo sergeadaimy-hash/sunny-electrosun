@@ -5,6 +5,29 @@ const logger = require('./utils/logger');
 
 const GRAPH_VERSION = 'v21.0';
 
+const MIME_TO_EXT = {
+  'application/pdf': '.pdf',
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/webp': '.webp',
+  'audio/mpeg': '.mp3',
+  'audio/ogg': '.ogg',
+  'audio/mp4': '.m4a',
+  'video/mp4': '.mp4'
+};
+const VALID_EXTS = new Set(Object.values(MIME_TO_EXT));
+
+function ensureExtension(filename, mimeType) {
+  const safe = String(filename || '').trim() || 'file';
+  const lower = safe.toLowerCase();
+  for (const ext of VALID_EXTS) {
+    if (lower.endsWith(ext)) return safe;
+  }
+  const wanted = MIME_TO_EXT[String(mimeType || '').toLowerCase()] || '';
+  return wanted ? safe + wanted : safe;
+}
+
 function endpoint() {
   const id = process.env.META_PHONE_NUMBER_ID;
   if (!id) throw new Error('META_PHONE_NUMBER_ID is not set');
@@ -99,25 +122,40 @@ async function uploadMediaToMeta(filePath, mimeType, filename) {
   if (!token) throw new Error('META_ACCESS_TOKEN is not set');
   if (!fs.existsSync(filePath)) throw new Error('file not found: ' + filePath);
 
+  const sendFilename = ensureExtension(filename, mimeType);
   const form = new FormData();
   form.append('messaging_product', 'whatsapp');
   form.append('type', mimeType);
-  form.append('file', fs.createReadStream(filePath), { filename: filename || 'file', contentType: mimeType });
+  form.append('file', fs.createReadStream(filePath), { filename: sendFilename, contentType: mimeType });
 
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${phoneId}/media`;
-  const res = await axios.post(url, form, {
-    headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() },
-    timeout: 60000,
-    maxContentLength: 30 * 1024 * 1024,
-    maxBodyLength: 30 * 1024 * 1024
-  });
-  const mediaId = res.data && res.data.id;
-  if (!mediaId) throw new Error('upload returned no media id');
-  logger.info('whatsapp.media.uploaded', { mediaId, mimeType, filename });
-  return mediaId;
+  try {
+    const res = await axios.post(url, form, {
+      headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() },
+      timeout: 60000,
+      maxContentLength: 30 * 1024 * 1024,
+      maxBodyLength: 30 * 1024 * 1024
+    });
+    const mediaId = res.data && res.data.id;
+    if (!mediaId) throw new Error('upload returned no media id');
+    logger.info('whatsapp.media.uploaded', { mediaId, mimeType, filename: sendFilename });
+    return mediaId;
+  } catch (err) {
+    const status = err.response?.status;
+    const data = err.response?.data;
+    logger.error('whatsapp.media.upload_fail', {
+      status, mimeType, filename: sendFilename,
+      data: safe(data), message: err.message
+    });
+    const wrapped = new Error('media upload failed: ' + (err.message || 'unknown'));
+    wrapped.status = status;
+    wrapped.metaResponse = data;
+    throw wrapped;
+  }
 }
 
 async function sendDocument(to, mediaId, filename, caption) {
+  const safeFilename = ensureExtension(filename || 'document', 'application/pdf');
   const payload = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
@@ -125,7 +163,7 @@ async function sendDocument(to, mediaId, filename, caption) {
     type: 'document',
     document: {
       id: mediaId,
-      filename: filename || 'document.pdf',
+      filename: safeFilename,
       caption: caption || undefined
     }
   };

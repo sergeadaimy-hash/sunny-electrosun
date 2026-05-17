@@ -936,6 +936,8 @@ async function processCustomerBatch(entry) {
               filename: item.datasheet_filename,
               mime: item.datasheet_mime,
               path_exists: require('fs').existsSync(item.datasheet_path || ''),
+              status: uploadErr.status,
+              meta_response: uploadErr.metaResponse ? JSON.stringify(uploadErr.metaResponse).slice(0, 600) : null,
               message: uploadErr.message
             });
             throw uploadErr;
@@ -1034,6 +1036,8 @@ async function processCustomerBatch(entry) {
                 filename: photo.filename,
                 mime: photo.mime_type,
                 path_exists: require('fs').existsSync(photo.file_path || ''),
+                status: uploadErr.status,
+                meta_response: uploadErr.metaResponse ? JSON.stringify(uploadErr.metaResponse).slice(0, 600) : null,
                 message: uploadErr.message
               });
               lastSendFail = uploadErr.message;
@@ -1443,7 +1447,8 @@ async function processCustomerBatch(entry) {
         : null;
       if (stallContext) {
         const reply2 = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
-          expertContext: stallContext
+          expertContext: stallContext,
+          datasheetRequestedButNotSent
         });
         if (reply2.ok && reply2.text && !security.detectStallLanguage(reply2.text)) {
           reply.text = reply2.text;

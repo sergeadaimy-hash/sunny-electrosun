@@ -39,8 +39,19 @@ function isAllowedPhotoMime(mime) {
 }
 
 function sanitizeFilename(name) {
-  const base = String(name || 'datasheet').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80);
-  return base || 'datasheet';
+  const cleaned = String(name || 'datasheet').replace(/[^A-Za-z0-9._-]+/g, '_');
+  if (cleaned.length <= 120) return cleaned || 'datasheet';
+  // Preserve the file extension when the source name is over the cap.
+  // Meta's media upload rejects multipart filenames whose extension doesn't
+  // match Content-Type, so a chopped "...20250520_ENGLISH.pdf" -> "..._E" turns
+  // into HTTP 400 even though the bytes on disk are a valid PDF.
+  const dot = cleaned.lastIndexOf('.');
+  if (dot > 0 && cleaned.length - dot <= 8) {
+    const ext = cleaned.slice(dot);
+    const stem = cleaned.slice(0, dot).slice(0, 120 - ext.length);
+    return (stem + ext) || 'datasheet';
+  }
+  return cleaned.slice(0, 120) || 'datasheet';
 }
 
 function isAllowedMime(mime) {
