@@ -852,19 +852,30 @@ function findItemPhotosByQuery(message, recentText = '') {
   if (best) {
     matchedItem = best;
     matchScore = bestScore;
-  } else if (querySizes.size > 0 && candidates.length === 1) {
+  } else if (candidates.length === 1) {
+    // Exactly one product has sendable photos. Even if the wording doesn't overlap
+    // the model name and no size was given ("Photo", "send a picture"), it's safe to
+    // return that single item. With >1 candidate we still require a token match.
     matchedItem = candidates[0];
     matchScore = 0;
   } else {
     return null;
   }
 
-  // Backstop: only return photos WhatsApp can actually send as images (jpeg/png).
-  // A webp slipping through (e.g. uploaded before this guard) is skipped so the
-  // handler degrades to the no-photo fallback + owner ping instead of a failed send.
-  const photos = listPhotosForItem(matchedItem.id)
-    .filter(p => SENDABLE_PHOTO_MIMES.includes(String(p.mime_type || '').toLowerCase()))
-    .slice(0, PHOTO_SEND_CAP);
+  // Pull full photo rows INCLUDING file_path. listPhotosForItem deliberately omits
+  // file_path (so the admin API never leaks the server disk path), but the handler
+  // needs it to upload the file to Meta. Using listPhotosForItem here was the bug:
+  // photo.file_path came back undefined, so uploadMediaToMeta failed and every photo
+  // send fell back. Only jpeg/png are sendable as WhatsApp images; a stray webp is
+  // skipped so the handler degrades to the no-photo fallback instead of a failed send.
+  const photos = db.prepare(
+    `SELECT id, item_id, filename, file_path, mime_type, size_bytes, caption,
+            sort_order, meta_media_id, meta_media_uploaded_at, status
+       FROM warehouse_item_photos
+      WHERE item_id = ? AND status = 'active'
+        AND lower(mime_type) IN ('image/png','image/jpeg','image/jpg')
+      ORDER BY sort_order ASC, id ASC`
+  ).all(matchedItem.id).slice(0, PHOTO_SEND_CAP);
   if (!photos.length) return null;
   return { item: matchedItem, photos, score: matchScore };
 }

@@ -2,6 +2,14 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-05-21 Beirut — THE photo bug: matcher returned photos without file_path
+
+Even with an active PNG on file, the photo fast-path kept falling back. Isolated tests all passed (matcher matched, file existed, Meta upload + sendImage worked from a script), which made it look like deploy churn. It was not. Added a temporary `/api/_diag/photo` endpoint that runs the matcher + Meta upload from INSIDE the prod container; it revealed the matcher's returned photo had NO `file_path` (exists:false), while a direct `getPhotoById` had the path and uploaded fine.
+
+Root cause: `findItemPhotosByQuery` built its result via `listPhotosForItem`, whose SELECT deliberately omits `file_path` (so the admin API never leaks the server disk path). The handler then called `uploadMediaToMeta(photo.file_path=undefined)` which threw "file not found", so every photo send failed and fell back. `meta_media_id` stayed null across all attempts, confirming no upload ever succeeded.
+
+Fix: `findItemPhotosByQuery` now selects the full photo rows including `file_path` (and filters to active jpeg/png in the same query). Also relaxed the single-candidate rule: when exactly one product has sendable photos, a no-size request ("Photo", "send a picture") returns it even without a token/size match. Verified with a temp-DB repro that asserts `file_path` is present for the 6kW item across sized and no-size queries. Removed the temporary diagnostic endpoint in the same change.
+
 ## 2026-05-21 Beirut — photo false-positives, no-team-promise, answer format
 
 Three owner complaints from live screenshots, all fixed:
