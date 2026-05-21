@@ -344,6 +344,21 @@
       box-shadow: var(--shadow-input-focus);
     }
     .contacts-toolbar input[type="search"] { min-width: 240px; }
+    .contacts-toolbar .export-btn {
+      margin-left: auto;
+      padding: 8px 16px;
+      background: var(--green);
+      color: #fff;
+      border: 1px solid var(--green);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    }
+    .contacts-toolbar .export-btn:hover { background: var(--green-hover); border-color: var(--green-hover); }
+    .contacts-toolbar .export-btn:disabled { opacity: 0.6; cursor: default; }
     .contacts-toolbar label {
       font-size: 12px;
       font-weight: 500;
@@ -1932,6 +1947,7 @@
           </select>
         </label>
         <span class="stats" id="contacts-stats">0 contacts</span>
+        <button type="button" id="contacts-export-btn" class="export-btn">Export to Excel</button>
       </div>
       <div class="contacts-table-wrap">
         <table class="contacts-table" id="contacts-table">
@@ -2139,6 +2155,40 @@ async function loadContacts() {
   document.getElementById(id).addEventListener('input', renderContacts);
   document.getElementById(id).addEventListener('change', renderContacts);
 });
+
+document.getElementById('contacts-export-btn').addEventListener('click', exportContacts);
+
+// Download every contact as an .xlsx. apiFetch only returns JSON, so this does a
+// raw fetch with the API key, reads the binary as a blob, and triggers a download.
+async function exportContacts() {
+  const btn = document.getElementById('contacts-export-btn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Exporting.';
+  try {
+    const res = await fetch('/api/contacts/export', { headers: { 'X-API-Key': apiKey } });
+    if (res.status === 401) { logout(); return; }
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error('HTTP ' + res.status + ' ' + txt);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = 'electrosun-contacts-' + stamp + '.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (err) {
+    alert('Export failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
 
 function periodCutoff(period) {
   if (period === 'all') return null;

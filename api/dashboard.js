@@ -98,6 +98,82 @@ router.get('/contacts', (req, res) => {
   res.json({ total, limit, offset, contacts: rows });
 });
 
+// Export every contact as a single-sheet .xlsx. Defined BEFORE /contacts/:id so
+// the literal "export" path is not captured by the :id param route. Pulls all
+// rows (no pagination) ordered like the Contacts tab. exceljs is required lazily
+// so a missing dependency only breaks this endpoint, not the whole dashboard.
+router.get('/contacts/export', async (req, res) => {
+  let ExcelJS;
+  try {
+    ExcelJS = require('exceljs');
+  } catch (err) {
+    return res.status(500).json({ error: 'exceljs not installed on the server' });
+  }
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      'SELECT * FROM contacts ORDER BY last_active DESC NULLS LAST, id DESC'
+    ).all();
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Sunny';
+    wb.created = new Date();
+    const ws = wb.addWorksheet('Contacts');
+    ws.columns = [
+      { header: 'Phone', key: 'phone', width: 18 },
+      { header: 'Name', key: 'name', width: 22 },
+      { header: 'Category', key: 'category', width: 12 },
+      { header: 'Lead temperature', key: 'lead_temperature', width: 16 },
+      { header: 'Client type', key: 'client_type', width: 14 },
+      { header: 'Language', key: 'language', width: 12 },
+      { header: 'Location', key: 'location', width: 18 },
+      { header: 'Use case', key: 'use_case', width: 24 },
+      { header: 'Load estimate', key: 'load_estimate', width: 16 },
+      { header: 'Timeline', key: 'timeline', width: 14 },
+      { header: 'Products asked about', key: 'products_asked_about', width: 26 },
+      { header: 'Brand preference', key: 'brand_preference', width: 16 },
+      { header: 'Budget mentioned', key: 'budget_mentioned', width: 16 },
+      { header: 'First seen', key: 'first_seen', width: 22 },
+      { header: 'Last active', key: 'last_active', width: 22 },
+      { header: 'Notes', key: 'notes', width: 30 }
+    ];
+    ws.getRow(1).font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    // Keep phone numbers as text so Excel never rounds them or drops the leading +.
+    ws.getColumn('phone').numFmt = '@';
+
+    for (const r of rows) {
+      ws.addRow({
+        phone: r.phone == null ? '' : String(r.phone),
+        name: r.name || '',
+        category: r.category || '',
+        lead_temperature: r.lead_temperature || '',
+        client_type: r.client_type || '',
+        language: r.language || '',
+        location: r.location || '',
+        use_case: r.use_case || '',
+        load_estimate: r.load_estimate || '',
+        timeline: r.timeline || '',
+        products_asked_about: r.products_asked_about || '',
+        brand_preference: r.brand_preference || '',
+        budget_mentioned: r.budget_mentioned || '',
+        first_seen: r.first_seen || '',
+        last_active: r.last_active || '',
+        notes: r.notes || ''
+      });
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="electrosun-contacts-${stamp}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ error: 'export failed: ' + err.message });
+    else res.end();
+  }
+});
+
 router.get('/contacts/:id', (req, res) => {
   const db = getDb();
   const id = parseInt32(req.params.id, 0);

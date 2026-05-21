@@ -258,6 +258,7 @@ Sunny is an AI-powered WhatsApp Account Manager for **ElectroSun**, a solar ener
 - **Process manager (local dev only)**: PM2 (`ecosystem.config.js`).
 - **Tunnel for local webhook (dev only)**: Cloudflare Tunnel quick-tunnel or named tunnel.
 - **Multipart upload for Whisper**: `form-data`.
+- **Excel export**: `exceljs` (Contacts tab "Export to Excel" button, .xlsx generation). Approved 2026-05-21.
 
 Do not add any dependency that is not in the list above without explicit approval.
 
@@ -470,6 +471,7 @@ Public:
 
 Authed:
 - `GET /api/contacts?category=&from=&to=&limit=&offset=`, `GET /api/contacts/:id`.
+- `GET /api/contacts/export` streams all contacts as a single-sheet `.xlsx` (exceljs). Defined before `/contacts/:id` so the literal path is not captured by the `:id` param route. Exports every row, ignores UI filters, phone column forced to text.
 - `GET /api/stats/today`, `GET /api/stats/range?from=&to=`.
 - `GET /api/reports/latest?type=hourly|daily`, `GET /api/reports?from=&to=&type=`.
 - `GET /api/inbox`, `GET /api/conversations/:id`, `POST /api/conversations/:id/{handle, release, send-reply}`.
@@ -488,7 +490,7 @@ Authed:
 Mounted at `/admin`. Single-page HTML+JS+CSS, WhatsApp-style light theme (white surfaces, charcoal text, brand green as accent). Login with `API_KEY` (stored in localStorage).
 
 - **Inbox**: WhatsApp-style two-pane (conversation list + thread). Gradient-green avatar circles with per-contact initials. White incoming bubbles, pastel green (`#DCF8C6`) outgoing, pastel violet for human-typed outgoing. Inline-bottom-right timestamps. Take-over and Return-to-agent buttons; manual reply auto-marks `human_handled` so Sunny stops auto-replying. Reply input preserves typed text + cursor + focus + scroll across the 15s polling re-renders.
-- **Contacts**: filterable contacts list with last-active and category. Page cap raised to 10000; true DB contact count surfaced (2026-05-15).
+- **Contacts**: filterable contacts list with last-active and category. Page cap raised to 10000; true DB contact count surfaced (2026-05-15). "Export to Excel" button (top-right of toolbar) downloads every contact as a single-sheet `.xlsx` via `GET /api/contacts/export` (raw fetch with API key, blob download). Exports all rows regardless of on-screen filters.
 - **Warehouse Stock**: top-level tab. Source of truth for stock + price + datasheets + photos. One row per item (brand/model/section/price/notes) with two side-by-side panels (Abuja, Lagos). Each panel: state radios (In stock / Incoming / Out of stock), quantity with +/- buttons, coming note (free text), ETA date. Plus a per-item datasheet attachment (PDF/PNG/JPG/WEBP up to 15MB) that Sunny auto-sends when the customer asks for a datasheet/brochure/spec. Plus a per-item Photos panel: thumbnail grid (multi-upload, JPG/PNG/WebP up to 5MB each), per-thumb caption, reorder arrows, soft archive. Sunny auto-sends up to `PHOTO_SEND_CAP` (default 3) photos inline when the customer asks for photos/pictures/images of an item. Edits save instantly via REST and feed `formatWarehouseForPrompt()` on the very next reply.
 - **Owner Chat**: read-only thread of every message between Sunny and OWNER_WHATSAPP (escalation alerts, follow-up pings, brother's replies). Reuses `msgHtml()` so bubbles look identical to inbox. Auto-refreshes every 15s.
 - **Knowledge**: two sub-panels.

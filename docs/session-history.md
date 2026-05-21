@@ -2,6 +2,12 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-05-21 Beirut — Contacts "Export to Excel" (.xlsx)
+
+Added a one-click contacts export to the admin Contacts tab. New dependency `exceljs` (approved by Serge this session; the Contacts export was the trigger). New endpoint `GET /api/contacts/export` builds a single-sheet `.xlsx` of every contact (no pagination, ignores UI filters), ordered like the Contacts tab. exceljs is required lazily inside the handler so a missing dependency only breaks the export, not the dashboard. The route is declared before `/contacts/:id` so "export" is not swallowed by the `:id` param. Phone column is `numFmt '@'` (text) so Excel keeps `+234...` intact; header row bold and frozen. Columns: Phone, Name, Category, Lead temperature, Client type, Language, Location, Use case, Load estimate, Timeline, Products asked about, Brand preference, Budget mentioned, First seen, Last active, Notes.
+
+Frontend: "Export to Excel" button at the top-right of the contacts toolbar. `apiFetch` only returns JSON, so `exportContacts()` does a raw `fetch` with the `X-API-Key` header, reads a blob, and triggers a download named `electrosun-contacts-YYYY-MM-DD.xlsx`. Verified exceljs roundtrip locally: valid PK/zip, phone preserved as text, rows read back correctly.
+
 ## 2026-05-21 Beirut — cost-counter accounting bug fixed, monthly spend in admin
 
 The admin badge ($spend / $budget) was reading far below the real Claude platform spend. Root cause in `src/cost_tracker.js > calcCostCents`: it computed non-cached input as `(input_tokens - cache_read - cache_write)`. The Anthropic API already reports `input_tokens` excluding cache tokens, so this double-subtracted them. On cache-heavy reply calls (Sunny caches its system blocks) the term went strongly negative and `Math.max(0, ...)` clamped the whole call to 0 cents, so most replies recorded as free.
