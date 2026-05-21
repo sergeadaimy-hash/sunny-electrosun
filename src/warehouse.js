@@ -17,7 +17,11 @@ const META_MEDIA_TTL_DAYS = 25;
 
 const PHOTOS_DIR = process.env.WAREHOUSE_PHOTOS_DIR || path.join(path.dirname(DB_PATH), 'warehouse_photos');
 const MAX_PHOTO_BYTES = parseInt(process.env.PHOTO_MAX_BYTES || String(5 * 1024 * 1024), 10);
-const ALLOWED_PHOTO_MIMES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+// WhatsApp Cloud API image messages accept ONLY jpeg and png. WebP is valid for
+// stickers, not image messages, so a webp upload is accepted by Meta's /media but
+// rejected at send (error 131053). Keep webp out so Sunny never tries to send one.
+const ALLOWED_PHOTO_MIMES = ['image/png', 'image/jpeg', 'image/jpg'];
+const SENDABLE_PHOTO_MIMES = ['image/png', 'image/jpeg', 'image/jpg'];
 const PHOTO_SEND_CAP = parseInt(process.env.PHOTO_SEND_CAP || '3', 10);
 
 // Per-item cap on injected datasheet text. ~2KB per item × ~4 items in scope per
@@ -796,6 +800,7 @@ function findItemPhotosByQuery(message, recentText = '') {
     WHERE EXISTS (
       SELECT 1 FROM warehouse_item_photos p
       WHERE p.item_id = wi.id AND p.status = 'active'
+        AND lower(p.mime_type) IN ('image/png','image/jpeg','image/jpg')
     )
   `).all();
   if (!items.length) return null;
@@ -818,7 +823,13 @@ function findItemPhotosByQuery(message, recentText = '') {
       }
       return false;
     });
-    if (sizeMatched.length > 0) candidates = sizeMatched;
+    // Size is a HARD gate for photos: if the customer named a specific size and
+    // no photo-bearing item carries it, return no match so the handler escalates
+    // ("team will share shortly") rather than sending a DIFFERENT-size product's
+    // photo via the loose token-overlap fallback (e.g. answering a 6kW request
+    // with the 16kW photo). Catalog fidelity beats always sending something.
+    if (sizeMatched.length === 0) return null;
+    candidates = sizeMatched;
   }
 
   const queryTokens = new Set(tokenize(message + ' ' + recentText));
@@ -848,7 +859,12 @@ function findItemPhotosByQuery(message, recentText = '') {
     return null;
   }
 
-  const photos = listPhotosForItem(matchedItem.id).slice(0, PHOTO_SEND_CAP);
+  // Backstop: only return photos WhatsApp can actually send as images (jpeg/png).
+  // A webp slipping through (e.g. uploaded before this guard) is skipped so the
+  // handler degrades to the no-photo fallback + owner ping instead of a failed send.
+  const photos = listPhotosForItem(matchedItem.id)
+    .filter(p => SENDABLE_PHOTO_MIMES.includes(String(p.mime_type || '').toLowerCase()))
+    .slice(0, PHOTO_SEND_CAP);
   if (!photos.length) return null;
   return { item: matchedItem, photos, score: matchScore };
 }

@@ -3033,13 +3033,13 @@ function renderWarehousePhotos(it) {
   return [
     '<div class="wh-photos">',
     '<div class="wh-ph-head">',
-    '<span class="wh-ph-label">Photos (JPG/PNG/WebP, max 5MB each, sent inline when customer asks for photos)</span>',
+    '<span class="wh-ph-label">Photos (JPG/PNG only, max 5MB each, sent inline when customer asks for photos). WhatsApp does not support WebP for photos.</span>',
     count
       ? '<span class="wh-ph-count">' + count + ' photo' + (count === 1 ? '' : 's') + '</span>'
       : '<span class="wh-ph-empty">No photos attached.</span>',
     '</div>',
     '<div class="wh-ph-actions">',
-    '<input type="file" data-wh-ph-file accept="image/png,image/jpeg,image/jpg,image/webp" multiple>',
+    '<input type="file" data-wh-ph-file accept="image/png,image/jpeg,image/jpg" multiple>',
     '<button class="btn primary" data-wh-action="upload-photos">Upload</button>',
     '<span class="wh-ph-status" data-wh-ph-status></span>',
     '</div>',
@@ -3406,9 +3406,16 @@ async function uploadWarehousePhotos(itemId, phRoot) {
   status.className = 'wh-ph-status';
   if (!files.length) { status.textContent = 'Pick at least one image first.'; status.className = 'wh-ph-status err'; return; }
   const MAX = 5 * 1024 * 1024;
+  const ALLOWED_MIMES = ['image/png', 'image/jpeg', 'image/jpg'];
   for (const f of files) {
     if (f.size > MAX) {
       status.textContent = '"' + f.name + '" is too large (max 5MB).';
+      status.className = 'wh-ph-status err';
+      return;
+    }
+    const mt = (f.type || '').toLowerCase();
+    if (mt && !ALLOWED_MIMES.includes(mt)) {
+      status.textContent = '"' + f.name + '" must be JPG or PNG. WhatsApp does not support WebP for photos.';
       status.className = 'wh-ph-status err';
       return;
     }
