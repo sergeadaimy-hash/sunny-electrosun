@@ -2255,7 +2255,7 @@ async function loadBrain() {
     const brain = await apiFetch('/brain');
     brainLoaded = true;
     renderRules(brain.rules || {});
-    renderConfig(brain.config || {}, brain.models || {});
+    renderConfig(brain.config || {}, brain.models || {}, brain.spending || {});
   } catch (err) {
     document.getElementById('rules-body').innerHTML =
       '<p class="brain-readonly-hint">Error loading brain: ' + escapeHtml(err.message) + '</p>';
@@ -2391,9 +2391,20 @@ function formatNgn(n) {
   return n + ' NGN';
 }
 
-function renderConfig(config, models) {
+function renderConfig(config, models, spending) {
+  spending = spending || {};
   const root = document.getElementById('config-body');
   const rows = [];
+  rows.push(['<strong>Spending (estimate)</strong>', '']);
+  rows.push(['Today so far', '$' + (spending.today_usd || '0.00')]);
+  rows.push([
+    'This month' + (spending.month ? ' (' + spending.month + ')' : ''),
+    '$' + (spending.month_usd || '0.00')
+  ]);
+  rows.push(['Daily budget (USD)', spending.daily_budget_usd ? '$' + spending.daily_budget_usd : '(not set)']);
+  rows.push(['Reply calls this month', spending.month_reply_calls != null ? spending.month_reply_calls : '']);
+  rows.push(['Classifier calls this month', spending.month_classifier_calls != null ? spending.month_classifier_calls : '']);
+  rows.push(['Days with activity this month', spending.month_active_days != null ? spending.month_active_days : '']);
   rows.push(['<strong>Models</strong>', '']);
   rows.push(['Reply (Sonnet)', models.reply || 'unset']);
   rows.push(['Classifier (Haiku)', models.classifier || 'unset']);
@@ -2413,7 +2424,8 @@ function renderConfig(config, models) {
     + '<p class="brain-readonly-hint">Read-only. Models are pinned in src/claude.js and src/knowledge.js. Runtime values come from Railway environment variables.</p>'
     + '<div class="brain-meta">'
     + rows.map(r => '<div class="k">' + r[0] + '</div><div class="v">' + escapeHtml(String(r[1] == null ? '' : r[1])) + '</div>').join('')
-    + '</div>';
+    + '</div>'
+    + '<p class="brain-readonly-hint">Spending is estimated from Claude token usage (reply, classifier, owner Q&amp;A). Today resets at 00:00 UTC; the month total covers the current calendar month. It excludes voice transcription, WhatsApp, and hosting costs, and only counts usage recorded after this counter was fixed.</p>';
   root.innerHTML = html;
 }
 

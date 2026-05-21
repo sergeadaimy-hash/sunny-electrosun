@@ -23,12 +23,17 @@ function calcCostCents(model, usage) {
   const key = modelKey(model);
   if (!key || !usage) return 0;
   const p = PRICING_CENTS_PER_MTOK[key];
+  // Anthropic reports input_tokens as the NON-cached input only. Cache reads and
+  // cache writes come back in their own fields and are NOT included in input_tokens,
+  // so each token type is billed once at its own rate. (Previous code subtracted the
+  // cache tokens from input_tokens, which double-counted them and pushed cache-heavy
+  // calls to a negative total that clamped to 0, undercounting real spend.)
   const input = usage.input_tokens || 0;
   const output = usage.output_tokens || 0;
   const cacheRead = usage.cache_read_input_tokens || 0;
   const cacheWrite = usage.cache_creation_input_tokens || 0;
   const cents =
-    (input - cacheRead - cacheWrite) * p.input / 1_000_000 +
+    input * p.input / 1_000_000 +
     output * p.output / 1_000_000 +
     cacheRead * p.cache_read / 1_000_000 +
     cacheWrite * p.cache_write / 1_000_000;
@@ -80,6 +85,36 @@ function getTodayStats() {
   return row || { date: todayKey(), total_cents: 0, classifier_calls: 0, reply_calls: 0, budget_warning_sent: 0 };
 }
 
+function monthKey() {
+  return new Date().toISOString().slice(0, 7); // YYYY-MM (UTC)
+}
+
+function getMonthSpendCents() {
+  const db = getDb();
+  const row = db.prepare(
+    "SELECT COALESCE(SUM(total_cents), 0) AS cents FROM daily_costs WHERE date LIKE ?"
+  ).get(monthKey() + '%');
+  return row ? row.cents : 0;
+}
+
+function getMonthStats() {
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT COALESCE(SUM(total_cents), 0)      AS total_cents,
+            COALESCE(SUM(classifier_calls), 0) AS classifier_calls,
+            COALESCE(SUM(reply_calls), 0)      AS reply_calls,
+            COUNT(*)                           AS days
+       FROM daily_costs WHERE date LIKE ?`
+  ).get(monthKey() + '%');
+  return {
+    month: monthKey(),
+    total_cents: row ? row.total_cents : 0,
+    classifier_calls: row ? row.classifier_calls : 0,
+    reply_calls: row ? row.reply_calls : 0,
+    days: row ? row.days : 0
+  };
+}
+
 function markBudgetWarningSent() {
   const db = getDb();
   const date = todayKey();
@@ -99,6 +134,8 @@ module.exports = {
   getTodaySpendCents,
   getBudgetCents,
   getTodayStats,
+  getMonthSpendCents,
+  getMonthStats,
   shouldSendBudgetWarning,
   markBudgetWarningSent,
   calcCostCents

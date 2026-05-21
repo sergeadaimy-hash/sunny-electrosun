@@ -16,7 +16,7 @@ const {
 const { sendMessage } = require('../src/whatsapp');
 const { recoverOrphanedInbound, answerPendingForContact, retryFallbackReplies } = require('../src/handler');
 const datasheetsModule = require('../src/datasheets');
-const { getTodayStats, getBudgetCents } = require('../src/cost_tracker');
+const { getTodayStats, getBudgetCents, getMonthStats } = require('../src/cost_tracker');
 const {
   listKnowledge,
   setKnowledgeStatus,
@@ -660,7 +660,19 @@ router.get('/brain', (req, res) => {
     waba_id: process.env.META_WABA_ID || null,
     graph_version: 'v21.0'
   };
-  res.json({ rules, models, config });
+  const todayStats = getTodayStats();
+  const monthStats = getMonthStats();
+  const budgetCents = getBudgetCents();
+  const spending = {
+    today_usd: (todayStats.total_cents / 100).toFixed(2),
+    month: monthStats.month,
+    month_usd: (monthStats.total_cents / 100).toFixed(2),
+    month_reply_calls: monthStats.reply_calls,
+    month_classifier_calls: monthStats.classifier_calls,
+    month_active_days: monthStats.days,
+    daily_budget_usd: budgetCents !== null ? (budgetCents / 100).toFixed(2) : null
+  };
+  res.json({ rules, models, config, spending });
 });
 
 router.post('/prompts/:name', express.json({ limit: '1mb' }), async (req, res) => {

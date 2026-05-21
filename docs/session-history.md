@@ -2,6 +2,16 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-05-21 Beirut — cost-counter accounting bug fixed, monthly spend in admin
+
+The admin badge ($spend / $budget) was reading far below the real Claude platform spend. Root cause in `src/cost_tracker.js > calcCostCents`: it computed non-cached input as `(input_tokens - cache_read - cache_write)`. The Anthropic API already reports `input_tokens` excluding cache tokens, so this double-subtracted them. On cache-heavy reply calls (Sunny caches its system blocks) the term went strongly negative and `Math.max(0, ...)` clamped the whole call to 0 cents, so most replies recorded as free.
+
+Fix: bill each token type once at its own rate (`input * input_rate + cacheRead * cache_read_rate + cacheWrite * cache_write_rate + output * output_rate`). Verified: a typical cached Opus reply (300 fresh + 8000 cache-read + 250 out) went from 0 → 4 cents; a cache-write turn reads ~17 cents. The fix also makes the `isOverBudget()` daily guardrail meaningful again.
+
+Added monthly tracking: `getMonthSpendCents()` + `getMonthStats()` in `src/cost_tracker.js` (sum `daily_costs` where `date LIKE 'YYYY-MM%'`, UTC). `GET /api/brain` now returns a `spending` block (today, month total, month reply/classifier call counts, active days, daily budget). Admin Knowledge → Models & config renders a new "Spending (estimate)" section at the top of the panel with a note that the estimate excludes Whisper/WhatsApp/hosting and only counts usage recorded after the fix.
+
+Note: past `daily_costs` rows cannot be retroactively corrected (only the wrong totals were stored, not raw token counts). The figures are accurate from this fix forward. Uncommitted on local main; Serge to push.
+
 ## 2026-05-15 afternoon Beirut — BOM cleanup broadened, dangling-label preposition, wa.me HOT-only (fourteenth push)
 
 Three live failures from the Charles and Xtocom Quality screenshots, three tactical patches:
