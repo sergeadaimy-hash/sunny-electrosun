@@ -715,6 +715,40 @@ router.get('/warehouse/photos/:photoId/file', (req, res) => {
   }
 });
 
+// TEMP DIAGNOSTIC (2026-05-21, remove after debugging the photo fast-path). Runs the
+// exact matcher + Meta upload from INSIDE the prod container and returns the result as
+// JSON. No WhatsApp message is sent. Auth via X-API-Key (router-level).
+router.get('/_diag/photo', async (req, res) => {
+  const out = { photos_dir: warehouseModule.PHOTOS_DIR };
+  try {
+    const q = String(req.query.q || 'send me the 6kw inverter photo');
+    out.query = q;
+    try {
+      const m = warehouseModule.findItemPhotosByQuery(q, '');
+      out.match = m ? {
+        item_id: m.item.id, model: m.item.model, score: m.score,
+        photo_count: m.photos.length,
+        photos: m.photos.map(p => ({ id: p.id, mime: p.mime_type, file_path: p.file_path, exists: fs.existsSync(p.file_path || '') }))
+      } : null;
+    } catch (e) { out.match_error = e.message; }
+    const photoId = parseInt32(req.query.photoId, 0);
+    if (photoId) {
+      const p = getWarehousePhotoById(photoId);
+      out.photo = p ? { id: p.id, file_path: p.file_path, mime: p.mime_type, exists: fs.existsSync(p.file_path || '') } : null;
+      if (p && fs.existsSync(p.file_path)) {
+        const { uploadMediaToMeta } = require('../src/whatsapp');
+        try {
+          const mediaId = await uploadMediaToMeta(p.file_path, p.mime_type, p.filename);
+          out.upload = { ok: true, mediaId };
+        } catch (e) {
+          out.upload = { ok: false, message: e.message, status: e.status, meta: e.metaResponse };
+        }
+      }
+    }
+  } catch (e) { out.fatal = e.message; }
+  res.json(out);
+});
+
 router.get('/brain', (req, res) => {
   promptStore.invalidate();
   const rules = promptStore.getAll();
