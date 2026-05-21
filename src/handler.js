@@ -992,8 +992,26 @@ async function processCustomerBatch(entry) {
   // customer AND escalate as silent_query so the owner knows there's a photo
   // gap to fill. Returns early in both the success and the fallback case, so
   // Opus is never given a chance to invent a description of the product.
-  const PHOTO_REQUEST_RE = /\b(photos?|pictures?|pics?|images?|snaps?|show\s+me|see\s+(what|how)\s+it\s+looks|what\s+does\s+it\s+look\s+like|how\s+does\s+it\s+look|got\s+(any\s+)?(photos?|pics?))\b/i;
-  const customerAskedForPhotos = PHOTO_REQUEST_RE.test(safeCombinedText);
+  // Genuine REQUEST for a product photo. Guard against two false positives seen in
+  // production: (1) the customer SENT us an image (our synthetic "[Customer sent an
+  // image]" marker literally contains the word "image"); (2) the customer only
+  // MENTIONS a picture ("the picture showing in ur advert is 6kw"). So: skip when
+  // the customer attached an image this turn, strip our own image markers, and
+  // require a real request context (a request verb near the photo word, "photo
+  // of/for/please", a bare "photo" message, or "what does it look like").
+  const customerSentImage = Array.isArray(attachments) && attachments.length > 0;
+  const photoText = String(safeCombinedText || '')
+    .replace(/\[Customer sent (?:an image|\d+ images)[^\]]*\]:?/gi, ' ')
+    .replace(/\[image\]/gi, ' ')
+    .trim();
+  const PHOTO_NOUN = '(?:photos?|pictures?|pics?|images?|snaps?)';
+  const customerAskedForPhotos = !customerSentImage && (
+    new RegExp(`\\b(?:send|share|show|forward|drop|attach|post|see|view|snap|have|got|get)\\b[^.?!]{0,24}\\b${PHOTO_NOUN}\\b`, 'i').test(photoText) ||
+    new RegExp(`\\b${PHOTO_NOUN}\\b[^.?!]{0,12}\\b(?:of|for|please|pls|abeg|na)\\b`, 'i').test(photoText) ||
+    new RegExp(`^\\s*(?:send\\s+|share\\s+|a\\s+|the\\s+|some\\s+|me\\s+)*${PHOTO_NOUN}\\s*\\??\\s*$`, 'i').test(photoText) ||
+    /what\s+does\s+it\s+look\s+like/i.test(photoText) ||
+    /how\s+does\s+it\s+look/i.test(photoText)
+  );
   let photosSentThisTurn = false;
   if (customerAskedForPhotos) {
     try {
@@ -1105,7 +1123,7 @@ async function processCustomerBatch(entry) {
       // match an item or the matched item has no photos on file. Send a short
       // text and escalate as silent_query so the owner can either send the
       // photos manually or upload them for the next request.
-      const fallbackText = 'Let me ask the team to share photos of that shortly.';
+      const fallbackText = "I don't have a photo of that one on hand right now.";
       const sendRes = await sendMessage(lastMsg.from, fallbackText);
       appendMessage(conversation.id, 'outbound', fallbackText, {
         whatsapp_message_id: sendRes && sendRes.messageId,

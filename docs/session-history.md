@@ -2,6 +2,16 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-05-21 Beirut — photo false-positives, no-team-promise, answer format
+
+Three owner complaints from live screenshots, all fixed:
+
+1. *Photo fast-path false positives.* (a) A customer who SENT an image ("Can it power it" + photo) got the photo-share fallback, because the synthetic `[Customer sent an image]` marker contains the word "image" and the old `PHOTO_REQUEST_RE` matched any "image/picture/photo". (b) "The picture showing in ur advert is 6kw" also triggered it. Rewrote detection in `src/handler.js`: strip the image markers, require a real request context (request verb near a photo noun, "photo of/for/please", a bare "photo" message, or "what does it look like"), and SKIP entirely when the customer attached an image (`attachments.length > 0`) so their image goes to the normal vision reply instead. Verified with a 12-case unit test.
+
+2. *No more "team will share" promises.* Owner: "no team would share anything, stop promising people." Photo no-photo fallback changed from "Let me ask the team to share photos of that shortly." to "I don't have a photo of that one on hand right now." (owner still pinged to add it). Datasheet no-file line in `system.md` also changed off the "team will share it shortly" wording.
+
+3. *Answer format.* "i want to check 6kw inverter" returned "**Topology:** LV, single-phase, off-grid **Stock:** Available" (and WhatsApp does not even render `**`). Root cause: `system.md` itself instructed the bold-label format (lines 87, 94-95, 220-221). Rewrote: single-item answers are plain conversational sentences, NO labels, NO "Stock:" line, NO "Topology:" line, NO asterisks; say "available"/"in stock"/"incoming" in plain words; only mention topology when there are multiple options at a size and in plain words. Structured multi-line format reserved for BOMs / 3+ item answers. Example added for the exact 6kW case.
+
 ## 2026-05-21 Beirut — photo send bug: webp not supported by WhatsApp image messages
 
 Customer asked for a photo of the 6kW inverter; Sunny kept replying "Let me ask the team to share photos of that shortly." (the no-photo fallback) even though the admin had uploaded a photo. Root cause (systematic debugging): the uploaded photo was a `.webp` (`SUN-6K-OG01LP1-EU-AM2.webp`), and WhatsApp Cloud API image messages accept ONLY jpeg/png. WebP is sticker-only. Verified: Meta's `/media` ACCEPTS the webp upload (reproduced live, got a media id), but `sendImage` (type=image) is rejected (error 131053), so every photo "fails to send" and the handler falls through to the fallback. Confirmed the matcher itself was fine (the 6kW item was the only one with a photo and the size token matched, so it definitely matched).
