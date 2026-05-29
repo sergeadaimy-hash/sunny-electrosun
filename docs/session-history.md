@@ -2,6 +2,19 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-05-29 Beirut — discount policy + "specialist" renamed to "Sales Manager"
+
+Two owner requests from live screenshots.
+
+1. *Discount handling policy.* Replaced the blanket "ALL negotiation escalates, ZERO authority" rule with a tiered policy in `src/prompts/system.md` §7 and `classifier.md` negotiation rule:
+   - Small orders (1-2 items, or total under ₦15M): Sunny declines warmly ("Our prices are already fixed at discounted rates, so there's no further room on this one.") and does NOT escalate. Classifier sets `needs_escalation=false`, so routine haggling no longer pings the owner. Previously every negotiation fired a NEGOTIATION alert.
+   - Large orders (over ₦15M total) where the customer seems serious: Sunny (1) confirms they're ready to finalize now, (2) judges if the ask is reasonable (~5% of item price max), (3) offers to raise it with the Sales Manager, no promise. Classifier escalates `escalation_type='negotiation'`; the owner gets a NEGOTIATION alert and `expertContext` stays null so the §7 reply governs the wording. A discount ask paired with a commitment phrase still classifies HOT.
+   - Sunny never names a percentage or a discounted number; the Sales Manager has final authority. Verified the existing reply guards don't strip the flow: trailing-question strip fires only on pure acks (a counter-offer like "Let me do 2.4m" is not one), and the CTA-tail strip's regex does not include "finalize".
+
+2. *"Specialist" renamed to "Sales Manager".* Owner: stop saying "specialist" in conversations. Renamed across all customer-facing replies and LLM-instruction blocks: `system.md` (EPC route, HOT handoff, dynamic-block notes, worked examples, hard-nevers), `handler.js` (`HOT_LEAD_REPLY`, `SILENT_QUERY_REPLY`, both wa.me link labels now "Direct line to the Sales Manager:", expert-context HOT block, banned-phrase list, gratitude/casual blocks), `classifier.md`. Internal names left intact (`SPECIALIST_DIRECT_LINK` env var, `buildSpecialistLink()`, `specialist_link_set` API field). Detection regexes (`security.js` STALL_PATTERNS, `handler.js` HANDOFF_REPLY_RE / HOT_HANDOFF_REPLY_RE) and the `claude.js` history scrubber were extended to match BOTH "specialist" and "sales manager" so the stall/handoff safety guards and wa.me-link scrubbing keep working with the new wording. Legacy "specialist" canned-line scrubbers kept for old history.
+
+Not yet deployed (owner pushes/deploys manually). All four edited JS files pass `node -c`.
+
 ## 2026-05-21 Beirut — THE photo bug: matcher returned photos without file_path
 
 Even with an active PNG on file, the photo fast-path kept falling back. Isolated tests all passed (matcher matched, file existed, Meta upload + sendImage worked from a script), which made it look like deploy churn. It was not. Added a temporary `/api/_diag/photo` endpoint that runs the matcher + Meta upload from INSIDE the prod container; it revealed the matcher's returned photo had NO `file_path` (exists:false), while a direct `getPhotoById` had the path and uploaded fine.

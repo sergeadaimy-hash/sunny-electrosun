@@ -26,7 +26,7 @@ function hasHotTrigger(text) {
 // This pattern routes to escalation_type='dealer_pricing' in handler.js,
 // which has a dedicated header for the owner alert and a customer-side
 // reply that promises the dealer team will follow up with volume tier
-// pricing (no public price dump, no specialist wa.me link).
+// pricing (no public price dump, no Sales Manager wa.me link).
 const DEALER_SELF_ID_RE = /\b(i\s*(am|m)\s+(a\s+|the\s+)?(dealer|reseller|distributor|integrator|importer|wholesaler)|for\s+(re)?sale|for\s+my\s+(shop|store|business)|samples?\s+in\s+my\s+shop|not\s+for\s+personal\s+use|for\s+commercial\s+use|trading\s+(in|with)\s+(deye|inverter|battery|solar))\b/i;
 const PRICING_LIST_ASK_RE = /\b(price\s+list|pricing|dealer\s+(price|rate|pricing|cost)|wholesale|volume\s+pric|how\s+much|prices?\s+(for|of)|cost\s+of|i\s+want\s+(the\s+)?(price|pricing|list)|available.*(prices?|list)|send\s+me\s+(the\s+)?(price|pricing|list))\b/i;
 

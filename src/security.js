@@ -191,14 +191,14 @@ function checkFollowupThrottle(contactId) {
 const STALL_PATTERNS = [
   /\b(let\s+me|i['']?ll|i\s+will|we['']?ll|we\s+will)\s+(check|confirm|verify|find\s+out|come\s+back|revert|get\s+back|share|send|forward|pass\s+(this|it|that)\s+(on|along)|consult|reach\s+out|circle\s+back|update|connect\s+you)/i,
   /\b(get\s+back\s+to\s+you|will\s+revert|will\s+come\s+back\s+to\s+you|circle\s+back\s+with\s+you|return\s+with\s+(the|a|an)\s+(answer|details|figure|quote|update|response))/i,
-  /\b(one\s+of\s+our\s+|a\s+|the\s+|our\s+)?(sales\s+engineers?|specialists?|engineers?|team\s+members?|sales\s+(representatives?|reps?)|account\s+managers?|colleagues?|sales\s+team|team)\s+(will|is\s+going\s+to|is)\s+(reach(ing)?\s+out|contact(ing)?|get(ting)?\s+in\s+touch|follow(ing)?\s+up|revert(ing)?|be\s+in\s+touch|reconnect(ing)?|come\s+back|provid(e|ing)|deliver(ing)?|send(ing)?|prepar(e|ing)|review(ing)?|confirm(ing)?|call(ing)?|connect(ing)?|reach|share|forward|update|handle|handling|process|processing|manage|managing)/i,
+  /\b(one\s+of\s+our\s+|a\s+|the\s+|our\s+)?(sales\s+managers?|sales\s+engineers?|specialists?|engineers?|team\s+members?|sales\s+(representatives?|reps?)|account\s+managers?|colleagues?|sales\s+team|team)\s+(will|is\s+going\s+to|is)\s+(reach(ing)?\s+out|contact(ing)?|get(ting)?\s+in\s+touch|follow(ing)?\s+up|revert(ing)?|be\s+in\s+touch|reconnect(ing)?|come\s+back|provid(e|ing)|deliver(ing)?|send(ing)?|prepar(e|ing)|review(ing)?|confirm(ing)?|call(ing)?|connect(ing)?|reach|share|forward|update|handle|handling|process|processing|manage|managing)/i,
   /\bgive\s+me\s+a\s+(moment|second|minute|sec)\b/i,
   /\b(bear\s+with\s+me|hold\s+on|please\s+hold|one\s+moment\s+please)\b/i,
   /\b(allow\s+me\s+to|allow\s+us\s+to|let\s+us|kindly\s+allow\s+me)\s+(check|confirm|verify|find\s+out|reach\s+out|come\s+back|revert|update|consult)/i,
   /\b(the|our)\s+(team|sales\s+team)\s+(will|is\s+going\s+to)\s+(confirm|provide|deliver|send|handle|reach\s+out|prepare|review|come\s+back|reconfirm|update|check|verify|finalise|finalize|finalising|finalizing|work\s+on|sort|share|forward|process|manage|reach\s+back)/i,
   /\b(the|our)\s+(team|sales\s+team)\s+is\s+(checking|confirming|finalising|finalizing|reviewing|preparing|working\s+on|looking\s+into|sorting|verifying|on\s+it|processing|handling|managing|reaching\s+out)/i,
-  /\b(a|the|our)\s+specialists?\s+is\s+(checking|confirming|finalising|finalizing|reviewing|preparing|working\s+on|looking\s+into)/i,
-  /\b(awaiting\s+(confirmation|feedback|response|approval)|pending\s+confirmation|consulting\s+with\s+(the\s+)?(team|specialist|supplier|engineer))/i,
+  /\b(a|the|our)\s+(specialists?|sales\s+managers?)\s+is\s+(checking|confirming|finalising|finalizing|reviewing|preparing|working\s+on|looking\s+into)/i,
+  /\b(awaiting\s+(confirmation|feedback|response|approval)|pending\s+confirmation|consulting\s+with\s+(the\s+)?(team|specialist|sales\s+manager|supplier|engineer))/i,
   /\b(account\s+details\s+and\s+(final\s+)?figures|formal\s+documents\s+and\s+(final\s+)?figures|share\s+the\s+account|send\s+(you\s+)?the\s+account)/i,
 ];
 

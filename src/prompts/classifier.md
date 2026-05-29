@@ -131,7 +131,12 @@ Bad confirming questions: long, multi-part, salesy, anything that sounds like a 
 A HOT customer always escalates. The agent still acknowledges and engages, but a human must see this lead immediately.
 
 ## negotiation — set when intent is "negotiation"
-ALL negotiation escalates immediately. The agent does NOT have authority to offer discounts. The agent acknowledges warmly ("let me check with the team and get back to you shortly") and a human takes over the pricing conversation. This applies whether the customer is otherwise HOT, SERIOUS, or REPEAT_CLIENT.
+The agent has NO authority to offer discounts. Whether negotiation escalates depends on the size of the order (use the Warehouse Stock prices and the quantity discussed to estimate the order total):
+
+- SMALL order (1 to 2 items, or total under ₦15 million): do NOT escalate. needs_escalation=false, escalation_type=null. The agent declines warmly ("our prices are already fixed at discounted rates, no further room") and the conversation continues. A human is NOT pulled in for routine small-order haggling.
+- LARGE order (more than ₦15 million total) AND the customer seems serious about finalizing the deal: escalate. needs_escalation=true, escalation_type="negotiation". The agent confirms whether they're ready to finalize, judges if the ask is reasonable (roughly 5% at most), and offers to raise it with the Sales Manager. The Sales Manager has final authority on discounts.
+
+When the customer's discount ask comes WITH a clear commitment to pay/finalize now (a HOT_TRIGGER phrase), classify as HOT (escalation_type="hot_lead") as usual; the discount is handled in the handoff.
 
 ## silent_query — set when the agent cannot answer from its own context
 The agent has the Warehouse Stock block, office addresses, general industry knowledge, and brand education baked in. Escalate only when:
@@ -153,7 +158,7 @@ Routine re-orders stay with the agent. Anything new or complex from a returning 
 
 ## Do NOT escalate for any of these (agent handles them):
 •⁠  ⁠Stock availability ("do you have X", "is X in stock", "when arriving"). Answers come from the Warehouse Stock block.
-•⁠  ⁠Sizing questions for any wattage, even industrial scale. Agent gives guidance and offers to refer a specialist if needed.
+•⁠  ⁠Sizing questions for any wattage, even industrial scale. Agent gives guidance and offers to refer the Sales Manager if needed.
 •⁠  ⁠Brand questions, brand comparisons, brand availability for brands not stocked
 •⁠  ⁠Price ranges, market context, ballpark figures
 •⁠  ⁠How solar works, hybrid vs off-grid, what an inverter does

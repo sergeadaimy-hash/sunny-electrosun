@@ -399,16 +399,19 @@ const HISTORY_HOLDING_PATTERNS = [
   /^A specialist will confirm the exact figure.*$/i,
   /^A specialist will be with you shortly.*$/i,
   /^Great\.?\s*One of our specialists.*$/i,
-  /^Our specialist will confirm.*$/i
+  /^Our specialist will confirm.*$/i,
+  /^Noted\.?\s*The Sales Manager will follow up.*$/i,
+  /^The Sales Manager will confirm.*$/i,
+  /^The Sales Manager will be with you shortly.*$/i
 ];
 
 function scrubHistoryContent(text) {
   if (typeof text !== 'string') return text;
   let cleaned = text
     .replace(/https?:\/\/wa\.me\/[^\s)]+/gi, '')
-    .replace(/Direct line to the specialist:?[^\n]*/gi, '')
-    .replace(/If you'd like to reach our specialist directly now:?[^\n]*/gi, '')
-    .replace(/For urgent matters,? direct line to the specialist:?[^\n]*/gi, '')
+    .replace(/Direct line to the (?:specialist|Sales Manager):?[^\n]*/gi, '')
+    .replace(/If you'd like to reach our (?:specialist|Sales Manager) directly now:?[^\n]*/gi, '')
+    .replace(/For urgent matters,? direct line to the (?:specialist|Sales Manager):?[^\n]*/gi, '')
     .replace(/If you'd prefer to reach them directly now:?[^\n]*/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

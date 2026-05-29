@@ -44,8 +44,8 @@ function extForMime(mime) {
   return 'bin';
 }
 
-const HOT_LEAD_REPLY = "Noted. To proceed, you can continue directly with our specialist on WhatsApp. They have the formal documents and final figures.";
-const SILENT_QUERY_REPLY = "Noted. The team will get back to you shortly. In the meantime, you can also reach our specialist on WhatsApp.";
+const HOT_LEAD_REPLY = "Noted. To proceed, you can continue directly with our Sales Manager on WhatsApp. They have the formal documents and final figures.";
+const SILENT_QUERY_REPLY = "Noted. The team will get back to you shortly. In the meantime, you can also reach our Sales Manager on WhatsApp.";
 const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
 
 const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '15', 10);
@@ -239,7 +239,7 @@ function buildSpecialistLink(customerMessage) {
 function pickHoldingReply(escalationType, customerMessage) {
   const base = escalationType === 'hot_lead' ? HOT_LEAD_REPLY : SILENT_QUERY_REPLY;
   const link = buildSpecialistLink(customerMessage);
-  if (link) return base + `\n\nDirect line to the specialist: ${link}`;
+  if (link) return base + `\n\nDirect line to the Sales Manager: ${link}`;
   return base;
 }
 
@@ -265,7 +265,7 @@ function buildDealerPricingContext() {
     '- Do NOT promise a specific timeline ("within 24h", "by tomorrow"). Use "shortly" or "soon".',
     '- Use third person ("the dealer team", "our team"). No first-person stalls ("I will get back to you").',
     '- Two sentences max. No CTA tail.',
-    '- Do NOT include any URL or phone number; the system does NOT append a specialist link for dealer flows.',
+    '- Do NOT include any URL or phone number; the system does NOT append a Sales Manager link for dealer flows.',
     '- Do NOT ask further qualifying questions (the team will gather those when they reach out).'
   ].join('\n');
 }
@@ -278,10 +278,10 @@ function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
       '',
       'Voice rules in this state:',
       '- Acknowledge their commitment in one short sentence, in the customer\'s own language.',
-      '- Confirm a specialist will reach out shortly with formal documents and figures.',
-      '- Use third person ("the specialist", "the team"). Do NOT use first-person stalls ("I will reach out", "let me confirm", "I will get back").',
+      '- Confirm the Sales Manager will reach out shortly with formal documents and figures.',
+      '- Use third person ("the Sales Manager", "the team"). Do NOT use first-person stalls ("I will reach out", "let me confirm", "I will get back").',
       '- Do NOT quote new prices or specs that were not already discussed in this conversation.',
-      '- Do NOT include any URL or phone number; the system appends the specialist contact link automatically.',
+      '- Do NOT include any URL or phone number; the system appends the Sales Manager contact link automatically.',
       '- Two sentences max.'
     ].join('\n');
   }
@@ -299,7 +299,7 @@ function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
   lines.push('How to reply RIGHT NOW:');
   lines.push('- Read the customer\'s CURRENT message and respond to THAT.');
   lines.push('- ANSWER directly from the warehouse stock block and the owner-taught knowledge facts. Stock status (per Abuja and per Lagos), prices, and product options are in those blocks. Use them.');
-  lines.push('- Do NOT say "the team will reach out", "the team will follow up", "the team is on it", "the specialist will confirm", "we will share the figure shortly", "we will get back to you", or any variant. Those phrases are BANNED in this turn.');
+  lines.push('- Do NOT say "the team will reach out", "the team will follow up", "the team is on it", "the Sales Manager will confirm", "the specialist will confirm", "we will share the figure shortly", "we will get back to you", or any variant. Those phrases are BANNED in this turn.');
   lines.push('- Do NOT echo back invented quantities, model numbers, prices, or order sizes (for example "100-unit order") that the customer has NOT actually said in their messages. If a prior outbound message of yours mentioned such a thing without the customer saying it, that was a mistake and you must NOT repeat it. Re-read the customer\'s actual messages to find what they actually want.');
   lines.push('- If the customer\'s current message is a casual remark or filler ("hmm", "interesting", "ok", "noted"), reply with one short phrase (e.g. "Got it.") and stop.');
   lines.push('- Only mention the separate handoff if the customer explicitly asks about its status (for example "any update?", "still waiting", "when will I hear back").');
@@ -1328,7 +1328,7 @@ async function processCustomerBatch(entry) {
       '  - "Happy to help. Anything else on your mind?"',
       '  - "Glad to help. Anything else you\'d like to know?"',
       '- Maximum 2 short sentences. No paragraph.',
-      '- Do NOT mention prices, quantities, the team, the specialist, the catalog, stock, follow-ups, or any handoff. The customer is not asking for more info; they\'re closing a thread warmly.',
+      '- Do NOT mention prices, quantities, the team, the Sales Manager, the catalog, stock, follow-ups, or any handoff. The customer is not asking for more info; they\'re closing a thread warmly.',
       '- Do NOT include any URL, phone number, or wa.me link.',
       '- Match the customer\'s language if non-English (e.g. respond in the language they used).',
       '- Do NOT bring up earlier topics or prior pending questions.'
@@ -1351,7 +1351,7 @@ async function processCustomerBatch(entry) {
       '  - A single matching emoji like 👍 (only if the customer\'s own message was very minimal).',
       '- Maximum 1 short sentence (or a small two-clause phrase). No paragraph.',
       '- Do NOT pile on a follow-up question. The customer is closing, not asking.',
-      '- Do NOT mention prices, quantities, the team, the specialist, the catalog, stock, follow-ups, or any handoff.',
+      '- Do NOT mention prices, quantities, the team, the Sales Manager, the catalog, stock, follow-ups, or any handoff.',
       '- Do NOT include any URL, phone number, or wa.me link.',
       '- Do NOT bring up earlier topics in this conversation.',
       '- Match the customer\'s language if non-English.'
@@ -1498,20 +1498,20 @@ async function processCustomerBatch(entry) {
   // receive a hot_lead alert — even if a silent_query follow-up ping already
   // went out this turn. This is the bug that let "Yes send me account" get
   // routed as a follow-up on an old silent_query instead of a fresh HOT.
-  const HOT_HANDOFF_REPLY_RE = /\b(account\s+details\s+and\s+(final\s+)?figures|formal\s+documents\s+and\s+(final\s+)?figures|reach\s+out\s+(shortly|soon)\s+with\s+(the\s+)?account|share\s+the\s+account|send\s+(you\s+)?the\s+account|(specialist|sales\s+team|team)\s+(will|is|can)\s+(handle|handling|process|processing|manage|managing)\s+(the\s+)?(payment|order|invoice))/i;
+  const HOT_HANDOFF_REPLY_RE = /\b(account\s+details\s+and\s+(final\s+)?figures|formal\s+documents\s+and\s+(final\s+)?figures|reach\s+out\s+(shortly|soon)\s+with\s+(the\s+)?account|share\s+the\s+account|send\s+(you\s+)?the\s+account|(specialist|sales\s+manager|sales\s+team|team)\s+(will|is|can)\s+(handle|handling|process|processing|manage|managing)\s+(the\s+)?(payment|order|invoice))/i;
   // STRICT INVARIANT: any time Sunny promises a team follow-up in text, the
   // owner MUST get an alert with the customer's wa.me link. Otherwise the
   // customer waits for a reply that never gets escalated. This regex matches
   // every common shape of that promise.
   const HANDOFF_REPLY_RE = new RegExp([
     // "Team will / can / may / is [action]" + many action verbs
-    '\\b(a|the|our|one\\s+of\\s+our)\\s+(specialists?|engineers?|sales\\s+representatives?|sales\\s+reps?|team\\s+members?|team)\\s+(will|can|may|is|are|would)\\s+(reach(ing)?\\s+out|follow(ing)?\\s+up|contact|be\\s+in\\s+touch|get\\s+back|come\\s+back|reconnect|provide|deliver|send|prepare|review|reach|confirm|call|connect|look\\s+(into|at)|check|investigate|verify|clarify|sort|revert|share|update|let\\s+you\\s+know|respond|reply)',
+    '\\b(a|the|our|one\\s+of\\s+our)\\s+(sales\\s+managers?|specialists?|engineers?|sales\\s+representatives?|sales\\s+reps?|team\\s+members?|team)\\s+(will|can|may|is|are|would)\\s+(reach(ing)?\\s+out|follow(ing)?\\s+up|contact|be\\s+in\\s+touch|get\\s+back|come\\s+back|reconnect|provide|deliver|send|prepare|review|reach|confirm|call|connect|look\\s+(into|at)|check|investigate|verify|clarify|sort|revert|share|update|let\\s+you\\s+know|respond|reply)',
     // First-person "I'll / let me check with the team"
-    '(i\'?ll|i\\s+will|let\\s+me|i\\s+can)\\s+(check|confirm|verify|reach\\s+out\\s+to|ask|consult|speak\\s+(to|with)|flag|forward|share|escalate|raise)\\s+(.{0,40})?(the\\s+team|my\\s+team|our\\s+team|the\\s+specialist|the\\s+experts?|with\\s+the\\s+team)',
+    '(i\'?ll|i\\s+will|let\\s+me|i\\s+can)\\s+(check|confirm|verify|reach\\s+out\\s+to|ask|consult|speak\\s+(to|with)|flag|forward|share|escalate|raise)\\s+(.{0,40})?(the\\s+team|my\\s+team|our\\s+team|the\\s+specialist|the\\s+sales\\s+manager|the\\s+experts?|with\\s+the\\s+team)',
     // "Flag this for them / for the team"
-    'flag\\s+(it|that|this)\\s+(for|to|with)\\s+(them|the\\s+team|the\\s+specialist|the\\s+experts?)',
+    'flag\\s+(it|that|this)\\s+(for|to|with)\\s+(them|the\\s+team|the\\s+specialist|the\\s+sales\\s+manager|the\\s+experts?)',
     // "Forward / escalate / raise this with the team"
-    '(forward|escalate|raise|share|pass)\\s+(it|that|this).{0,40}(the\\s+team|them|the\\s+specialist|the\\s+experts?)',
+    '(forward|escalate|raise|share|pass)\\s+(it|that|this).{0,40}(the\\s+team|them|the\\s+specialist|the\\s+sales\\s+manager|the\\s+experts?)',
     // "Team is on it" / "team will revert"
     'the\\s+team\\s+(is\\s+on\\s+(it|that)|will\\s+revert|will\\s+circle\\s+back|will\\s+take\\s+a\\s+look)',
     // HOT-handoff specific phrases (kept from original)
@@ -1520,7 +1520,7 @@ async function processCustomerBatch(entry) {
     'reach\\s+out\\s+(shortly|soon)\\s+with\\s+(the\\s+)?account',
     'share\\s+the\\s+account',
     'send\\s+(you\\s+)?the\\s+account',
-    '(specialist|sales\\s+team|team)\\s+(will|is|can)\\s+(handle|handling|process|processing|manage|managing)\\s+(the\\s+)?(payment|order|invoice)',
+    '(specialist|sales\\s+manager|sales\\s+team|team)\\s+(will|is|can)\\s+(handle|handling|process|processing|manage|managing)\\s+(the\\s+)?(payment|order|invoice)',
     // "Get back to you" general (paired with shortly/soon/asap)
     'get\\s+back\\s+to\\s+you\\s+(shortly|soon|with|once|as\\s+soon)',
     'will\\s+get\\s+back\\s+to\\s+you'
@@ -1629,7 +1629,7 @@ async function processCustomerBatch(entry) {
   if (isHotHandoffThisTurn && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);
     if (link) {
-      outboundText = `${outboundText}\n\nDirect line to the specialist: ${link}`;
+      outboundText = `${outboundText}\n\nDirect line to the Sales Manager: ${link}`;
     }
   }
 
