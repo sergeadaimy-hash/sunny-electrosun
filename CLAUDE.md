@@ -45,7 +45,7 @@ Snapshot of what is live and what is pending. For per-session "why we shipped th
 - `OWNER_WHATSAPP=2347041328055` (brother). Verified via `/version` → `owner_whatsapp_tail: "8055"`. **Important: brother must accept the chat from "Message Requests" the first time. Until accepted, alerts are delivered but sit in his Message Requests folder, not main chat list.**
 - `SPECIALIST_DIRECT_LINK=+234 704 132 8055` (brother's number, used for wa.me handoff link on HOT replies).
 - `DISABLE_NOTIFICATIONS=true` (kill switch ON: report crons don't register at boot). Customer pipeline + auto-release cron still active.
-- `OPENAI_API_KEY` provided 2026-05-08 but currently INVALID (HTTP 401 from Whisper). Need fresh key with billing credit OR full-access non-project key. Voice notes fall back to "[Customer sent a voice note that could not be transcribed]" until fixed.
+- `OPENAI_API_KEY` FIXED + CONFIRMED 2026-05-29. New `sk-proj-` key (billing credit added) set on Railway, validated against OpenAI, and confirmed live: a real WhatsApp voice note was transcribed and Sunny answered the spoken question correctly. Note: key was pasted in chat, rotate later for hygiene.
 - Model assignments live on Railway (set 2026-05-09): `MODEL_REPLY=claude-opus-4-7` (customer-facing, where rule-following margin matters); `MODEL_CLASSIFIER`, `MODEL_TEACHER`, `MODEL_OWNER_QA` all set to `claude-sonnet-4-6` for ~50-60% cost reduction. Code-level fallback in `src/claude.js` / `src/knowledge.js` / `src/owner_qa.js` still defaults to `claude-opus-4-7` if any env override is removed.
 - `DAILY_LLM_BUDGET_USD=20`.
 - `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
@@ -55,7 +55,7 @@ Snapshot of what is live and what is pending. For per-session "why we shipped th
 
 **Resume plan.**
 - Brother needs to accept the Sunny chat from his WhatsApp Message Requests folder so alert notifications surface in his main chat list.
-- Fix OpenAI key: add billing credit at platform.openai.com, or generate fresh non-project key, then `railway variables --set "OPENAI_API_KEY=sk-..."` + `railway redeploy --yes`. Confirm via voice-note send to +234 913 055 4747; expect `transcribe.ok` log.
+- ~~Fix OpenAI key~~ DONE 2026-05-29 (new key set + redeployed + validated). Still pending: send a live test voice note to +234 913 055 4747 and confirm Sunny replies to the transcript (the stored inbound body should carry the `[voice note transcribed]:` prefix, not the "could not be transcribed" fallback).
 - Brother to upload datasheets via admin → Warehouse Stock → per-item attachment (PDF/PNG/JPG/WEBP up to 15MB). Once uploaded, Sunny auto-attaches the matching file when customer asks for "datasheet" / "brochure" / "specs".
 - Brother's pending pricing data: Sungrow, JA, Longi, Jinko panels.
 - Section 11 decisions still pending (working hours, location tags, currency, default warranty/delivery copy, after-hours reply, competitor pricing doctrine).
@@ -170,7 +170,8 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `DAILY_LLM_BUDGET_USD` | Soft daily cap (currently 20). `src/cost_tracker.js > isOverBudget` short-circuits classify and generateReply to fallback paths when daily spend exceeds it. |
 | `KNOWLEDGE_PROMPT_MAX_FACTS`, `KNOWLEDGE_PROMPT_BUDGET_CHARS` | Cap on how many active facts get injected into Sonnet/Opus prompt (default 500 facts, 30KB chars). |
 | `WHISPER_MODEL` | OpenAI model for voice-note transcription (default `whisper-1`). |
-| `OPENAI_API_KEY` | Required for voice-note transcription. PENDING: not yet valid on Railway. |
+| `WHISPER_LANGUAGE` | Source-language hint passed to Whisper (default `en`). Stops auto-detect from mis-transcribing accented English into Arabic/other. Set to empty string to restore auto-detect. |
+| `OPENAI_API_KEY` | Required for voice-note transcription. Set + validated on Railway 2026-05-29. |
 | `MEDIA_DIR` | Where downloaded WhatsApp media is stored. Defaults to `<DB_PATH dirname>/media`, set to `/data/media` on Railway. |
 | `SPECIALIST_DIRECT_LINK` | Digits-only WhatsApp number for the wa.me click-to-chat link appended to HOT lead replies. Currently set to brother's number. |
 | `PUBLIC_BASE_URL` | Public base URL used to deep-link the owner into the admin inbox from escalation alerts. Format: `<PUBLIC_BASE_URL>/admin#conv=<conversation_id>`. No trailing slash. Defaults to `https://sunny-electrosun-production.up.railway.app` when unset. |
@@ -411,7 +412,7 @@ All listed in `.env.example`. Required at runtime:
 | `META_WABA_ID` | WhatsApp Business Account ID. Currently `986225450549617`. |
 | `META_REGISTRATION_PIN` | Cloud API registration PIN, currently `271828`. |
 | `ANTHROPIC_API_KEY` | Claude API key. |
-| `OPENAI_API_KEY` | Whisper transcription. PENDING: not yet valid on Railway. |
+| `OPENAI_API_KEY` | Whisper transcription. Set + validated on Railway 2026-05-29. |
 | `OWNER_WHATSAPP` | E.164 digits, currently `2347041328055`. Receives escalation alerts and reports. |
 | `OWNER_EMAIL`, `SMTP_*` | Email fallback when WhatsApp report fails. Optional. |
 | `PORT` | Express port. Defaults to 3000. |
@@ -522,6 +523,10 @@ Sunny detects from the customer's first message and replies in the same language
 
 Multi-language detection still runs in classifier for data capture. `HOT_LEAD_REPLY` and `SILENT_QUERY_REPLY` constants in `src/handler.js` are English-only per brother's directive.
 
+**Serviced-languages-only reply rule (2026-05-29).** `src/prompts/system.md` §4 constrains replies to the five serviced languages above. For ANY other language (Arabic, French, etc.) Sunny replies in English. Reason: a transcribed voice note came back in Arabic (Whisper mis-detected an accented English clip) and Sunny mirrored it; ElectroSun does not service Arabic.
+
+**Whisper language pin (2026-05-29).** `src/transcribe.js` pins the transcription `language` to `en` by default (configurable via `WHISPER_LANGUAGE`; set it to empty string to restore auto-detect). Without the pin, Whisper auto-detected accented English voice notes as Arabic and produced Arabic (often garbled) transcripts. English is the right default given the customer base; Pidgin transcribes acceptably as English.
+
 ## Categories and escalation
 
 Source of truth is `src/prompts/classifier.md`. Classifier output:
@@ -580,7 +585,7 @@ Source of truth is `src/prompts/classifier.md`. Classifier output:
 - Production WABA + Nigerian number migration complete (2026-05-08).
 
 **Pending**:
-- `OPENAI_API_KEY` on Railway (for Whisper transcription) — current key returns 401.
+- ~~`OPENAI_API_KEY` on Railway~~ DONE 2026-05-29: new key set + validated, awaiting live voice-note confirmation.
 - Brother's pricing data (Sungrow, JA panels, Longi, Jinko).
 - Brother's Section 11 decisions (working hours, location tags, currency, default warranty/delivery copy, after-hours reply, competitor pricing doctrine).
 - Task #15 48-hour soak with 3-5 testers.

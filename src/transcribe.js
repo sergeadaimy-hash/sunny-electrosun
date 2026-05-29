@@ -24,6 +24,16 @@ async function transcribeAudio(buffer, mimeType) {
   const form = new FormData();
   form.append('file', buffer, { filename: `audio.${ext}`, contentType: mimeType || 'audio/ogg' });
   form.append('model', WHISPER_MODEL);
+  // Pin the source language so Whisper does not auto-detect a wrong language on
+  // short or accented clips. Electro-Sun voice notes are overwhelmingly English
+  // (and Pidgin, which Whisper renders as English). Without this hint, accented
+  // English clips were being mis-detected and transcribed into Arabic, which
+  // then made Sunny reply in Arabic. Configurable via WHISPER_LANGUAGE; set to
+  // empty string to restore auto-detect.
+  const whisperLanguage = process.env.WHISPER_LANGUAGE === undefined ? 'en' : process.env.WHISPER_LANGUAGE;
+  if (whisperLanguage) {
+    form.append('language', whisperLanguage);
+  }
 
   try {
     const res = await axios.post(`${OPENAI_API_BASE}/audio/transcriptions`, form, {

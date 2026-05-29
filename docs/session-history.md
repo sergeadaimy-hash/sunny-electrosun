@@ -2,6 +2,14 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-05-29 Beirut — voice notes fixed + Arabic-reply bug
+
+OpenAI key restored: new `sk-proj-` key (billing credit added) validated against OpenAI (`GET /v1/models/whisper-1` 200; a real Whisper transcription test returned text), set on Railway via `railway variables --set`, redeployed. Confirmed live: a real WhatsApp voice note was transcribed and Sunny answered the spoken question correctly. Key was pasted in chat; rotate later for hygiene.
+
+Then a follow-up bug surfaced: Sunny replied to the voice note in Arabic even though the tester spoke English. The stored transcript was `[voice note transcribed]: مرحباً، ما هو أسعار تشغيل البرنامج 12 كيلو وات اليوم؟` (garbled Arabic, "the program" instead of "inverter") — Whisper auto-detected the accented English clip as Arabic and transcribed into Arabic, then Sunny mirrored that language. Two-layer fix:
+1. `src/transcribe.js` now pins the transcription `language` to `en` by default (env `WHISPER_LANGUAGE`, empty to restore auto-detect). Stops the Arabic mis-detection at the source.
+2. `src/prompts/system.md` §4 reply-language rule rewritten: reply in English by default, mirror the customer ONLY for the five serviced languages (English, Pidgin, Hausa, Yoruba, Igbo); for any other language (Arabic, French, etc.) reply in English. Safety net even if a transcript comes back non-English.
+
 ## 2026-05-29 Beirut — discount policy + "specialist" renamed to "Sales Manager"
 
 Two owner requests from live screenshots.
