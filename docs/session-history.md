@@ -2,6 +2,21 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-05-30 Beirut — phase-aware datasheet/photo matcher
+
+Owner screenshot: a customer asked for the "12kw 3 phase" datasheet and Sunny sent the single-phase sheet (Deye SUN-12K-SG02LP1, file `...SUN-12-16K-SG01LP1...pdf`), then doubled down claiming it was "for that exact model." Diagnosis: NOT a data problem. The correct 3-phase sheet is in the warehouse, properly attached to item #10 `Deye SUN-12K-SG04LP3-EU` (`...SUN-5-12K-SG04LP3...pdf`). The matcher (`findItemDatasheetByQuery`) had no concept of electrical phase: it gated only on the size number ("12") and ranked by token overlap. Both the single-phase #9 and the three-phase #10 carry "12K", and the phase marker (`LP1` vs `LP3`) is buried inside an opaque model token, so the two scored equal and the lower rowid (#9, single-phase) won.
+
+Fix in `src/warehouse.js`: extracted a DB-free `selectItemByQuery(items, message, recentText, opts)` shared by both the datasheet and photo matchers (the photo matcher's old size/token block was a near-duplicate, comment even said "Mirrors findItemDatasheetByQuery"). Pipeline now: size gate -> **phase gate** -> token-overlap tiebreak -> single-candidate fallback. New helpers:
+- `detectPhaseIntent(text)` -> `'single' | 'three' | null`. Three-phase wins when both appear ("3 phase not single phase" is a three-phase ask). Handles glued "3phase". Detected on the current message first; history is only consulted when the message names neither a phase nor a size (a "send the datasheet" continuation), so a stale phase never narrows a fresh differently-sized request.
+- `itemPhase(item)` -> phase from the Deye model string (`LP3`/`HP3`/"3 phase" => three, `LP1` => single, batteries/racks/panels => null/agnostic).
+- Phase gate: when the customer names a phase and phased items match, restrict to exactly the matching-phase items (drops opposite-phase AND phase-agnostic items, e.g. a battery whose "PACK-16" name collided with "16kw"). If no item of the requested phase exists, keep only phase-agnostic items, and if none remain return null rather than send a wrong-phase sheet. `opts.hardSizeGate` (photos) and `opts.singleFallbackNeedsSize` (datasheets) preserve each matcher's prior size/fallback behavior.
+
+Behavior change to note: for a no-phase request where two same-size siblings exist (e.g. "16kw datasheet" with both the single- and three-phase 16kW), the matcher now returns null (no confident pick) and the LLM asks which phase, instead of sending a coin-flip sheet.
+
+Tests: new `test/matcher.test.js` (Node built-in `node:test`, no new dep), 18 cases incl. the exact reported scenario and the full 23-item production catalog; wired `npm test`. All green. Signatures/return shapes of `findItemDatasheetByQuery` / `findItemPhotosByQuery` unchanged, so `src/handler.js` call sites are untouched. Not yet committed/deployed (owner pushes manually). `node -c src/warehouse.js` passes.
+
+Prompt hardening (also done this session, owner approved): `src/prompts/system.md` §8 datasheet-delivery rule now tells Sunny it does NOT see which file the system attached, so it must never assert the sent sheet "is for that exact model" or matches a specific model/phase/size, must not argue if the customer says the sheet is wrong, and must acknowledge + offer to confirm the right one with the team. Adds an explicit single-phase-vs-three-phase warning. This kills the "doubling down" failure from the screenshot.
+
 ## 2026-05-29 Beirut — voice notes fixed + Arabic-reply bug
 
 OpenAI key restored: new `sk-proj-` key (billing credit added) validated against OpenAI (`GET /v1/models/whisper-1` 200; a real Whisper transcription test returned text), set on Railway via `railway variables --set`, redeployed. Confirmed live: a real WhatsApp voice note was transcribed and Sunny answered the spoken question correctly. Key was pasted in chat; rotate later for hygiene.

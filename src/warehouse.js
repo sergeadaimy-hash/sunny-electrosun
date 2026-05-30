@@ -506,28 +506,50 @@ function extractSizeNumbers(text) {
   return out;
 }
 
-function findItemDatasheetByQuery(message, recentText = '') {
-  const db = getDb();
-  const items = db.prepare(`
-    SELECT id, brand, model, notes, section, datasheet_path, datasheet_filename,
-           datasheet_mime, datasheet_meta_media_id, datasheet_meta_uploaded_at
-    FROM warehouse_items
-    WHERE datasheet_path IS NOT NULL
-  `).all();
-  if (!items.length) return null;
+// Map a customer message to a 'single' | 'three' phase intent, or null when the
+// customer didn't specify one. Three-phase wins when both appear, because
+// "3 phase not single phase" is a three-phase ask with a contrast clause.
+function detectPhaseIntent(text) {
+  const s = String(text || '').toLowerCase();
+  const three = /(?:^|\W)(?:3|three|tri)\s*-?\s*phase/.test(s) || /(?:^|\W)3\s*ph(?:\W|$)/.test(s);
+  if (three) return 'three';
+  const single = /(?:^|\W)(?:1|one|single)\s*-?\s*phase/.test(s) || /(?:^|\W)1\s*ph(?:\W|$)/.test(s);
+  if (single) return 'single';
+  return null;
+}
 
-  // Size match is the preferred gate. If the customer message names a specific
-  // size ("80kw", "12.5kva", "16kwh"), prefer items whose model/notes carry
-  // that same size, to stop "80kw datasheet" from falling back to the 50kW
-  // item just because it's the only one with a PDF attached. BUT if no item
-  // matches the size by the kw-suffix check (common for batteries whose
-  // capacity is in the model name without a "kwh" suffix, e.g. "BOS-A-PACK7.68"
-  // or "SE-F5.12"), fall through to token-overlap matching instead of giving
-  // up entirely. Previous behavior was to return null, which dropped the
-  // customer to the LLM path where Sunny could end up sending an internal
-  // "[Datasheet sent: ...]" marker as plain text.
+// Infer an inverter's electrical phase from its Deye model string. LP3 / HP3
+// suffixes (and an explicit "3 phase" tag) are three-phase; LP1 is single-phase.
+// Items with no such marker (batteries, racks, panels) return null and are
+// treated as phase-agnostic so the phase gate never filters them out.
+function itemPhase(item) {
+  const blob = [item.brand, item.model, item.notes].filter(Boolean).join(' ').toLowerCase();
+  if (blob.includes('lp3') || blob.includes('hp3') || /(?:^|\W)3\s*-?\s*phase/.test(blob) || blob.includes('three phase')) {
+    return 'three';
+  }
+  if (blob.includes('lp1')) return 'single';
+  return null;
+}
+
+// Shared, DB-free selection core for both the datasheet and photo matchers.
+// `items` is an in-memory array (each: {id, brand, model, notes, section, ...}).
+// Pipeline: size gate -> phase gate -> token-overlap tiebreak -> single-candidate
+// fallback. Returns { item, score } or null.
+//
+// opts.hardSizeGate: when true, a size in the query with zero size-matches
+//   returns null (photos: never send a different-size product's photo). When
+//   false (datasheets), it falls through to token overlap instead of giving up.
+// opts.singleFallbackNeedsSize: when true, the lone-candidate fallback only fires
+//   if the request was narrowed by an explicit size or phase signal (datasheets).
+//   When false it always fires (photos: a single photo-bearing product is safe).
+function selectItemByQuery(items, message, recentText = '', opts = {}) {
+  const { hardSizeGate = false, singleFallbackNeedsSize = true } = opts;
+  if (!items || !items.length) return null;
+
+  // 1) Size gate.
   const querySizes = extractSizeNumbers(message);
   let candidates = items;
+  let sizeNarrowed = false;
   if (querySizes.size > 0) {
     const sizeMatched = items.filter(it => {
       const itemSizes = extractSizeNumbers(
@@ -547,13 +569,46 @@ function findItemDatasheetByQuery(message, recentText = '') {
       }
       return false;
     });
-    if (sizeMatched.length > 0) candidates = sizeMatched;
-    // else: keep candidates = items, let token overlap handle it. We won't
-    // claim a size-perfect match, but we'll still try to find the right item.
+    if (sizeMatched.length > 0) {
+      candidates = sizeMatched;
+      sizeNarrowed = true;
+    } else if (hardSizeGate) {
+      return null;
+    }
+    // else (soft): keep candidates = items, let token overlap handle it.
   }
 
-  // Among the candidates, rank by ordinary token overlap (brand, model, notes,
-  // section) for the tie-breaker.
+  // 2) Phase gate. Only when the customer named a phase. Detect on the current
+  //    message first; only consult history when the message has neither a phase
+  //    word nor a size (i.e. a "send the datasheet" continuation) so a stale
+  //    phase from earlier never narrows a fresh, differently-sized request.
+  //    Rule: never send the opposite phase. Prefer items whose phase matches;
+  //    if none match, drop opposite-phase items and keep only phase-agnostic
+  //    ones; if that empties the set, return null rather than send a wrong sheet.
+  let queryPhase = detectPhaseIntent(message);
+  if (!queryPhase && querySizes.size === 0) {
+    queryPhase = detectPhaseIntent(recentText);
+  }
+  let phaseMatched = false;
+  if (queryPhase) {
+    const matching = candidates.filter(it => itemPhase(it) === queryPhase);
+    phaseMatched = matching.length > 0;
+    if (phaseMatched) {
+      // A phase qualifier means the customer wants a phased device (an inverter),
+      // so keep ONLY the phase-matching items. This also drops phase-agnostic
+      // items (e.g. a battery whose "PACK-16" name collided with "16kw") that
+      // have no business answering a "16kw 3 phase" request.
+      candidates = matching;
+    } else {
+      // No item of the requested phase. Never send the opposite phase: keep only
+      // phase-agnostic items, and if none remain, return null so the LLM /
+      // escalation path handles it instead of sending a wrong-phase sheet.
+      candidates = candidates.filter(it => itemPhase(it) === null);
+    }
+    if (candidates.length === 0) return null;
+  }
+
+  // 3) Token-overlap tiebreak (brand, model, notes, section).
   const queryTokens = new Set(tokenize(message + ' ' + recentText));
   let best = null;
   let bestScore = 0;
@@ -568,16 +623,29 @@ function findItemDatasheetByQuery(message, recentText = '') {
       best = it;
     }
   }
-
-  // If the customer named a size and exactly one candidate matched it, send
-  // that one even if the token score is 0 (e.g. "send the 80kw datasheet").
   if (best) return { item: best, score: bestScore };
-  if (querySizes.size > 0 && candidates.length === 1) {
+
+  // 4) Single-candidate fallback. Send the lone survivor when the request was
+  //    narrowed by an explicit size or phase signal (or always, for photos).
+  if (candidates.length === 1 && (!singleFallbackNeedsSize || sizeNarrowed || phaseMatched)) {
     return { item: candidates[0], score: 0 };
   }
-  // No size given AND no token match. Don't guess. Return null so the LLM
-  // handles the request in text instead of sending a possibly-wrong PDF.
+  // No confident narrowing AND no token match. Don't guess.
   return null;
+}
+
+function findItemDatasheetByQuery(message, recentText = '') {
+  const db = getDb();
+  const items = db.prepare(`
+    SELECT id, brand, model, notes, section, datasheet_path, datasheet_filename,
+           datasheet_mime, datasheet_meta_media_id, datasheet_meta_uploaded_at
+    FROM warehouse_items
+    WHERE datasheet_path IS NOT NULL
+  `).all();
+  return selectItemByQuery(items, message, recentText, {
+    hardSizeGate: false,
+    singleFallbackNeedsSize: true,
+  });
 }
 
 // Pick the warehouse items whose datasheet text should be injected into Sunny's
@@ -805,62 +873,18 @@ function findItemPhotosByQuery(message, recentText = '') {
   `).all();
   if (!items.length) return null;
 
-  const querySizes = extractSizeNumbers(message);
-  let candidates = items;
-  if (querySizes.size > 0) {
-    const sizeMatched = items.filter(it => {
-      const itemSizes = extractSizeNumbers(
-        [it.brand, it.model, it.notes].filter(Boolean).join(' ')
-      );
-      for (const q of querySizes) {
-        if (itemSizes.has(q)) return true;
-      }
-      const blob = [it.brand, it.model, it.notes]
-        .filter(Boolean).join(' ').toLowerCase();
-      for (const q of querySizes) {
-        const re = new RegExp(`(?:^|[^\\d.])${q.replace(/\./g, '\\.')}(?![\\d])`);
-        if (re.test(blob)) return true;
-      }
-      return false;
-    });
-    // Size is a HARD gate for photos: if the customer named a specific size and
-    // no photo-bearing item carries it, return no match so the handler escalates
-    // ("team will share shortly") rather than sending a DIFFERENT-size product's
-    // photo via the loose token-overlap fallback (e.g. answering a 6kW request
-    // with the 16kW photo). Catalog fidelity beats always sending something.
-    if (sizeMatched.length === 0) return null;
-    candidates = sizeMatched;
-  }
-
-  const queryTokens = new Set(tokenize(message + ' ' + recentText));
-  let best = null;
-  let bestScore = 0;
-  for (const it of candidates) {
-    const itemTokens = tokenize([it.brand, it.model, it.notes, it.section].filter(Boolean).join(' '));
-    let score = 0;
-    for (const t of itemTokens) {
-      if (queryTokens.has(t)) score++;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      best = it;
-    }
-  }
-
-  let matchedItem = null;
-  let matchScore = 0;
-  if (best) {
-    matchedItem = best;
-    matchScore = bestScore;
-  } else if (candidates.length === 1) {
-    // Exactly one product has sendable photos. Even if the wording doesn't overlap
-    // the model name and no size was given ("Photo", "send a picture"), it's safe to
-    // return that single item. With >1 candidate we still require a token match.
-    matchedItem = candidates[0];
-    matchScore = 0;
-  } else {
-    return null;
-  }
+  // Size is a HARD gate for photos (hardSizeGate: never send a different-size
+  // product's photo). singleFallbackNeedsSize:false because exactly one
+  // photo-bearing product is safe to send even on a bare "send a picture".
+  // The phase gate inside selectItemByQuery also guards against sending a
+  // single-phase product photo to a three-phase request and vice versa.
+  const picked = selectItemByQuery(items, message, recentText, {
+    hardSizeGate: true,
+    singleFallbackNeedsSize: false,
+  });
+  if (!picked) return null;
+  const matchedItem = picked.item;
+  const matchScore = picked.score;
 
   // Pull full photo rows INCLUDING file_path. listPhotosForItem deliberately omits
   // file_path (so the admin API never leaks the server disk path), but the handler
@@ -903,6 +927,9 @@ module.exports = {
   setItemDatasheetMetaCache,
   isMetaMediaFresh,
   findItemDatasheetByQuery,
+  detectPhaseIntent,
+  itemPhase,
+  selectItemByQuery,
   formatWarehouseForPrompt,
   extractDatasheetTextForItem,
   setStaple,
