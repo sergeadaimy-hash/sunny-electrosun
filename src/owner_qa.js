@@ -166,7 +166,7 @@ async function answerOwnerQuestion(ownerContactId, question) {
     const resp = await client().messages.create({
       model: MODEL,
       max_tokens: 600,
-      system: [{ type: 'text', text: promptStore.get('owner_qa'), cache_control: { type: 'ephemeral' } }],
+      system: [{ type: 'text', text: promptStore.get('owner_qa'), cache_control: { type: 'ephemeral', ttl: '1h' } }],
       messages: [{ role: 'user', content: userBlock }]
     });
     if (resp.usage) recordUsage(MODEL, resp.usage, 'owner_qa');

@@ -347,14 +347,14 @@ async function classify(history, message) {
   const userBlock = `Conversation history:\n${formatHistoryAsText(history)}\n\nLatest customer message:\n${message}\n\nReturn JSON now.`;
 
   const classifierSystem = [
-    { type: 'text', text: promptStore.get('classifier'), cache_control: { type: 'ephemeral' } }
+    { type: 'text', text: promptStore.get('classifier'), cache_control: { type: 'ephemeral', ttl: '1h' } }
   ];
   let warehouseSnap = '';
   try { warehouseSnap = formatWarehouseForPrompt(); } catch (err) {
     logger.warn('claude.classify.warehouse_load_fail', { message: err.message });
   }
   if (warehouseSnap) {
-    classifierSystem.push({ type: 'text', text: warehouseSnap, cache_control: { type: 'ephemeral' } });
+    classifierSystem.push({ type: 'text', text: warehouseSnap, cache_control: { type: 'ephemeral', ttl: '1h' } });
   }
 
   const callOnce = () => withRetry(() => client().messages.create({
@@ -558,14 +558,14 @@ async function generateReply(history, message, contact, attachments = [], option
     : '';
 
   const systemBlocks = [
-    { type: 'text', text: promptStore.get('system'), cache_control: { type: 'ephemeral' } }
+    { type: 'text', text: promptStore.get('system'), cache_control: { type: 'ephemeral', ttl: '1h' } }
   ];
   let warehouseBlock = '';
   try { warehouseBlock = formatWarehouseForPrompt(); } catch (err) {
     logger.warn('claude.reply.warehouse_load_fail', { message: err.message });
   }
   if (warehouseBlock) {
-    systemBlocks.push({ type: 'text', text: warehouseBlock, cache_control: { type: 'ephemeral' } });
+    systemBlocks.push({ type: 'text', text: warehouseBlock, cache_control: { type: 'ephemeral', ttl: '1h' } });
   }
   if (!isCasualGreeting) {
     let datasheetBlock = '';
