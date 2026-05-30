@@ -51,7 +51,7 @@ Snapshot of what is live and what is pending. For per-session "why we shipped th
 - `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
 - `HUMAN_AUTO_RELEASE_MINUTES=15` (default; tunable).
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit on local main as of this snapshot: `ab1f408`. Use `git log --oneline` for the live tip. See `docs/session-history.md` for what each recent commit / push covers and `docs/audits/2026-05-15-sunny-full-audit.md` for the latest full audit.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit on local main as of this snapshot: `bb9b6ec` (pushed 2026-05-30, phase-aware datasheet/photo matcher + prompt guard). Use `git log --oneline` for the live tip. See `docs/session-history.md` for what each recent commit / push covers and `docs/audits/2026-05-15-sunny-full-audit.md` for the latest full audit.
 
 **Resume plan.**
 - Brother needs to accept the Sunny chat from his WhatsApp Message Requests folder so alert notifications surface in his main chat list.
