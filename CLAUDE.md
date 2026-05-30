@@ -51,7 +51,7 @@ Snapshot of what is live and what is pending. For per-session "why we shipped th
 - `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
 - `HUMAN_AUTO_RELEASE_MINUTES=15` (default; tunable).
 
-**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit on local main as of this snapshot: `bb9b6ec` (pushed 2026-05-30, phase-aware datasheet/photo matcher + prompt guard). Use `git log --oneline` for the live tip. See `docs/session-history.md` for what each recent commit / push covers and `docs/audits/2026-05-15-sunny-full-audit.md` for the latest full audit.
+**Source of truth:** https://github.com/sergeadaimy-hash/sunny-electrosun (private). Pushes from Claude's non-interactive shell hang on the credential prompt; Serge pushes manually with `git push` from his Terminal or `! git push` syntax in chat. Latest commit on local main as of this snapshot: `883e746` (pushed 2026-05-30, prompt cache TTL extended from 5m to 1h for cost reduction). Use `git log --oneline` for the live tip. See `docs/session-history.md` for what each recent commit / push covers and `docs/audits/2026-05-15-sunny-full-audit.md` for the latest full audit.
 
 **Resume plan.**
 - Brother needs to accept the Sunny chat from his WhatsApp Message Requests folder so alert notifications surface in his main chat list.
@@ -203,6 +203,7 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 - Sonnet pricing (kept for fallback): in 300 / out 1500 / cache_read 30 / cache_write 375.
 - Haiku pricing (kept for fallback): in 80 / out 400 / cache_read 8 / cache_write 100.
 - Per-day spend tracked in `daily_costs` table (cents, integers). One-time over-budget alert to owner via window-scan cron.
+- **Prompt cache TTL = 1 hour (2026-05-30).** All six `cache_control` blocks (classifier + reply in `src/claude.js`, `owner_qa.js`, legacy teacher in `knowledge.js`) carry `ttl: '1h'`. Reason: a May 1-30 cost analysis (`Sunny-Dev-Final` key) showed cache WRITES were 65% of the $331 month ($214), because the default 5-minute cache expires between sparse WhatsApp messages and rewrites the large system prompt at the 1.25x write premium nearly every turn. The 1h window (2x write price, but survives typical conversation gaps) converts most repeat writes into 0.1x reads. Pure billing change, zero effect on model/prompts/replies. Reversible by removing `ttl: '1h'`.
 
 ### Code modules and their roles
 
@@ -256,7 +257,7 @@ Sunny is an AI-powered WhatsApp Account Manager for **ElectroSun**, a solar ener
 - **Framework**: Express.js.
 - **Database**: SQLite via `better-sqlite3` (synchronous, single file at `db/sunny.db` locally, `/data/sunny.db` on Railway).
 - **WhatsApp**: Meta WhatsApp Cloud API (official, NOT Twilio, NOT unofficial libs). Graph API version `v21.0`.
-- **LLM**: Anthropic Claude API. All four call sites (`src/claude.js > classify`, `generateReply`; `src/knowledge.js > extractKnowledge`; `src/owner_qa.js > answerOwnerQuestion`) default to `claude-opus-4-7`. Override via `MODEL_*` env vars. Prompt caching enabled on system blocks via `cache_control: { type: 'ephemeral' }`.
+- **LLM**: Anthropic Claude API. All four call sites (`src/claude.js > classify`, `generateReply`; `src/knowledge.js > extractKnowledge`; `src/owner_qa.js > answerOwnerQuestion`) default to `claude-opus-4-7`. Override via `MODEL_*` env vars. Prompt caching enabled on system blocks via `cache_control: { type: 'ephemeral', ttl: '1h' }` (1-hour TTL since 2026-05-30; see Models, costs, and budget).
 - **Voice transcription**: OpenAI Whisper (`whisper-1` default, `WHISPER_MODEL` override).
 - **Scheduler**: `node-cron`.
 - **Email fallback**: `nodemailer` (used only if owner's WhatsApp report fails).
