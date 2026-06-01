@@ -63,6 +63,50 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
+// Inbox-only team member entry point. Serves the same admin page; the page
+// asks the server for its role after login and locks itself to the inbox.
+app.get('/inbox', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+// Public login exchange for the inbox-only team member. Validates the
+// username/password env pair and returns the separate INBOX_API_KEY, which is
+// NOT the master API_KEY. A small in-memory throttle defangs brute force.
+const inboxLoginAttempts = new Map();
+const INBOX_LOGIN_MAX = 8;
+const INBOX_LOGIN_WINDOW_MS = 10 * 60 * 1000;
+
+app.post('/inbox-login', (req, res) => {
+  const ip = (req.headers['x-forwarded-for'] || req.ip || 'unknown').toString().split(',')[0].trim();
+  const now = Date.now();
+  const rec = inboxLoginAttempts.get(ip) || { count: 0, first: now };
+  if (now - rec.first > INBOX_LOGIN_WINDOW_MS) { rec.count = 0; rec.first = now; }
+  if (rec.count >= INBOX_LOGIN_MAX) {
+    logger.warn('inbox_login.throttled', { ip });
+    return res.status(429).json({ error: 'too many attempts, try again later' });
+  }
+
+  const user = process.env.INBOX_USER;
+  const pass = process.env.INBOX_PASSWORD;
+  const key = process.env.INBOX_API_KEY;
+  if (!user || !pass || !key) {
+    return res.status(503).json({ error: 'inbox login not configured on server' });
+  }
+
+  const { username, password } = req.body || {};
+  if (typeof username === 'string' && typeof password === 'string'
+      && username.trim() === user && password === pass) {
+    inboxLoginAttempts.delete(ip);
+    logger.info('inbox_login.ok', { ip });
+    return res.json({ key, role: 'inbox' });
+  }
+
+  rec.count += 1;
+  inboxLoginAttempts.set(ip, rec);
+  logger.warn('inbox_login.fail', { ip, attempts: rec.count });
+  return res.status(401).json({ error: 'invalid username or password' });
+});
+
 app.use((err, req, res, next) => {
   logger.error('express.error', { message: err.message, type: err.type, status: err.status, stack: err.stack });
   if (res.headersSent) return;

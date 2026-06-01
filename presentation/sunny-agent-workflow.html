@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sunny, agent workflow</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg: #f4f7f5;
+  --surface: #ffffff;
+  --surface-2: #f8faf9;
+  --text: #1f2a26;
+  --text-soft: #5a6b65;
+  --muted: #93a39d;
+  --brand: #128c4f;
+  --brand-soft: #d7f1e2;
+  --accent: #25d366;
+  --line: #e2eae5;
+  --shadow: 0 1px 2px rgba(20, 50, 36, 0.04), 0 8px 24px rgba(20, 50, 36, 0.06);
+  --radius: 12px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+
+  --c-input: #f0fbf3;
+  --c-input-stroke: #6bbf85;
+  --c-route: #fff8e7;
+  --c-route-stroke: #d6a637;
+  --c-classify: #ecf3ff;
+  --c-classify-stroke: #5483d6;
+  --c-branch: #fdf0f0;
+  --c-branch-stroke: #c5575e;
+  --c-generate: #f4ecff;
+  --c-generate-stroke: #8159c9;
+  --c-guard: #fff4ec;
+  --c-guard-stroke: #c97a36;
+  --c-send: #e8f7ff;
+  --c-send-stroke: #4794c9;
+  --c-data: #f1f0ec;
+  --c-data-stroke: #8a836e;
+  --c-cron: #f7eaf7;
+  --c-cron-stroke: #a85aa8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+header.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding: 16px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+header.topbar h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+header.topbar .sub {
+  color: var(--text-soft);
+  font-size: 13px;
+  margin-left: 12px;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.toolbar button, .toolbar .toggle {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: var(--sans);
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolbar button:hover, .toolbar .toggle:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.toolbar .toggle {
+  user-select: none;
+}
+.toolbar .toggle input { display: none; }
+.toolbar .toggle .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.toolbar .toggle.off {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+.toolbar .primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+.toolbar .primary:hover {
+  background: #0f6f3f;
+  color: #fff;
+  border-color: #0f6f3f;
+}
+
+main.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 20px;
+  padding: 20px 28px 40px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  main.layout { grid-template-columns: 1fr; }
+}
+
+.diagram-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  overflow: hidden;
+  position: relative;
+}
+.diagram-card .label-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.diagram-card .label-bar h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+}
+.zoom-controls button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+.zoom-controls button:hover { color: var(--brand); border-color: var(--brand); }
+#mermaidWrap {
+  overflow: auto;
+  max-height: 80vh;
+  padding: 8px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  position: relative;
+}
+#mermaidWrap .mermaid { transform-origin: top left; transition: transform 0.2s; }
+.mermaid svg .node-clickable rect,
+.mermaid svg .node-clickable polygon,
+.mermaid svg .node-clickable circle {
+  cursor: pointer;
+  transition: filter 0.15s, stroke-width 0.15s;
+}
+.mermaid svg .node-clickable:hover rect,
+.mermaid svg .node-clickable:hover polygon,
+.mermaid svg .node-clickable:hover circle {
+  filter: brightness(0.96);
+  stroke-width: 2.5px;
+}
+.mermaid svg .node.demo-active rect,
+.mermaid svg .node.demo-active polygon,
+.mermaid svg .node.demo-active circle {
+  filter: drop-shadow(0 0 0.5rem rgba(37, 211, 102, 0.7));
+  stroke: var(--brand) !important;
+  stroke-width: 3px !important;
+}
+
+aside.detail {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  position: sticky;
+  top: 88px;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+}
+aside.detail h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+aside.detail .pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  margin-bottom: 12px;
+}
+aside.detail .file {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-soft);
+  background: var(--surface-2);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  margin: 8px 0 14px;
+  display: inline-block;
+  word-break: break-all;
+}
+aside.detail p {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+aside.detail .section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  margin: 16px 0 6px;
+}
+aside.detail ul {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+aside.detail ul li { margin-bottom: 4px; }
+aside.detail .kv {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 4px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+aside.detail .kv dt { color: var(--text-soft); font-weight: 500; }
+aside.detail .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; }
+aside.detail code {
+  font-family: var(--mono);
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+}
+aside.detail .hint {
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1.5px solid;
+}
+
+footer.note {
+  padding: 20px 28px 40px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.demo-status {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--text-soft);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.demo-status.active { opacity: 1; }
+.demo-status .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+  margin-right: 6px;
+  animation: pulse 1.4s infinite ease-in-out;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>Sunny, agent workflow</h1>
+    <span class="sub">From customer message to outbound reply, click any node for detail</span>
+  </div>
+  <div class="toolbar">
+    <button class="primary" id="playDemoBtn">▶ Trace a customer message</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <section class="diagram-card">
+    <div class="label-bar">
+      <h2>Workflow graph</h2>
+      <div class="zoom-controls">
+        <button id="zoomOut" title="Zoom out">−</button>
+        <button id="zoomReset" title="Reset zoom">⌂</button>
+        <button id="zoomIn" title="Zoom in">+</button>
+      </div>
+    </div>
+
+    <div class="toolbar" style="margin-bottom:12px">
+      <label class="toggle" data-layer="inbound"><span class="swatch" style="background:var(--c-input);border:1.5px solid var(--c-input-stroke)"></span>Inbound</label>
+      <label class="toggle" data-layer="routing"><span class="swatch" style="background:var(--c-route);border:1.5px solid var(--c-route-stroke)"></span>Routing</label>
+      <label class="toggle" data-layer="classify"><span class="swatch" style="background:var(--c-classify);border:1.5px solid var(--c-classify-stroke)"></span>Classify</label>
+      <label class="toggle" data-layer="branch"><span class="swatch" style="background:var(--c-branch);border:1.5px solid var(--c-branch-stroke)"></span>Branch</label>
+      <label class="toggle" data-layer="generate"><span class="swatch" style="background:var(--c-generate);border:1.5px solid var(--c-generate-stroke)"></span>Generate</label>
+      <label class="toggle" data-layer="guards"><span class="swatch" style="background:var(--c-guard);border:1.5px solid var(--c-guard-stroke)"></span>Guards</label>
+      <label class="toggle" data-layer="send"><span class="swatch" style="background:var(--c-send);border:1.5px solid var(--c-send-stroke)"></span>Send</label>
+      <label class="toggle" data-layer="data"><span class="swatch" style="background:var(--c-data);border:1.5px solid var(--c-data-stroke)"></span>Data</label>
+      <label class="toggle" data-layer="cron"><span class="swatch" style="background:var(--c-cron);border:1.5px solid var(--c-cron-stroke)"></span>Crons</label>
+    </div>
+
+    <div id="mermaidWrap">
+      <div class="mermaid" id="mermaidDiagram">
+flowchart TB
+
+  subgraph Inbound["📥 Customer Inbound"]
+    direction TB
+    A1[Customer WhatsApp message]:::input
+    A2[Meta Cloud API webhook<br/>POST /webhook]:::input
+    A3{HMAC SHA-256<br/>signature valid?}:::input
+    A4[Extract text / image / voice<br/>extractMessages]:::input
+    A5{Voice note?}:::input
+    A6[Download media → Whisper<br/>transcribe]:::input
+    A7[Idempotency check<br/>whatsapp_message_id]:::input
+    A8[getOrCreateContact +<br/>getActiveConversation]:::input
+
+    A1 --> A2 --> A3
+    A3 -->|valid| A4
+    A4 --> A5
+    A5 -->|yes| A6 --> A7
+    A5 -->|no| A7
+    A7 --> A8
+  end
+
+  subgraph Routing["🚦 Routing"]
+    direction TB
+    R1{Sender = Owner?}:::route
+    R2[handleOwnerReply<br/>QID match → relay]:::route
+    R3[answerOwnerQuestion<br/>owner_qa.md + live snapshot]:::route
+    R4{Conversation<br/>human_handled?}:::route
+    R5[Skip, owner manages]:::route
+    R6[Debounce queue<br/>per-contact 6s window]:::route
+
+    A8 --> R1
+    R1 -->|owner, replies QID| R2
+    R1 -->|owner, otherwise| R3
+    R1 -->|customer| R4
+    R4 -->|yes| R5
+    R4 -->|no| R6
+  end
+
+  subgraph Classify["🧠 Classification (Sonnet)"]
+    direction TB
+    C1{Greeting regex<br/>match?}:::classify
+    C2[Greeting fast-path<br/>category=C1, COLD]:::classify
+    C3[runClassification<br/>classifier.md]:::classify
+    C4[Safety nets<br/>HOT-without-commitment demote<br/>greeting-as-escalation block<br/>clarification block]:::classify
+    C5[Update contact<br/>category, lang, lead_data, temperature]:::classify
+
+    R6 --> C1
+    C1 -->|yes| C2
+    C1 -->|no| C3
+    C3 --> C4 --> C5
+    C2 --> C5
+  end
+
+  subgraph Branch["🔀 Branch decision"]
+    direction TB
+    B1{Escalation type?}:::branch
+    B2[HOT path<br/>buildExpertContext isHot]:::branch
+    B3[Silent query path<br/>notifyOwnerForEscalation<br/>awaiting-expert context]:::branch
+    B4[Normal reply path]:::branch
+    B5[Alert owner via WhatsApp<br/>header + brief + admin link<br/>+ wa.me to specialist]:::branch
+
+    C5 --> B1
+    B1 -->|hot_lead| B2
+    B1 -->|silent_query / pricing| B3
+    B1 -->|none| B4
+    B2 --> B5
+    B3 --> B5
+  end
+
+  subgraph Generate["🤖 Generate reply (Opus)"]
+    direction TB
+    G0[Consume prior HV-drop feedback<br/>per-contact 10 min TTL]:::generate
+    G1[Build system blocks<br/>system.md + Warehouse Stock<br/>+ Datasheet Knowledge<br/>+ Conversation state<br/>+ Known about customer<br/>+ Expert context]:::generate
+    G2[claude.messages.create<br/>MODEL_REPLY = claude-opus-4-7]:::generate
+    G3[recordUsage → daily_costs]:::generate
+
+    B2 --> G0
+    B3 --> G0
+    B4 --> G0
+    B5 --> G0
+    G0 --> G1 --> G2 --> G3
+  end
+
+  subgraph Guards["🛡️ Post-generation guards (15 passes)"]
+    direction TB
+    GU1[Censored asterisks retry]:::guard
+    GU2[Price-dump strip]:::guard
+    GU3[Duplicate check]:::guard
+    GU4[Trailing question strip<br/>pure-ack only]:::guard
+    GU5[CTA-tail strip<br/>Want to proceed / Should I send]:::guard
+    GU6[Prompt-leak detector]:::guard
+    GU7[Owner-number leak]:::guard
+    GU8[Phone-list dump]:::guard
+    GU9[Catalog enumeration block]:::guard
+    GU10[Fabricated-variant guard<br/>size+phase not in warehouse]:::guard
+    GU11[HV BOM validator<br/>+ feedback loop]:::guard
+    GU12[Datasheet marker guard]:::guard
+    GU13[Dash strip<br/>em/en/-- → comma/colon]:::guard
+    GU14[BOM cleanup<br/>§9 leaks, dropped options,<br/>line breaks, rec reasoning]:::guard
+    GU15[SKU list dump block]:::guard
+    GU16[Stall-language guard<br/>regen with awaiting-expert]:::guard
+
+    G3 --> GU1 --> GU2 --> GU3 --> GU4 --> GU5
+    GU5 --> GU6 --> GU7 --> GU8 --> GU9 --> GU10
+    GU10 --> GU11 --> GU12 --> GU13 --> GU14 --> GU15 --> GU16
+  end
+
+  subgraph Send["📤 Send"]
+    direction TB
+    S1[sendMessage via Meta<br/>POST /messages]:::send
+    S2[Persist outbound<br/>messages table]:::send
+    S3{HOT handoff?}:::send
+    S4[Append wa.me<br/>specialist link]:::send
+
+    GU16 --> S1
+    S1 --> S2
+    S2 --> S3
+    S3 -->|yes| S4
+  end
+
+  subgraph Data["🗄️ Data sources"]
+    direction TB
+    D1[(SQLite /data/sunny.db)]:::data
+    D2[warehouse_items +<br/>warehouse_stock per location]:::data
+    D3[Datasheets attached<br/>to warehouse items]:::data
+    D4[Master prompts<br/>system.md, classifier.md,<br/>owner_qa.md]:::data
+    D5[contacts, conversations,<br/>messages, events]:::data
+    D6[pending_queries<br/>silent-query workflow]:::data
+    D7[daily_costs ledger]:::data
+    D8[Env vars + Railway]:::data
+
+    D1 --- D2
+    D1 --- D3
+    D1 --- D5
+    D1 --- D6
+    D1 --- D7
+  end
+
+  subgraph Crons["⏰ Background crons"]
+    direction TB
+    K1[Hourly report<br/>every 2h → owner]:::cron
+    K2[Daily report 9pm Lagos<br/>+ DB snapshot]:::cron
+    K3[Daily learning 9:30pm]:::cron
+    K4[Window monitor every 30 min<br/>23h reminder, 24h expire]:::cron
+    K5[Auto-release human-handled<br/>every 5 min, threshold 15 min]:::cron
+  end
+
+  D2 -.feeds.-> G1
+  D3 -.feeds.-> G1
+  D4 -.feeds.-> C3
+  D4 -.feeds.-> G1
+  D4 -.feeds.-> R3
+  D8 -.config.-> G2
+  D6 -.read/write.-> B3
+  D7 -.recordUsage.-> G3
+  GU11 -.records drops.-> G0
+
+  K5 -.releases.-> R4
+
+  click A1 call showNodeDetails("customer_msg")
+  click A2 call showNodeDetails("meta_webhook")
+  click A3 call showNodeDetails("hmac_verify")
+  click A4 call showNodeDetails("extract_msg")
+  click A5 call showNodeDetails("voice_branch")
+  click A6 call showNodeDetails("voice_transcribe")
+  click A7 call showNodeDetails("idempotency")
+  click A8 call showNodeDetails("get_contact")
+
+  click R1 call showNodeDetails("owner_route")
+  click R2 call showNodeDetails("owner_reply")
+  click R3 call showNodeDetails("owner_qa")
+  click R4 call showNodeDetails("conv_check")
+  click R5 call showNodeDetails("human_skip")
+  click R6 call showNodeDetails("debounce")
+
+  click C1 call showNodeDetails("greeting_check")
+  click C2 call showNodeDetails("greeting_fastpath")
+  click C3 call showNodeDetails("classifier")
+  click C4 call showNodeDetails("safety_nets")
+  click C5 call showNodeDetails("update_contact")
+
+  click B1 call showNodeDetails("branch_decision")
+  click B2 call showNodeDetails("hot_path")
+  click B3 call showNodeDetails("silent_query_path")
+  click B4 call showNodeDetails("reply_path")
+  click B5 call showNodeDetails("alert_owner")
+
+  click G0 call showNodeDetails("hv_drops_feedback")
+  click G1 call showNodeDetails("build_system_blocks")
+  click G2 call showNodeDetails("opus_call")
+  click G3 call showNodeDetails("record_usage")
+
+  click GU1 call showNodeDetails("g_censored")
+  click GU2 call showNodeDetails("g_price_dump")
+  click GU3 call showNodeDetails("g_duplicate")
+  click GU4 call showNodeDetails("g_trailing_q")
+  click GU5 call showNodeDetails("g_cta_tail")
+  click GU6 call showNodeDetails("g_prompt_leak")
+  click GU7 call showNodeDetails("g_owner_num_leak")
+  click GU8 call showNodeDetails("g_phone_dump")
+  click GU9 call showNodeDetails("g_catalog_dump")
+  click GU10 call showNodeDetails("g_fab_variant")
+  click GU11 call showNodeDetails("g_hv_validator")
+  click GU12 call showNodeDetails("g_datasheet_marker")
+  click GU13 call showNodeDetails("g_dash_strip")
+  click GU14 call showNodeDetails("g_bom_cleanup")
+  click GU15 call showNodeDetails("g_sku_dump")
+  click GU16 call showNodeDetails("g_stall")
+
+  click S1 call showNodeDetails("send_meta")
+  click S2 call showNodeDetails("persist_db")
+  click S3 call showNodeDetails("hot_handoff_check")
+  click S4 call showNodeDetails("hot_link_append")
+
+  click D1 call showNodeDetails("sqlite_db")
+  click D2 call showNodeDetails("warehouse_stock")
+  click D3 call showNodeDetails("datasheets_attached")
+  click D4 call showNodeDetails("prompts_files")
+  click D5 call showNodeDetails("core_tables")
+  click D6 call showNodeDetails("pending_queries")
+  click D7 call showNodeDetails("daily_costs")
+  click D8 call showNodeDetails("env_vars")
+
+  click K1 call showNodeDetails("cron_hourly")
+  click K2 call showNodeDetails("cron_daily")
+  click K3 call showNodeDetails("cron_learning")
+  click K4 call showNodeDetails("cron_window_monitor")
+  click K5 call showNodeDetails("cron_auto_release")
+
+  classDef input fill:#f0fbf3,stroke:#6bbf85,stroke-width:1.5px,color:#1f2a26;
+  classDef route fill:#fff8e7,stroke:#d6a637,stroke-width:1.5px,color:#1f2a26;
+  classDef classify fill:#ecf3ff,stroke:#5483d6,stroke-width:1.5px,color:#1f2a26;
+  classDef branch fill:#fdf0f0,stroke:#c5575e,stroke-width:1.5px,color:#1f2a26;
+  classDef generate fill:#f4ecff,stroke:#8159c9,stroke-width:1.5px,color:#1f2a26;
+  classDef guard fill:#fff4ec,stroke:#c97a36,stroke-width:1.5px,color:#1f2a26;
+  classDef send fill:#e8f7ff,stroke:#4794c9,stroke-width:1.5px,color:#1f2a26;
+  classDef data fill:#f1f0ec,stroke:#8a836e,stroke-width:1.5px,color:#1f2a26;
+  classDef cron fill:#f7eaf7,stroke:#a85aa8,stroke-width:1.5px,color:#1f2a26;
+      </div>
+
+      <div class="demo-status" id="demoStatus"><span class="dot"></span><span id="demoStatusText">Tracing message...</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-input);border-color:var(--c-input-stroke)"></span>Inbound</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-route);border-color:var(--c-route-stroke)"></span>Routing</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-classify);border-color:var(--c-classify-stroke)"></span>Classify</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-branch);border-color:var(--c-branch-stroke)"></span>Branch</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-generate);border-color:var(--c-generate-stroke)"></span>Generate</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-guard);border-color:var(--c-guard-stroke)"></span>Guards</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-send);border-color:var(--c-send-stroke)"></span>Send</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-data);border-color:var(--c-data-stroke)"></span>Data</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-cron);border-color:var(--c-cron-stroke)"></span>Crons</div>
+    </div>
+  </section>
+
+  <aside class="detail" id="detailPanel">
+    <h3 id="dTitle">Pick a node</h3>
+    <span class="pill" id="dPill" style="display:none">layer</span>
+    <div class="file" id="dFile" style="display:none">file</div>
+    <p id="dSummary" class="hint">Click any box in the diagram to see what it does, which files run it, what inputs it consumes, and what outputs it produces.</p>
+    <div id="dExtras"></div>
+  </aside>
+
+</main>
+
+<footer class="note">
+  Single-file draft, no build step. Loaded Mermaid from CDN.
+  Source code references match commit on origin/main as of 2026-05-14.
+</footer>
+
+<script>
+const NODES = {
+  // INBOUND
+  customer_msg: { layer: "Inbound", title: "Customer WhatsApp message",
+    summary: "End-user sends a text, image, or voice note to the Electro-Sun number. Meta delivers it to our webhook over HTTPS within seconds.",
+    inputs: ["WhatsApp text body", "Image binary + caption", "Audio binary (ogg/mp4)"],
+    outputs: ["Webhook POST to /webhook"] },
+  meta_webhook: { layer: "Inbound", title: "Meta Cloud API webhook", file: "src/webhook.js",
+    summary: "Express endpoint that receives the signed POST from Meta. Returns 200 immediately, processes async to avoid Meta retry storms.",
+    inputs: ["raw HTTP body", "X-Hub-Signature-256 header", "META_APP_SECRET env"],
+    outputs: ["200 OK", "queued payload for handleInbound"] },
+  hmac_verify: { layer: "Inbound", title: "HMAC SHA-256 signature verify", file: "src/utils/verifySignature.js",
+    summary: "Computes HMAC-SHA256 over the raw body using META_APP_SECRET and compares to Meta's signature. Mismatch returns 403.",
+    inputs: ["raw body buffer", "META_APP_SECRET"],
+    outputs: ["403 reject", "or pass-through"] },
+  extract_msg: { layer: "Inbound", title: "Extract message payload", file: "src/handler.js > extractMessages",
+    summary: "Parses Meta's webhook envelope into a flat message shape: text body, image media id, audio media id, sender phone, profile name.",
+    inputs: ["Meta entry.changes.value payload"],
+    outputs: ["{ from, profileName, body, mediaId, kind, whatsapp_message_id }"] },
+  voice_branch: { layer: "Inbound", title: "Voice note?", summary: "Branches on message kind. Voice notes route through Whisper; everything else moves directly to idempotency check." },
+  voice_transcribe: { layer: "Inbound", title: "Whisper transcription", file: "src/transcribe.js",
+    summary: "Two-step Meta media download (metadata GET, then signed URL GET with auth), 25MB cap, 30s timeout. Pipes to OpenAI Whisper. Rewrites msg.body to the transcript prefixed with [voice note transcribed]:.",
+    inputs: ["mediaId", "OPENAI_API_KEY", "WHISPER_MODEL (default whisper-1)"],
+    outputs: ["transcribed text body"],
+    notes: ["Fallback when OpenAI 401: '[Customer sent a voice note that could not be transcribed]'."] },
+  idempotency: { layer: "Inbound", title: "Idempotency check",
+    summary: "Looks up whatsapp_message_id in the messages table. Meta retries failed webhooks; duplicate processing must be a silent skip.",
+    inputs: ["whatsapp_message_id"],
+    outputs: ["skip if duplicate", "or proceed"] },
+  get_contact: { layer: "Inbound", title: "Get or create contact + conversation", file: "src/memory.js",
+    summary: "Either fetches the existing contact by phone or creates a new one with the WhatsApp profile name. Opens a new conversation if the last message was over 24 hours ago.",
+    outputs: ["{ contact, conversation }"] },
+
+  // ROUTING
+  owner_route: { layer: "Routing", title: "Sender = Owner?",
+    summary: "Branches on the sender phone. OWNER_WHATSAPP messages are handled separately. Reply-to-QID messages are interpreted as answers to pending silent queries.",
+    inputs: ["from phone", "OWNER_WHATSAPP env", "msg.replyToId"] },
+  owner_reply: { layer: "Routing", title: "handleOwnerReply", file: "src/handler.js",
+    summary: "When the owner replies to a [QID:N] tag, Sunny relays the answer back to the original customer and marks the pending_queries row resolved.",
+    inputs: ["owner reply body", "QID match"],
+    outputs: ["outbound to customer", "pending_queries.status = resolved"] },
+  owner_qa: { layer: "Routing", title: "Owner Q&A mode", file: "src/owner_qa.js + src/prompts/owner_qa.md",
+    summary: "Owner can WhatsApp Sunny questions about live data. answerOwnerQuestion builds a live snapshot (today stats, hot leads, pending queries, recent contacts, active fact count) and asks Sonnet to answer.",
+    inputs: ["owner message", "live DB snapshot"],
+    outputs: ["WhatsApp reply to owner"] },
+  conv_check: { layer: "Routing", title: "Conversation human_handled?",
+    summary: "When a human takes over via the admin (or the cron releases), Sunny pauses processing of new customer inbound for that conversation.",
+    inputs: ["conversations.human_handled"],
+    outputs: ["skip", "or process"] },
+  human_skip: { layer: "Routing", title: "Skip, owner managing",
+    summary: "Customer message is persisted but Sunny does not classify or reply. Auto-release cron resumes Sunny after HUMAN_AUTO_RELEASE_MINUTES (default 15) of inactivity.",
+    notes: ["Open gap: no automatic owner ping when new customer messages arrive during human_handled state."] },
+  debounce: { layer: "Routing", title: "Debounce queue", file: "src/handler.js",
+    summary: "Per-contact in-memory queue. Persists each message immediately. Classification + reply fires ONCE per MESSAGE_DEBOUNCE_MS (default 6s) with input '[Customer sent N messages back to back]\\n…'.",
+    inputs: ["MESSAGE_DEBOUNCE_MS env"],
+    outputs: ["combined batch for classify + reply"] },
+
+  // CLASSIFY
+  greeting_check: { layer: "Classify", title: "Greeting regex match?",
+    summary: "Cheap regex pre-check on common greetings (hi, hello, good morning, how far, etc.). On match, Sunny skips the classifier LLM entirely.",
+    notes: ["Saves a Sonnet call and prevents over-classification of casual openers as escalations."] },
+  greeting_fastpath: { layer: "Classify", title: "Greeting fast-path",
+    summary: "Returns synthetic classification (C1, COLD, no escalation, intent=greeting). The reply path then sends Opus an EMPTY history so it doesn't anchor on prior products.",
+    outputs: ["{ category: C1, lead_temperature: COLD, escalation_type: null }"] },
+  classifier: { layer: "Classify", title: "runClassification (Sonnet)", file: "src/classifier.js + src/prompts/classifier.md",
+    summary: "Sonnet call with the prior history (last 50 turns) and the new batch. Returns category (HOT/SERIOUS/COLD/DISQUALIFIED/REPEAT_CLIENT), lead_temperature, client_type, intent, escalation_type. Retries once on JSON parse failure.",
+    inputs: ["classifier.md", "history (last 50)", "current batch text"],
+    outputs: ["structured classification JSON"] },
+  safety_nets: { layer: "Classify", title: "Classifier safety nets",
+    summary: "Three guards layered on top of the Sonnet output: (1) HOT without an explicit commitment phrase gets demoted to WARM; (2) greeting classified as escalation gets blocked; (3) clarification reactions ('for what?', 'huh?') are forced to no-escalation.",
+    notes: ["Logged as classifier.hot_without_commitment_phrase_demoted, classifier.greeting_escalation_blocked, classifier.clarification_escalation_blocked."] },
+  update_contact: { layer: "Classify", title: "Update contact",
+    summary: "Writes back category, language, lead_data fields (size, phase, location, etc.). NEVER overwrites a known value; only fills nulls.",
+    outputs: ["mutated contacts row"] },
+
+  // BRANCH
+  branch_decision: { layer: "Branch", title: "Branch on escalation type",
+    summary: "Routes to one of three paths: HOT (commitment phrase), silent_query/pricing (needs human input), or normal reply.",
+    inputs: ["classification.escalation_type"] },
+  hot_path: { layer: "Branch", title: "HOT path",
+    summary: "Customer committed to buy ('send me account', 'I want to pay', 'send proforma'). Owner gets a RED alert with conversation brief; customer gets a one-sentence acknowledgement plus the wa.me specialist link.",
+    notes: ["HOT alerts use HOT_ESCALATION_COOLDOWN_MS (60s) not the regular 30 min throttle."] },
+  silent_query_path: { layer: "Branch", title: "Silent query / pricing path",
+    summary: "Customer asks something Sunny can't confirm (price not in stock, specific install date, custom config). Owner gets a YELLOW alert with [QID:N]. Customer gets a context-aware deflection generated by Opus under awaiting-expert constraints.",
+    notes: ["Open pending_queries triggers follow-up pings via checkFollowupThrottle (5 min) instead of full new escalation."] },
+  reply_path: { layer: "Branch", title: "Normal reply path",
+    summary: "Default branch when no escalation is needed. Opus generates a fresh reply with the standard system blocks." },
+  alert_owner: { layer: "Branch", title: "Alert owner via WhatsApp", file: "src/handler.js > notifyOwnerForEscalation",
+    summary: "Builds the alert: typed header (HOT/NEGOTIATION/REPEAT/BIG-PROJECT/FOLLOW-UP), customer name+phone, classifier signals, latest message verbatim, 6-turn conversation brief, admin deep-link, customer wa.me link. Owner alerts are also persisted to the owner's conversation thread for the Owner Chat admin tab.",
+    inputs: ["classification", "contact", "conversation history"],
+    outputs: ["WhatsApp message to OWNER_WHATSAPP", "pending_queries row"] },
+
+  // GENERATE
+  hv_drops_feedback: { layer: "Generate", title: "HV drops feedback context", file: "src/hv_validator.js",
+    summary: "Per-contact map keyed by contactId. If the previous turn's HV BOM had options dropped by the validator (uneven split, sub-floor cluster, non-HV inverter), the drop reasons get injected into this turn's system blocks so the model can recompute correctly.",
+    notes: ["TTL 10 min. Cleared on consume. Logged as claude.reply.hv_prior_drops_injected."] },
+  build_system_blocks: { layer: "Generate", title: "Build system blocks", file: "src/claude.js > generateReply",
+    summary: "Stacks the system prompt block: master prompt (system.md, ephemeral cache), Warehouse Stock block, Datasheet Knowledge block, Conversation state, Known-about-customer, Expert context (HOT or awaiting-expert variants), prior HV drops if any.",
+    outputs: ["array of typed system blocks for Anthropic"] },
+  opus_call: { layer: "Generate", title: "Anthropic messages.create",
+    summary: "Single API call to MODEL_REPLY (claude-opus-4-7), 600 max tokens, prompt caching enabled on the master prompt block. Single retry on parse failure.",
+    inputs: ["system blocks", "alternating history", "current user turn"],
+    outputs: ["raw model reply text"] },
+  record_usage: { layer: "Generate", title: "recordUsage", file: "src/cost_tracker.js",
+    summary: "Logs token counts and computed cost (cents) into the daily_costs table per model + call type (reply, classifier, teacher, owner_qa).",
+    outputs: ["daily_costs row update"] },
+
+  // GUARDS
+  g_censored: { layer: "Guards", title: "Censored asterisks retry",
+    summary: "When the model returns prices censored with **** (e.g. 'NGN ****'), a retry with explicit instruction to give actual figures fires once. Triggered by /=\\s*\\*{3,}|\\*{4,}\\b/.",
+    notes: ["Single retry only. Logged as claude.reply.censored_with_asterisks_detected."] },
+  g_price_dump: { layer: "Guards", title: "Price-dump strip",
+    summary: "If neither the current message nor the previous 2 customer messages contain a price-ask keyword AND the reply has at least 1 price pattern, strip all price patterns. Looks back 6 user turns for a price ask.",
+    notes: ["Falls back to 'share more about your project' if the strip leaves dangling labels."] },
+  g_duplicate: { layer: "Guards", title: "Duplicate check",
+    summary: "Compares the new reply to the last outbound for this contact (normalized). Byte-equal match gets replaced with 'Apologies, let me re-read your last message.' to avoid robotic repeats." },
+  g_trailing_q: { layer: "Guards", title: "Trailing question strip (pure-ack only)",
+    summary: "Fires ONLY when the customer's last message was a pure acknowledgement (ok / noted / thanks / emoji-only). Strips the trailing question so Sunny doesn't pile a new ask on a closing customer. Gratitude flow exempts via allowTrailingQuestion." },
+  g_cta_tail: { layer: "Guards", title: "CTA-tail strip",
+    summary: "Strips closing CTAs like 'Want to proceed?', 'Should I send the account?', 'Are you ready to pay?', 'Would you like to wait or pre-order?'. Suppressed when the customer's message contained a guidance/intent phrase (recommend / ready to pay / send me account)." },
+  g_prompt_leak: { layer: "Guards", title: "Prompt-leak detector", file: "src/security.js",
+    summary: "Scans output for markers from the system prompt or internals ('lagos sales floor', 'claude-opus-4', 'lead_temperature', 'OWNER_WHATSAPP', etc.). On hit, replaces with a generic deflection." },
+  g_owner_num_leak: { layer: "Guards", title: "Owner-number leak",
+    summary: "If the reply contains OWNER_WHATSAPP digits anywhere outside the canonical wa.me URL, replace with a deflection. Defends against the model accidentally exposing the brother's number." },
+  g_phone_dump: { layer: "Guards", title: "Phone-list dump block",
+    summary: "If the reply contains 3 or more Nigerian-format phone numbers, replace with a deflection. Defends against the model trying to be helpful with contact lists." },
+  g_catalog_dump: { layer: "Guards", title: "Catalog enumeration block",
+    summary: "Customer asked for a list ('send me your price list', 'all your prices') AND the reply has 3+ price patterns, replace with 'Could you tell me which model or system size you need?'.",
+    notes: ["Pairs with the newer SKU-list dump guard which catches enumeration without prices."] },
+  g_fab_variant: { layer: "Guards", title: "Fabricated-variant guard",
+    summary: "For every (size + phase + stock-state) claim in the reply, verify a matching row exists in warehouse_items (both size AND phase/voltage). If no match AND not a negation, replace the reply with a confirmation deflection. Catches 'we have 20kW single-phase incoming' when we only stock 20kW three-phase." },
+  g_hv_validator: { layer: "Guards", title: "HV BOM validator", file: "src/hv_validator.js",
+    summary: "Parses every '*Option N — BOS-X*' header in the reply, validates cluster math against §9HV.3 (max-per-cluster, BOS-B floor 7, even split, 1 PDU per cluster), drops invalid options silently, renumbers survivors. Records dropped reasons into the per-contact feedback map for next turn.",
+    notes: ["non_hv_inverter drop catches LV inverter (SUN-XK where X not 30/50/80) paired with HV battery. Framing line gets rewritten so 'Here are all three options' becomes 'Here are these two options' when 1 of 3 drops."] },
+  g_datasheet_marker: { layer: "Guards", title: "Datasheet marker guard",
+    summary: "The internal '[Datasheet sent: ...]' marker is a DB-only label, never customer-facing text. If the model emits it (because it leaked into history), replace with 'We don't have that specific datasheet on file.'" },
+  g_dash_strip: { layer: "Guards", title: "Dash strip (em / en / --)",
+    summary: "Owner's permanent rule: no em-dash, en-dash, or ASCII double-dash anywhere in customer output. Special-cases 'Option N — BOS-X' to 'Option N: BOS-X', preserves number ranges as single hyphen, converts mid-sentence dashes to commas." },
+  g_bom_cleanup: { layer: "Guards", title: "BOM cleanup", file: "src/claude.js > cleanupBomReply",
+    summary: "Final BOM pass. Strips §9.0/§9LV/§9HV references, 'Check N:' stems, parenthetical reasoning ((≤20kW)), default-routing phrases, dropped-option lines, recommendation reasoning. Forces blank lines before Option N: and Recommended: headers. Forces newline before glued BOM body labels.",
+    notes: ["Six cleanup passes, summarized in the reasons[] returned for logging."] },
+  g_sku_dump: { layer: "Guards", title: "SKU-list dump block",
+    summary: "Counts distinct SUN-XK inverter SKUs and distinct BOS-/SE- battery SKUs in the reply. Blocks when no 'Option N:' BOM structure AND (4+ distinct inverters OR 4+ distinct batteries OR 6+ total). Catches the 'here is everything we sell' failure mode that survives the price-based catalog guard." },
+  g_stall: { layer: "Guards", title: "Stall-language guard", file: "src/security.js + src/handler.js",
+    summary: "After all reply guards run, checks for first-person stall patterns ('let me check', 'I'll confirm', 'will revert', 'will get back'). Triggers a silent_query escalation, regenerates the reply with awaiting-expert context. Falls back to 'Noted. Will share the figure once confirmed.' only if regeneration also stalls." },
+
+  // SEND
+  send_meta: { layer: "Send", title: "sendMessage via Meta", file: "src/whatsapp.js",
+    summary: "POST to graph.facebook.com/v21.0/<phone-id>/messages with the text body. Returns Meta message id which is stored on the outbound row.",
+    inputs: ["to phone", "body text", "META_ACCESS_TOKEN"] },
+  persist_db: { layer: "Send", title: "Persist outbound to DB",
+    summary: "Writes the outbound message into messages with direction='outbound', the returned whatsapp_message_id, the intent label, and the body. Powers the admin Inbox view." },
+  hot_handoff_check: { layer: "Send", title: "HOT handoff check",
+    summary: "If the classification was hot_lead OR the reply contains HOT handoff markers ('account details and final figures', 'send you the account'), prepare to append the specialist wa.me link." },
+  hot_link_append: { layer: "Send", title: "Append wa.me specialist link",
+    summary: "Builds 'https://wa.me/<SPECIALIST_DIRECT_LINK>?text=…' with a quoted message prefilled so the customer one-taps to a specialist conversation already framed by their previous inquiry." },
+
+  // DATA
+  sqlite_db: { layer: "Data", title: "SQLite /data/sunny.db",
+    summary: "Single-file database via better-sqlite3 (synchronous). On Railway mounted at /data which is a persistent volume. Local dev uses db/sunny.db.",
+    notes: ["Daily snapshots are written by the 9pm Lagos daily report cron when LOG_TO_FILE is on."] },
+  warehouse_stock: { layer: "Data", title: "Warehouse Stock", file: "src/warehouse.js",
+    summary: "Single source of truth for what Electro-Sun sells, how much it costs, and what is currently in stock. warehouse_items + warehouse_stock (per location: abuja, lagos). State is one of in_stock / out_of_stock / incoming with quantity, coming_note, eta_date. formatWarehouseForPrompt() injects this into every classifier and reply system block." },
+  datasheets_attached: { layer: "Data", title: "Datasheets attached to items",
+    summary: "Each warehouse item can carry one datasheet (PDF / PNG / JPG / WEBP up to 15MB). When the customer asks for a datasheet/brochure/spec, the matched item's file is uploaded to Meta (cached 25 days) and sent as a WhatsApp document." },
+  prompts_files: { layer: "Data", title: "Master prompts", file: "src/prompts/",
+    summary: "Four files edited like English prose: system.md (Sunny's voice + doctrine), classifier.md (categories + escalation rules), owner_qa.md (live-snapshot Q&A), teacher.md (legacy, retired from the editor 2026-05-10). Admin Save commits + pushes via GitHub API; Railway redeploys.",
+    notes: ["src/prompt_store.js caches reads for 30s, busted on Save, so edits take effect on the next customer message without restart."] },
+  core_tables: { layer: "Data", title: "Core tables",
+    summary: "contacts (phone, name, category, lead_data), conversations (24h window rollover), messages (idempotent on whatsapp_message_id), events (category_changed, escalated, etc.)." },
+  pending_queries: { layer: "Data", title: "pending_queries",
+    summary: "One row per outstanding silent-query handoff. Tracks alert_message_id, status (open/resolved/expired), and expiring_warning_sent_at. The window monitor expires entries after 24h.",
+    inputs: ["customer_contact_id", "customer_message", "alert_message_id"] },
+  daily_costs: { layer: "Data", title: "daily_costs",
+    summary: "Per-day spend in integer cents. Powers DAILY_LLM_BUDGET_USD enforcement: when over budget, classify and generateReply short-circuit to fallback paths." },
+  env_vars: { layer: "Data", title: "Env vars + Railway",
+    summary: "All runtime config in env: API keys (Meta, Anthropic, OpenAI), feature flags (DISABLE_NOTIFICATIONS, DISABLE_ESCALATIONS), thresholds (debounce, rate limits, throttles), routing (OWNER_WHATSAPP, SPECIALIST_DIRECT_LINK). Railway env values override the local .env in production." },
+
+  // CRONS
+  cron_hourly: { layer: "Crons", title: "Hourly report cron", file: "src/reports.js",
+    summary: "Every 2 hours UTC. generateHourlyReport aggregates the period (new contacts, escalations, queries, costs) and sendOwnerReport delivers it to OWNER_WHATSAPP.",
+    notes: ["All crons are skipped at boot when DISABLE_NOTIFICATIONS=true."] },
+  cron_daily: { layer: "Crons", title: "Daily report 9pm Lagos",
+    summary: "Generates the day's full summary, sends to owner, snapshots the DB. Africa/Lagos timezone." },
+  cron_learning: { layer: "Crons", title: "Daily learning report 9:30pm",
+    summary: "Aggregates unanswered queries, unsorted contacts, frequent inbound intents. Surfaces patterns the owner can use to tune prompts or stock." },
+  cron_window_monitor: { layer: "Crons", title: "Window monitor every 30 min", file: "src/window_monitor.js",
+    summary: "Scans pending_queries: at 23h sends a one-time reminder to the owner; at 24h marks the row 'expired'. Also fires the one-time over-budget alert when daily_costs crosses DAILY_LLM_BUDGET_USD." },
+  cron_auto_release: { layer: "Crons", title: "Auto-release human-handled",
+    summary: "Every 5 minutes scans conversations where human_handled=1 and the last human activity is older than HUMAN_AUTO_RELEASE_MINUTES (default 15). Releases the conversation back to Sunny and re-queues the latest unanswered customer inbound through the normal pipeline.",
+    notes: ["This is the path that resumes Sunny after the owner takes over manually."] }
+};
+
+const LAYER_COLORS = {
+  Inbound: { bg: "#f0fbf3", stroke: "#6bbf85" },
+  Routing: { bg: "#fff8e7", stroke: "#d6a637" },
+  Classify: { bg: "#ecf3ff", stroke: "#5483d6" },
+  Branch: { bg: "#fdf0f0", stroke: "#c5575e" },
+  Generate: { bg: "#f4ecff", stroke: "#8159c9" },
+  Guards: { bg: "#fff4ec", stroke: "#c97a36" },
+  Send: { bg: "#e8f7ff", stroke: "#4794c9" },
+  Data: { bg: "#f1f0ec", stroke: "#8a836e" },
+  Crons: { bg: "#f7eaf7", stroke: "#a85aa8" }
+};
+
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  themeVariables: {
+    fontFamily: '-apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif',
+    fontSize: '13px',
+    primaryColor: '#ffffff',
+    primaryBorderColor: '#a8b3ae',
+    primaryTextColor: '#1f2a26',
+    lineColor: '#9aa9a4',
+    edgeLabelBackground: '#ffffff'
+  },
+  flowchart: {
+    htmlLabels: true,
+    nodeSpacing: 32,
+    rankSpacing: 48,
+    curve: 'basis'
+  },
+  securityLevel: 'loose'
+});
+
+window.showNodeDetails = function(id) {
+  const node = NODES[id];
+  const panel = document.getElementById('detailPanel');
+  const dTitle = document.getElementById('dTitle');
+  const dPill = document.getElementById('dPill');
+  const dFile = document.getElementById('dFile');
+  const dSummary = document.getElementById('dSummary');
+  const dExtras = document.getElementById('dExtras');
+
+  if (!node) {
+    dTitle.textContent = 'No detail registered';
+    dPill.style.display = 'none';
+    dFile.style.display = 'none';
+    dSummary.textContent = 'This node does not have a detail entry yet.';
+    dExtras.innerHTML = '';
+    return;
+  }
+  dTitle.textContent = node.title;
+  dPill.style.display = 'inline-block';
+  dPill.textContent = node.layer;
+  const c = LAYER_COLORS[node.layer];
+  if (c) { dPill.style.background = c.bg; dPill.style.color = c.stroke; }
+  if (node.file) {
+    dFile.style.display = 'inline-block';
+    dFile.textContent = node.file;
+  } else {
+    dFile.style.display = 'none';
+  }
+  dSummary.classList.remove('hint');
+  dSummary.textContent = node.summary || '';
+
+  let extras = '';
+  if (node.inputs && node.inputs.length) {
+    extras += '<div class="section-title">Inputs</div><ul>' + node.inputs.map(x => `<li>${x}</li>`).join('') + '</ul>';
+  }
+  if (node.outputs && node.outputs.length) {
+    extras += '<div class="section-title">Outputs</div><ul>' + node.outputs.map(x => `<li>${x}</li>`).join('') + '</ul>';
+  }
+  if (node.notes && node.notes.length) {
+    extras += '<div class="section-title">Notes</div><ul>' + node.notes.map(x => `<li>${x}</li>`).join('') + '</ul>';
+  }
+  dExtras.innerHTML = extras;
+};
+
+// Zoom controls
+let zoom = 1;
+function applyZoom() {
+  const el = document.getElementById('mermaidDiagram');
+  if (el) el.style.transform = `scale(${zoom})`;
+}
+document.getElementById('zoomIn').addEventListener('click', () => { zoom = Math.min(2, zoom + 0.1); applyZoom(); });
+document.getElementById('zoomOut').addEventListener('click', () => { zoom = Math.max(0.4, zoom - 0.1); applyZoom(); });
+document.getElementById('zoomReset').addEventListener('click', () => { zoom = 1; applyZoom(); });
+
+// Layer toggles
+document.querySelectorAll('.toolbar .toggle[data-layer]').forEach(el => {
+  el.addEventListener('click', () => {
+    el.classList.toggle('off');
+    const layer = el.getAttribute('data-layer');
+    const map = {
+      inbound: 'Inbound',
+      routing: 'Routing',
+      classify: 'Classification',
+      branch: 'Branch',
+      generate: 'Generate',
+      guards: 'Guards',
+      send: 'Send',
+      data: 'Data',
+      cron: 'Crons'
+    };
+    const subgraphLabel = map[layer];
+    if (!subgraphLabel) return;
+    const svg = document.querySelector('#mermaidDiagram svg');
+    if (!svg) return;
+    svg.querySelectorAll('g.cluster').forEach(g => {
+      const t = g.querySelector('text, .nodeLabel');
+      if (!t) return;
+      const label = (t.textContent || '').trim();
+      if (label.toLowerCase().includes(subgraphLabel.toLowerCase().replace(/[^a-z]/g,''))
+        || label.toLowerCase().includes(layer)) {
+        g.style.display = el.classList.contains('off') ? 'none' : '';
+      }
+    });
+  });
+});
+
+// Demo trace: animate a customer message through the diagram
+const TRACE_ORDER = [
+  'A1','A2','A3','A4','A5','A7','A8',
+  'R1','R4','R6',
+  'C1','C3','C4','C5',
+  'B1','B4',
+  'G0','G1','G2','G3',
+  'GU1','GU2','GU3','GU4','GU5','GU6','GU7','GU8','GU9','GU10','GU11','GU12','GU13','GU14','GU15','GU16',
+  'S1','S2','S3'
+];
+let traceTimer = null;
+const demoStatus = document.getElementById('demoStatus');
+const demoText = document.getElementById('demoStatusText');
+
+function clearTrace() {
+  document.querySelectorAll('.mermaid svg .node.demo-active').forEach(n => n.classList.remove('demo-active'));
+  demoStatus.classList.remove('active');
+}
+function highlightNode(mermaidId) {
+  const svg = document.querySelector('#mermaidDiagram svg');
+  if (!svg) return null;
+  const candidates = svg.querySelectorAll(`g.node[id*="${mermaidId}"]`);
+  if (candidates.length) {
+    candidates[0].classList.add('demo-active');
+    return candidates[0];
+  }
+  return null;
+}
+function playDemo() {
+  clearTrace();
+  demoStatus.classList.add('active');
+  let i = 0;
+  function step() {
+    if (i > 0) {
+      const prev = highlightNodeRef[i-1];
+      if (prev) prev.classList.remove('demo-active');
+    }
+    if (i >= TRACE_ORDER.length) {
+      demoText.textContent = 'Reply sent ✓';
+      setTimeout(clearTrace, 1500);
+      return;
+    }
+    const id = TRACE_ORDER[i];
+    const node = highlightNode(id);
+    highlightNodeRef[i] = node;
+    if (node) {
+      const label = node.querySelector('foreignObject, .nodeLabel, text');
+      demoText.textContent = label ? (label.textContent || '').trim().split('\n')[0].slice(0, 60) : id;
+      node.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }
+    i++;
+    traceTimer = setTimeout(step, 380);
+  }
+  const highlightNodeRef = [];
+  step();
+}
+document.getElementById('playDemoBtn').addEventListener('click', () => {
+  if (traceTimer) { clearTimeout(traceTimer); traceTimer = null; }
+  playDemo();
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (traceTimer) { clearTimeout(traceTimer); traceTimer = null; }
+  clearTrace();
+  showNodeDetails('');
+  document.getElementById('dTitle').textContent = 'Pick a node';
+  document.getElementById('dPill').style.display = 'none';
+  document.getElementById('dFile').style.display = 'none';
+  const p = document.getElementById('dSummary');
+  p.textContent = 'Click any box in the diagram to see what it does, which files run it, what inputs it consumes, and what outputs it produces.';
+  p.classList.add('hint');
+  document.getElementById('dExtras').innerHTML = '';
+});
+
+// Mark nodes as clickable for hover effect
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    const svg = document.querySelector('#mermaidDiagram svg');
+    if (!svg) return;
+    svg.querySelectorAll('g.node').forEach(n => {
+      n.classList.add('node-clickable');
+    });
+    svg.style.maxWidth = 'none';
+  }, 800);
+});
+</script>
+
+</body>
+</html>

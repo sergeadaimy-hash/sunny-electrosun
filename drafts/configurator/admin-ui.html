@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Configurator, admin draft</title>
+<style>
+:root {
+  --bg: #f4f7f5;
+  --surface: #ffffff;
+  --surface-2: #f8faf9;
+  --text: #1f2a26;
+  --text-soft: #5a6b65;
+  --muted: #93a39d;
+  --brand: #128c4f;
+  --brand-soft: #d7f1e2;
+  --line: #e2eae5;
+  --shadow: 0 1px 2px rgba(20, 50, 36, 0.04), 0 6px 18px rgba(20, 50, 36, 0.05);
+  --radius: 10px;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --warn: #ce8b1a;
+  --warn-soft: #fff4dc;
+  --danger: #c5575e;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+header.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding: 16px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+header.topbar h1 { margin: 0; font-size: 18px; font-weight: 600; }
+header.topbar .sub { color: var(--text-soft); font-size: 13px; margin-left: 12px; }
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.dirty-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+  margin-right: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.dirty-dot.shown { opacity: 1; }
+.dirty-text { font-size: 12px; color: var(--text-soft); margin-right: 8px; }
+.btn {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.btn:hover { border-color: var(--brand); color: var(--brand); }
+.btn.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+.btn.primary:hover { background: #0f6f3f; color: #fff; border-color: #0f6f3f; }
+
+main {
+  display: grid;
+  grid-template-columns: 220px 1fr 420px;
+  gap: 16px;
+  padding: 16px 28px 40px;
+  align-items: start;
+}
+@media (max-width: 1200px) { main { grid-template-columns: 1fr; } }
+
+nav.sidenav {
+  position: sticky;
+  top: 70px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+nav.sidenav h2 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+nav.sidenav a {
+  display: block;
+  padding: 8px 12px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+  border-radius: 6px;
+  margin-bottom: 2px;
+}
+nav.sidenav a:hover { background: var(--surface-2); }
+nav.sidenav a.active { background: var(--brand-soft); color: var(--brand); font-weight: 500; }
+
+section.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px 24px;
+  margin-bottom: 16px;
+}
+section.card h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+section.card .desc { color: var(--text-soft); font-size: 13px; margin-bottom: 16px; }
+
+.row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 12px 18px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.row:last-child { border-bottom: none; }
+.row label { font-size: 13px; color: var(--text-soft); font-weight: 500; }
+.row input[type="number"], .row input[type="text"], .row select {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  width: 160px;
+}
+.row input[type="checkbox"] { transform: scale(1.15); margin-right: 8px; }
+.row .unit { font-size: 12px; color: var(--muted); margin-left: 6px; }
+.row .help { font-size: 12px; color: var(--muted); margin-top: 2px; font-style: italic; }
+
+.warn-banner {
+  background: var(--warn-soft);
+  border-left: 3px solid var(--warn);
+  padding: 10px 14px;
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  margin: 8px 0 16px;
+}
+.warn-banner strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+  margin-bottom: 4px;
+}
+
+table.skus {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 13px;
+}
+table.skus thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+table.skus tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+table.skus tbody td input, table.skus tbody td select {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  width: 100%;
+}
+table.skus tbody td.actions { text-align: right; width: 80px; }
+table.skus tbody td.actions button {
+  font-size: 11px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-soft);
+}
+table.skus tbody td.actions button:hover { color: var(--danger); border-color: var(--danger); }
+table.skus tbody tr:hover { background: var(--surface-2); }
+.add-row {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--brand);
+  background: transparent;
+  border: 1px dashed var(--line);
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  font-weight: 500;
+}
+.add-row:hover { background: var(--brand-soft); border-color: var(--brand); }
+
+aside.sim {
+  position: sticky;
+  top: 70px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+aside.sim h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+aside.sim .desc { color: var(--text-soft); font-size: 12px; margin-bottom: 14px; line-height: 1.5; }
+aside.sim .sim-form {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+aside.sim .sim-form label { font-size: 12px; color: var(--text-soft); }
+aside.sim .sim-form input, aside.sim .sim-form select {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  width: 100%;
+}
+.sim-buttons { display: flex; gap: 8px; margin-bottom: 14px; }
+.sim-buttons button { flex: 1; }
+
+.sim-status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.sim-status.ok { background: var(--brand-soft); color: var(--brand); }
+.sim-status.suggest { background: var(--warn-soft); color: var(--warn); }
+.sim-status.no { background: #fdf0f0; color: var(--danger); }
+.sim-status.need { background: #ecf3ff; color: #5483d6; }
+.sim-status.idle { background: #f1f0ec; color: var(--text-soft); }
+
+.sim-output {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-size: 13px;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  line-height: 1.55;
+  color: var(--text);
+  margin-bottom: 12px;
+  min-height: 100px;
+}
+.sim-output strong {
+  font-weight: 700;
+}
+.sim-audit {
+  background: #f7f5ec;
+  border: 1px solid #e5dfca;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-family: var(--mono);
+  line-height: 1.5;
+  color: var(--text-soft);
+  max-height: 200px;
+  overflow-y: auto;
+  display: none;
+}
+.sim-audit.shown { display: block; }
+.audit-toggle {
+  font-size: 11px;
+  color: var(--text-soft);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 6px;
+  text-decoration: underline;
+}
+
+.examples-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.examples-bar button {
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text-soft);
+  font-family: var(--sans);
+}
+.examples-bar button:hover { border-color: var(--brand); color: var(--brand); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>Configurator</h1>
+    <span class="sub">tunable §9 doctrine, real engine runs in this page</span>
+  </div>
+  <div class="topbar-actions">
+    <span class="dirty-text" id="dirtyText">no unsaved changes</span>
+    <span class="dirty-dot" id="dirtyDot"></span>
+    <button class="btn" id="exportBtn">Download config.json</button>
+    <button class="btn" id="resetBtn">Reset to defaults</button>
+  </div>
+</header>
+
+<main>
+
+  <nav class="sidenav">
+    <h2>Sections</h2>
+    <a href="#routing" class="active">Routing rules</a>
+    <a href="#lv-ceilings">LV ceilings</a>
+    <a href="#lv-inverters">LV inverters</a>
+    <a href="#lv-packs">LV packs</a>
+    <a href="#hv-ceilings">HV ceilings</a>
+    <a href="#hv-inverters">HV inverters</a>
+    <a href="#hv-series">HV series</a>
+    <a href="#messages">Customer messages</a>
+  </nav>
+
+  <div>
+
+    <section class="card" id="routing">
+      <h2>Routing rules (§9.0)</h2>
+      <div class="desc">When the customer doesn't specify voltage, these thresholds decide LV vs HV.</div>
+      <div class="row">
+        <label>Default-LV load threshold</label>
+        <div>
+          <input type="number" data-path="lv.ceilings.load_kw_default_threshold">
+          <span class="unit">kW (loads ≤ this default to LV)</span>
+        </div>
+      </div>
+      <div class="row">
+        <label>LV tolerance</label>
+        <div>
+          <input type="number" step="0.1" data-path="lv.tolerance_percent">
+          <span class="unit">% (skip extra pack if floor is within this % of target)</span>
+        </div>
+      </div>
+      <div class="row">
+        <label>HV tolerance</label>
+        <div>
+          <input type="number" step="0.1" data-path="hv.tolerance_percent">
+          <span class="unit">% (same tolerance rule for HV modules)</span>
+        </div>
+      </div>
+      <div class="row">
+        <label>Headroom factor</label>
+        <div>
+          <input type="number" step="0.05" data-path="lv.headroom_factor">
+          <span class="unit">× (1.0 = treat customer kW as peak; 1.25 = continuous load)</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="lv-ceilings">
+      <h2>LV ceilings</h2>
+      <div class="desc">Hard system caps. LV switches to HV suggestion when these are exceeded.</div>
+      <div class="row">
+        <label>Max packs per system</label>
+        <div>
+          <input type="number" data-path="lv.ceilings.max_packs_per_system">
+          <span class="unit">total across all inverters (shared bus)</span>
+        </div>
+      </div>
+      <div class="row">
+        <label>Max LV inverters paralleled</label>
+        <div>
+          <input type="number" data-path="lv.ceilings.max_inverters_paralleled">
+          <span class="unit">same model only</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="lv-inverters">
+      <h2>LV inverters we carry</h2>
+      <div class="desc">Edit the model lineup. Off-grid models are preferred when the customer states no grid.</div>
+      <table class="skus" id="lvInvTable">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th style="width:90px">kW</th>
+            <th style="width:90px">Phase</th>
+            <th style="width:130px">Type</th>
+            <th class="actions"></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button class="add-row" data-add="lvInv">+ add inverter</button>
+    </section>
+
+    <section class="card" id="lv-packs">
+      <h2>LV battery packs we carry</h2>
+      <div class="desc">Stackable LV packs. The 2% tolerance applies to pack count.</div>
+      <table class="skus" id="lvPackTable">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th style="width:100px">kWh</th>
+            <th style="width:100px">Voltage V</th>
+            <th class="actions"></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button class="add-row" data-add="lvPack">+ add pack</button>
+    </section>
+
+    <section class="card" id="hv-ceilings">
+      <h2>HV ceilings and rules</h2>
+      <div class="desc">HV is 3-phase only. The mandatory rules below execute deterministically in the engine.</div>
+      <div class="row">
+        <label>Max HV inverters paralleled</label>
+        <div>
+          <input type="number" data-path="hv.ceilings.max_inverters_paralleled">
+          <span class="unit">same model only</span>
+        </div>
+      </div>
+      <div class="row">
+        <label>Equal modules per inverter</label>
+        <div><label><input type="checkbox" data-path="hv.rules.equal_modules_per_inverter"> mandatory (round up to multiple of inverter count)</label></div>
+      </div>
+      <div class="row">
+        <label>Drop on floor violation</label>
+        <div><label><input type="checkbox" data-path="hv.rules.drop_on_floor_violation"> never bump module count to clear the per-cluster floor</label></div>
+      </div>
+      <div class="row">
+        <label>Enforce table max-clusters</label>
+        <div>
+          <label><input type="checkbox" data-path="hv.enforce_max_clusters_per_inverter"> drop options that exceed the inverter's max-clusters cap</label>
+          <div class="help">Off by default — the v5.1 docx examples violate the table cap. Owner to clarify.</div>
+        </div>
+      </div>
+      <div class="warn-banner">
+        <strong>Owner clarification needed</strong>
+        §9HV.2 table says SUN-80K max_clusters=2, but §9HV.9 worked references run 3 clusters per 80K. Engine ships with the cap unenforced (matches examples). Toggle the checkbox above to honor the table cap.
+      </div>
+    </section>
+
+    <section class="card" id="hv-inverters">
+      <h2>HV inverters we carry</h2>
+      <div class="desc">Three-phase HP3 models. Voltage range governs which battery series can pair.</div>
+      <table class="skus" id="hvInvTable">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th style="width:80px">kW</th>
+            <th style="width:110px">Max clusters</th>
+            <th style="width:120px">Charge A</th>
+            <th style="width:90px">V min</th>
+            <th style="width:90px">V max</th>
+            <th class="actions"></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button class="add-row" data-add="hvInv">+ add inverter</button>
+    </section>
+
+    <section class="card" id="hv-series">
+      <h2>HV battery series</h2>
+      <div class="desc">BOS-G / BOS-A / BOS-B with per-inverter cluster ranges. Rack picking rules are baked into the engine (3U for BOS-G, RACK11/RACK14 logic for BOS-A, team-confirmed for BOS-B).</div>
+      <table class="skus" id="hvSeriesTable">
+        <thead>
+          <tr>
+            <th>Series</th>
+            <th style="width:100px">Module kWh</th>
+            <th style="width:90px">Min/cluster</th>
+            <th style="width:120px">Max @30K</th>
+            <th style="width:120px">Max @50K</th>
+            <th style="width:120px">Max @80K</th>
+            <th style="width:140px">PDU</th>
+            <th class="actions"></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button class="add-row" data-add="hvSeries">+ add series</button>
+    </section>
+
+    <section class="card" id="messages">
+      <h2>Customer messages</h2>
+      <div class="desc">Phrases the engine returns to Sunny when LV/HV doesn't fit. Sunny renders these to the customer verbatim.</div>
+      <div class="row">
+        <label>Suggest HV (Check 4)</label>
+        <div style="width:100%;">
+          <input type="text" style="width:100%" data-path="messages.suggest_hv">
+        </div>
+      </div>
+      <div class="row">
+        <label>LV full parallel no fit (Check 5)</label>
+        <div style="width:100%;">
+          <input type="text" style="width:100%" data-path="messages.lv_full_parallel_no_fit">
+        </div>
+      </div>
+      <div class="row">
+        <label>HV doesn't fit at all</label>
+        <div style="width:100%;">
+          <input type="text" style="width:100%" data-path="messages.no_hv_fit">
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <aside class="sim">
+    <h2>Live simulator</h2>
+    <p class="desc">The real engine runs in this page. Tune the config to your left, then test a customer scenario here. Output is the actual BOM Sunny would render.</p>
+
+    <div class="examples-bar">
+      <button data-ex="lv-100-80">100kW / 80kWh, 3φ</button>
+      <button data-ex="lv-30-50">30kW / 50kWh, 3φ</button>
+      <button data-ex="lv-10-30">10kW / 30kWh, 1φ</button>
+      <button data-ex="lv-6-20-og">6kW / 20kWh off-grid</button>
+      <button data-ex="hv-300-480">300kW / 480kWh HV</button>
+      <button data-ex="hv-150-360">150kW / 360kWh HV</button>
+      <button data-ex="hv-100-230">100kW / 230kWh HV</button>
+      <button data-ex="lv-200-600">200kW / 600kWh (→HV)</button>
+      <button data-ex="hv-60-90">60kW / 90kWh HV</button>
+    </div>
+
+    <div class="sim-form">
+      <label>Load (kW)</label><input type="number" id="simLoad" value="50">
+      <label>Storage (kWh)</label><input type="number" id="simStorage" value="80">
+      <label>Phase</label>
+      <select id="simPhase">
+        <option value="3" selected>3-phase</option>
+        <option value="1">1-phase</option>
+      </select>
+      <label>Voltage pref</label>
+      <select id="simVoltage">
+        <option value="any" selected>any (auto-route)</option>
+        <option value="lv">LV (customer said)</option>
+        <option value="hv">HV (customer said)</option>
+      </select>
+      <label>Off-grid</label>
+      <select id="simOffGrid">
+        <option value="false" selected>no</option>
+        <option value="true">yes</option>
+      </select>
+      <label>Max parallel</label>
+      <select id="simMaxParallel">
+        <option value="false" selected>no</option>
+        <option value="true">yes (after Check 5)</option>
+      </select>
+    </div>
+
+    <div class="sim-buttons">
+      <button class="btn primary" id="simRun">▶ Run</button>
+      <button class="btn" id="auditToggle">Show audit</button>
+    </div>
+
+    <span class="sim-status idle" id="simStatus">idle</span>
+    <div class="sim-output" id="simOut">Pick a scenario above or set custom inputs, then click Run.</div>
+    <div class="sim-audit" id="simAudit"></div>
+  </aside>
+
+</main>
+
+<script>
+// ===========================================================================
+// DEFAULT CONFIG (mirrors config.json verbatim)
+// ===========================================================================
+const DEFAULT_CONFIG = {
+  version: "v5.1-2026-05-15",
+  lv: {
+    ceilings: {
+      max_packs_per_system: 32,
+      max_inverters_paralleled: 10,
+      load_kw_default_threshold: 20
+    },
+    tolerance_percent: 2,
+    headroom_factor: 1.0,
+    inverters: [
+      { model: "SUN-20K-SG05LP3-EU-SM2",       power_kw: 20, phase: "3", type: "hybrid"   },
+      { model: "SUN-18K-SG01LP1-EU-AM3-P",     power_kw: 18, phase: "1", type: "hybrid"   },
+      { model: "SUN-16K-SG05LP3-EU-SM2",       power_kw: 16, phase: "3", type: "hybrid"   },
+      { model: "SUN-16K-SG01LP1-EU",           power_kw: 16, phase: "1", type: "hybrid"   },
+      { model: "SUN-12K-SG04LP3-EU",           power_kw: 12, phase: "3", type: "hybrid"   },
+      { model: "SUN-12K-SG02LP1-EU-AM3-P",     power_kw: 12, phase: "1", type: "hybrid"   },
+      { model: "SUN-10K-SG02LP1-EU-AM3-P",     power_kw: 10, phase: "1", type: "hybrid"   },
+      { model: "SUN-8K-SG05LP1-EU-SM2-P",      power_kw:  8, phase: "1", type: "hybrid"   },
+      { model: "SUN-6K-OG01LP1-EU-AM2",        power_kw:  6, phase: "1", type: "off-grid" },
+      { model: "SUN-5K-SG04LP1-EU-SM2",        power_kw:  5, phase: "1", type: "hybrid"   }
+    ],
+    packs: [
+      { model: "SE-F5.12", kwh:  5.12, voltage_v: 51.2 },
+      { model: "SE-F12",   kwh: 12.00, voltage_v: 51.2 },
+      { model: "SE-F16",   kwh: 16.00, voltage_v: 51.2 }
+    ]
+  },
+  hv: {
+    ceilings: { max_inverters_paralleled: 10 },
+    tolerance_percent: 2,
+    rules: { equal_modules_per_inverter: true, drop_on_floor_violation: true },
+    enforce_max_clusters_per_inverter: false,
+    inverters: [
+      { model: "SUN-30K-SG02HP3-EU-AM3", power_kw: 30, phase: "3", max_clusters_per_inverter: 1, max_charge_a:  75, battery_v_min: 160, battery_v_max:  700 },
+      { model: "SUN-50K-SG01HP3-EU-BM4", power_kw: 50, phase: "3", max_clusters_per_inverter: 2, max_charge_a: 100, battery_v_min: 160, battery_v_max:  800 },
+      { model: "SUN-80K-SG02HP3-EU-EM6", power_kw: 80, phase: "3", max_clusters_per_inverter: 2, max_charge_a: 160, battery_v_min: 160, battery_v_max: 1000 }
+    ],
+    series: [
+      {
+        name: "BOS-G", module_kwh: 5.12, min_per_cluster: 5,
+        max_per_cluster: { "30K": 16, "50K": 16, "80K": 16 },
+        pdu: "BOS-G-PDU-2",
+        rack: { kind: "single_type", model: "3U-RACK", modules_per_rack: 12, pdu_per_rack: 1 }
+      },
+      {
+        name: "BOS-A", module_kwh: 7.68, min_per_cluster: 7,
+        max_per_cluster: { "30K": 16, "50K": 16, "80K": 21 },
+        pdu: "BOS-A-PDU-2",
+        rack: {
+          kind: "two_type",
+          rack_a: { model: "BOS-A-RACK11", capacity: 10 },
+          rack_b: { model: "BOS-A-RACK14", capacity: 13 },
+          pick_rules: [
+            { modules_min:  7, modules_max: 10, result: [{ ref: "rack_a", qty: 1 }] },
+            { modules_min: 11, modules_max: 13, result: [{ ref: "rack_b", qty: 1 }] },
+            { modules_min: 14, modules_max: 16, result: [{ ref: "rack_b", qty: 1 }, { ref: "rack_a", qty: 1 }] },
+            { modules_min: 17, modules_max: 21, result: [{ ref: "rack_b", qty: 2 }] }
+          ]
+        }
+      },
+      {
+        name: "BOS-B", module_kwh: 16.08, min_per_cluster: 7,
+        max_per_cluster: { "30K": 13, "50K": 13, "80K": 16 },
+        pdu: "BOS-B-PDU",
+        rack: { kind: "team_confirmed", label: "BOS-B specific (confirmed with team)" }
+      }
+    ]
+  },
+  messages: {
+    suggest_hv: "For your load and storage, a high-voltage system is the cleaner fit. Here is the HV BOM.",
+    no_hv_fit: "To meet this load and storage on the configurations we carry would exceed our largest setup. Options: reduce storage target, reduce backed-up load, or split into two systems.",
+    lv_full_parallel_no_fit: "To meet this load and storage on LV would exceed the 10-inverter / 32-pack ceiling. The configuration isn't buildable on LV. Options: (a) reduce storage target, (b) reduce backed-up load, or (c) accept the HV BOM."
+  }
+};
+
+let CONFIG = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+let dirty = false;
+
+function markDirty() {
+  if (dirty) return;
+  dirty = true;
+  document.getElementById('dirtyDot').classList.add('shown');
+  document.getElementById('dirtyText').textContent = 'unsaved changes';
+}
+
+// ===========================================================================
+// ENGINE (browser-compatible copy of configurator.js)
+// ===========================================================================
+
+function proposeBatterySystem(input, config) {
+  const audit = [];
+  const missing = [];
+  if (typeof input.load_kw !== 'number' || input.load_kw <= 0) missing.push('load_kw');
+  if (typeof input.storage_kwh !== 'number' || input.storage_kwh <= 0) missing.push('storage_kwh');
+  if (!input.phase || (input.phase !== '1' && input.phase !== '3')) missing.push('phase');
+  if (missing.length) return { status: 'need_input', missing };
+
+  const voltagePref = (input.voltage_pref || 'any').toLowerCase();
+  const offGrid = !!input.off_grid;
+  const maxParallel = !!input.max_parallel;
+
+  let voltage;
+  if (voltagePref === 'lv') {
+    voltage = 'lv';
+    audit.push('§9.0 Check 1: customer named LV');
+  } else if (voltagePref === 'hv') {
+    voltage = 'hv';
+    audit.push('§9.0 Check 1: customer named HV');
+  } else if (input.load_kw <= config.lv.ceilings.load_kw_default_threshold) {
+    voltage = 'lv';
+    audit.push(`§9.0 Check 2: load ${input.load_kw}kW <= ${config.lv.ceilings.load_kw_default_threshold}kW, LV default`);
+  } else {
+    audit.push(`§9.0 Check 3: load ${input.load_kw}kW > ${config.lv.ceilings.load_kw_default_threshold}kW, testing LV ceilings`);
+    const lvFit = checkLvCeilings(input, config);
+    if (lvFit.fits) {
+      voltage = 'lv';
+      audit.push('§9.0 Check 3: LV ceilings hold, recommend LV');
+    } else {
+      audit.push(`§9.0 Check 3: LV ceilings fail (${lvFit.reason}), suggesting HV (Check 4)`);
+      const hvBom = buildHvBom(input, config);
+      return {
+        status: 'suggest_hv',
+        reason: lvFit.reason,
+        message: config.messages?.suggest_hv || 'For your load and storage, HV is the cleaner fit.',
+        hv_bom: hvBom,
+        audit: audit.slice().concat(hvBom.audit || [])
+      };
+    }
+  }
+
+  if (voltage === 'lv') {
+    return buildLvBom({ ...input, max_parallel: maxParallel, off_grid: offGrid }, config, audit);
+  } else {
+    return buildHvBom(input, config, audit);
+  }
+}
+
+function checkLvCeilings(input, config) {
+  const eligible = config.lv.inverters.filter(inv => inv.phase === input.phase);
+  if (eligible.length === 0) return { fits: false, reason: 'no LV inverter for requested phase' };
+  const headroom = config.lv.headroom_factor;
+  const maxInverterKw = Math.max(...eligible.map(i => i.power_kw));
+  const minInverterCount = Math.ceil((input.load_kw * headroom) / maxInverterKw);
+  if (minInverterCount > config.lv.ceilings.max_inverters_paralleled) {
+    return { fits: false, reason: `would need ${minInverterCount} LV inverters (cap ${config.lv.ceilings.max_inverters_paralleled})` };
+  }
+  const maxPackKwh = Math.max(...config.lv.packs.map(p => p.kwh));
+  const minPackCount = sizePackCount(input.storage_kwh, maxPackKwh, config.lv.tolerance_percent);
+  if (minPackCount > config.lv.ceilings.max_packs_per_system) {
+    return { fits: false, reason: `would need ${minPackCount} largest LV packs (cap ${config.lv.ceilings.max_packs_per_system})` };
+  }
+  return { fits: true };
+}
+
+function buildLvBom(input, config, audit = []) {
+  audit = audit.slice();
+  audit.push('§9LV: building LV BOM');
+  let eligibleInverters = config.lv.inverters.filter(inv => inv.phase === input.phase);
+  if (input.off_grid) {
+    const og = eligibleInverters.find(inv => inv.type === 'off-grid');
+    if (og) eligibleInverters = [og].concat(eligibleInverters.filter(inv => inv !== og));
+  } else {
+    eligibleInverters = eligibleInverters.filter(inv => inv.type !== 'off-grid');
+  }
+  if (eligibleInverters.length === 0) {
+    return { status: 'no_lv_fit', message: `No LV inverter matches phase ${input.phase}.`, audit };
+  }
+
+  const options = [];
+  for (const pack of config.lv.packs) {
+    const pick = pickLvInverter(input, pack, eligibleInverters, config, audit);
+    if (!pick) continue;
+    const totalPacks = sizePackCount(input.storage_kwh, pack.kwh, config.lv.tolerance_percent);
+    if (totalPacks > config.lv.ceilings.max_packs_per_system) {
+      audit.push(`§9LV.4: ${pack.model} needs ${totalPacks} packs > ${config.lv.ceilings.max_packs_per_system}, dropped`);
+      continue;
+    }
+    if (totalPacks < pick.count) {
+      audit.push(`§9LV.4: ${pack.model} needs ${totalPacks} packs but ${pick.count} inverters, dropped`);
+      continue;
+    }
+    options.push({
+      label: `Option ${options.length + 1}`,
+      battery_series: pack.model,
+      inverter: { model: pick.inverter.model, qty: pick.count },
+      battery: { model: pack.model, qty: totalPacks, total_kwh: round2(totalPacks * pack.kwh) },
+      parallel_kit: { qty: pick.count, items: ['comm cable', 'power cable'] },
+      cables: { items: ['battery comm bus', 'AC tie'] },
+      _internal: { pack_kwh: pack.kwh, inverter_kw: pick.inverter.power_kw }
+    });
+  }
+  if (options.length === 0) {
+    return {
+      status: 'no_lv_fit',
+      message: input.max_parallel
+        ? config.messages?.lv_full_parallel_no_fit || 'LV does not fit even at full parallel.'
+        : 'No LV configuration fits.',
+      audit
+    };
+  }
+  return {
+    status: 'ok',
+    voltage: 'lv',
+    options,
+    recommendation: pickLvRecommendation(options),
+    audit
+  };
+}
+
+function pickLvInverter(input, pack, eligibleInverters, config, audit) {
+  const headroom = config.lv.headroom_factor;
+  const maxInverters = config.lv.ceilings.max_inverters_paralleled;
+  const offGridPref = !!input.off_grid;
+  const candidates = [];
+  for (const inv of eligibleInverters) {
+    const count = Math.ceil((input.load_kw * headroom) / inv.power_kw);
+    if (count > maxInverters) continue;
+    candidates.push({
+      inverter: inv,
+      count,
+      score: {
+        count,
+        oversize: (inv.power_kw * count) - (input.load_kw * headroom),
+        offGridMatch: offGridPref ? (inv.type === 'off-grid' ? 0 : 1) : 0
+      }
+    });
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    if (a.score.count !== b.score.count) return a.score.count - b.score.count;
+    if (a.score.offGridMatch !== b.score.offGridMatch) return a.score.offGridMatch - b.score.offGridMatch;
+    return a.score.oversize - b.score.oversize;
+  });
+  return candidates[0];
+}
+
+function pickLvRecommendation(options) {
+  const ranked = options.map((o, i) => ({ idx: i, o })).sort((a, b) => {
+    if (a.o.battery.qty !== b.o.battery.qty) return a.o.battery.qty - b.o.battery.qty;
+    const aCap = a.o._internal?.pack_kwh || 0;
+    const bCap = b.o._internal?.pack_kwh || 0;
+    if (aCap !== bCap) return bCap - aCap;
+    return a.o.inverter.qty - b.o.inverter.qty;
+  });
+  return { option_index: ranked[0].idx, reason_internal: 'fewest packs, largest pack, fewest inverters' };
+}
+
+function buildHvBom(input, config, audit = []) {
+  audit = audit.slice();
+  audit.push('§9HV: building HV BOM');
+  if (input.phase === '1') {
+    return { status: 'no_hv_fit', message: 'HV inverters are 3-phase only; the site is single-phase.', audit };
+  }
+  const candidates = config.hv.inverters
+    .map(inv => ({ inv, count: Math.ceil(input.load_kw / inv.power_kw) }))
+    .filter(c => c.count <= config.hv.ceilings.max_inverters_paralleled)
+    .sort((a, b) => {
+      if (a.count !== b.count) return a.count - b.count;
+      return b.inv.power_kw - a.inv.power_kw;
+    });
+  for (const { inv, count: inverterCount } of candidates) {
+    audit.push(`§9HV: trying ${inv.model} × ${inverterCount}`);
+    const result = sizeHvOnInverter(input, inv, inverterCount, config, audit);
+    if (result.options.length > 0) {
+      return {
+        status: 'ok', voltage: 'hv',
+        options: result.options,
+        recommendation: pickHvRecommendation(result.options),
+        audit
+      };
+    }
+    audit.push(`§9HV: ${inv.model} × ${inverterCount} produced no viable series`);
+  }
+  return { status: 'no_hv_fit', message: config.messages?.no_hv_fit || 'No HV configuration fits.', audit };
+}
+
+function sizeHvOnInverter(input, inverter, inverterCount, config, audit) {
+  const inverterCode = invCode(inverter.model);
+  const options = [];
+  for (const series of config.hv.series) {
+    const result = sizeHvSeriesOnInverter(input, series, inverter, inverterCode, inverterCount, config, audit);
+    if (result) options.push(result);
+  }
+  options.forEach((o, i) => { o.label = `Option ${i + 1}`; });
+  return { options };
+}
+
+function sizeHvSeriesOnInverter(input, series, inverter, inverterCode, inverterCount, config, audit) {
+  const totalModules = sizePackCount(input.storage_kwh, series.module_kwh, config.hv.tolerance_percent);
+  audit.push(`§9HV.4 Step 1: ${series.name} needs ${totalModules} modules (target ${input.storage_kwh}kWh, module ${series.module_kwh}kWh)`);
+  const maxPerCluster = series.max_per_cluster[inverterCode];
+  if (!maxPerCluster) { audit.push(`§9HV.4: ${series.name} has no max_per_cluster for ${inverterCode}, dropped`); return null; }
+  let finalModules = totalModules;
+  if (totalModules % inverterCount !== 0) {
+    finalModules = Math.ceil(totalModules / inverterCount) * inverterCount;
+    audit.push(`§9HV.4 Step 3: ${series.name} bumped ${totalModules} → ${finalModules} for equal split across ${inverterCount} inverters`);
+  }
+  const modulesPerInverter = finalModules / inverterCount;
+  const clustersPerInverter = Math.ceil(modulesPerInverter / maxPerCluster);
+  const clusterSplitPerInverter = distributeEven(modulesPerInverter, clustersPerInverter);
+  const totalClusterSplit = [];
+  for (let i = 0; i < inverterCount; i++) totalClusterSplit.push(...clusterSplitPerInverter);
+  const minPerCluster = series.min_per_cluster;
+  if (totalClusterSplit.some(c => c < minPerCluster)) {
+    audit.push(`§9HV.4 Step 4: ${series.name} cluster ${Math.min(...totalClusterSplit)} < floor ${minPerCluster}, DROPPED`);
+    return null;
+  }
+  if (clustersPerInverter > inverter.max_clusters_per_inverter) {
+    if (config.hv.enforce_max_clusters_per_inverter) {
+      audit.push(`§9HV.4: ${series.name} needs ${clustersPerInverter} clusters/inv, exceeds ${inverter.model} cap ${inverter.max_clusters_per_inverter}, dropped`);
+      return null;
+    }
+    audit.push(`§9HV.4: ${series.name} uses ${clustersPerInverter} clusters/inv (table cap ${inverter.max_clusters_per_inverter}, enforcement off)`);
+  }
+  const totalClusters = totalClusterSplit.length;
+  return {
+    label: 'Option', battery_series: series.name,
+    inverter: { model: inverter.model, qty: inverterCount },
+    battery: { model: series.name, qty: finalModules, total_kwh: round2(finalModules * series.module_kwh) },
+    cluster_split: totalClusterSplit,
+    cluster_split_per_inverter: clusterSplitPerInverter,
+    control_box: { model: series.pdu, qty: totalClusters },
+    racks: computeRacks(series, clusterSplitPerInverter, inverterCount, audit),
+    cables: { items: ['power kit', 'comm kit'], qty: totalClusters },
+    _internal: { modules_per_inverter: modulesPerInverter, clusters_per_inverter: clustersPerInverter }
+  };
+}
+
+function distributeEven(total, buckets) {
+  const base = Math.floor(total / buckets);
+  const extra = total % buckets;
+  const split = [];
+  for (let i = 0; i < buckets; i++) split.push(i < extra ? base + 1 : base);
+  return split;
+}
+
+function computeRacks(series, clusterSplitPerInverter, inverterCount, audit) {
+  const rack = series.rack;
+  if (rack.kind === 'team_confirmed') {
+    return [{ label: rack.label, qty: clusterSplitPerInverter.length * inverterCount }];
+  }
+  if (rack.kind === 'single_type') {
+    let totalRacks = 0;
+    for (let i = 0; i < inverterCount; i++) {
+      for (const c of clusterSplitPerInverter) totalRacks += c <= rack.modules_per_rack ? 1 : 2;
+    }
+    return [{ model: rack.model, qty: totalRacks }];
+  }
+  if (rack.kind === 'two_type') {
+    const racks = {};
+    for (let i = 0; i < inverterCount; i++) {
+      for (const c of clusterSplitPerInverter) {
+        const rule = rack.pick_rules.find(r => c >= r.modules_min && c <= r.modules_max);
+        if (!rule) continue;
+        for (const item of rule.result) {
+          const ref = item.ref === 'rack_a' ? rack.rack_a : rack.rack_b;
+          racks[ref.model] = (racks[ref.model] || 0) + item.qty;
+        }
+      }
+    }
+    return Object.entries(racks).map(([model, qty]) => ({ model, qty }));
+  }
+  return [];
+}
+
+function pickHvRecommendation(options) {
+  let bestIdx = 0;
+  let best = options[0];
+  for (let i = 1; i < options.length; i++) {
+    const o = options[i];
+    if (o.battery.qty < best.battery.qty || (o.battery.qty === best.battery.qty && o.cluster_split.length < best.cluster_split.length)) {
+      best = o; bestIdx = i;
+    }
+  }
+  return { option_index: bestIdx, reason_internal: 'fewest modules' };
+}
+
+function sizePackCount(storageKwh, packKwh, tolerancePercent) {
+  if (storageKwh <= 0 || packKwh <= 0) return 0;
+  const ceil = Math.ceil(storageKwh / packKwh);
+  const floor = Math.floor(storageKwh / packKwh);
+  if (floor <= 0) return ceil;
+  const floorKwh = floor * packKwh;
+  const underByFraction = (storageKwh - floorKwh) / storageKwh;
+  return underByFraction <= (tolerancePercent / 100) ? floor : ceil;
+}
+
+function invCode(model) {
+  const m = String(model).match(/SUN-(\d+)K/i);
+  return m ? `${m[1]}K` : null;
+}
+
+function round2(n) { return Math.round(n * 100) / 100; }
+
+// ===========================================================================
+// RENDER: customer-facing BOM text from engine output
+// ===========================================================================
+
+function renderBom(result, input) {
+  if (result.status === 'need_input') {
+    return `(need_input) Sunny would ask for: ${result.missing.join(', ')}`;
+  }
+  if (result.status === 'no_lv_fit' || result.status === 'no_hv_fit') {
+    return result.message || '(no fit)';
+  }
+  if (result.status === 'suggest_hv') {
+    let out = result.message + '\n\n';
+    if (result.hv_bom && result.hv_bom.options) {
+      out += formatBomCards(result.hv_bom, input);
+    }
+    return out;
+  }
+  if (result.status === 'ok') {
+    return formatBomCards(result, input);
+  }
+  return JSON.stringify(result, null, 2);
+}
+
+function formatBomCards(result, input) {
+  const lines = [];
+  lines.push(`For ${input.load_kw} kW / ${input.storage_kwh} kWh, here are your options:`);
+  lines.push('');
+  result.options.forEach((opt) => {
+    lines.push(`*${opt.label}: ${opt.battery_series}*`);
+    lines.push(`Inverter:     ${opt.inverter.model} × ${opt.inverter.qty}`);
+    lines.push(`Battery:      ${opt.battery.model} × ${opt.battery.qty} (${opt.battery.total_kwh} kWh)`);
+    if (opt.cluster_split) lines.push(`Cluster split: ${opt.cluster_split.join('+')}`);
+    if (opt.control_box) lines.push(`Control Box:  ${opt.control_box.model} × ${opt.control_box.qty}`);
+    if (opt.racks && opt.racks.length) {
+      const rackStr = opt.racks.map(rk => rk.model ? `${rk.qty}× ${rk.model}` : `${rk.qty}× ${rk.label}`).join(' + ');
+      lines.push(`Racks:        ${rackStr}`);
+    }
+    if (opt.parallel_kit) lines.push(`Parallel kit: comm + power cables × ${opt.parallel_kit.qty}`);
+    lines.push(`Cables:       ${opt.cables.items ? opt.cables.items.join(' + ') : 'as required'}${opt.cables.qty ? ' × ' + opt.cables.qty : ''}`);
+    lines.push('');
+  });
+  if (result.recommendation && result.options[result.recommendation.option_index]) {
+    const rec = result.options[result.recommendation.option_index];
+    lines.push(`*Recommended: ${rec.label}*`);
+  }
+  return lines.join('\n');
+}
+
+// ===========================================================================
+// FORM BINDING (data-path → CONFIG paths)
+// ===========================================================================
+
+function getByPath(obj, path) {
+  return path.split('.').reduce((acc, k) => acc?.[k], obj);
+}
+function setByPath(obj, path, value) {
+  const keys = path.split('.');
+  const last = keys.pop();
+  const parent = keys.reduce((acc, k) => (acc[k] = acc[k] || {}), obj);
+  parent[last] = value;
+}
+
+function hydrateBindings() {
+  document.querySelectorAll('[data-path]').forEach(el => {
+    const path = el.getAttribute('data-path');
+    const v = getByPath(CONFIG, path);
+    if (el.type === 'checkbox') el.checked = !!v;
+    else el.value = (v == null ? '' : v);
+    el.addEventListener('change', () => {
+      let newVal;
+      if (el.type === 'checkbox') newVal = el.checked;
+      else if (el.type === 'number') newVal = parseFloat(el.value);
+      else newVal = el.value;
+      setByPath(CONFIG, path, newVal);
+      markDirty();
+    });
+  });
+}
+
+// ===========================================================================
+// TABLE RENDERERS (LV inverters, LV packs, HV inverters, HV series)
+// ===========================================================================
+
+function renderLvInverters() {
+  const tbody = document.querySelector('#lvInvTable tbody');
+  tbody.innerHTML = '';
+  CONFIG.lv.inverters.forEach((inv, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" data-table="lvInv" data-idx="${idx}" data-field="model" value="${escapeHtml(inv.model)}"></td>
+      <td><input type="number" data-table="lvInv" data-idx="${idx}" data-field="power_kw" value="${inv.power_kw}"></td>
+      <td><select data-table="lvInv" data-idx="${idx}" data-field="phase">
+        <option value="1" ${inv.phase==='1'?'selected':''}>1</option>
+        <option value="3" ${inv.phase==='3'?'selected':''}>3</option>
+      </select></td>
+      <td><select data-table="lvInv" data-idx="${idx}" data-field="type">
+        <option value="hybrid" ${inv.type==='hybrid'?'selected':''}>hybrid</option>
+        <option value="off-grid" ${inv.type==='off-grid'?'selected':''}>off-grid</option>
+      </select></td>
+      <td class="actions"><button data-remove="lvInv" data-idx="${idx}">remove</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderLvPacks() {
+  const tbody = document.querySelector('#lvPackTable tbody');
+  tbody.innerHTML = '';
+  CONFIG.lv.packs.forEach((pack, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" data-table="lvPack" data-idx="${idx}" data-field="model" value="${escapeHtml(pack.model)}"></td>
+      <td><input type="number" step="0.01" data-table="lvPack" data-idx="${idx}" data-field="kwh" value="${pack.kwh}"></td>
+      <td><input type="number" step="0.1" data-table="lvPack" data-idx="${idx}" data-field="voltage_v" value="${pack.voltage_v}"></td>
+      <td class="actions"><button data-remove="lvPack" data-idx="${idx}">remove</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderHvInverters() {
+  const tbody = document.querySelector('#hvInvTable tbody');
+  tbody.innerHTML = '';
+  CONFIG.hv.inverters.forEach((inv, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" data-table="hvInv" data-idx="${idx}" data-field="model" value="${escapeHtml(inv.model)}"></td>
+      <td><input type="number" data-table="hvInv" data-idx="${idx}" data-field="power_kw" value="${inv.power_kw}"></td>
+      <td><input type="number" data-table="hvInv" data-idx="${idx}" data-field="max_clusters_per_inverter" value="${inv.max_clusters_per_inverter}"></td>
+      <td><input type="number" data-table="hvInv" data-idx="${idx}" data-field="max_charge_a" value="${inv.max_charge_a}"></td>
+      <td><input type="number" data-table="hvInv" data-idx="${idx}" data-field="battery_v_min" value="${inv.battery_v_min}"></td>
+      <td><input type="number" data-table="hvInv" data-idx="${idx}" data-field="battery_v_max" value="${inv.battery_v_max}"></td>
+      <td class="actions"><button data-remove="hvInv" data-idx="${idx}">remove</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderHvSeries() {
+  const tbody = document.querySelector('#hvSeriesTable tbody');
+  tbody.innerHTML = '';
+  CONFIG.hv.series.forEach((s, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" data-table="hvSeries" data-idx="${idx}" data-field="name" value="${escapeHtml(s.name)}"></td>
+      <td><input type="number" step="0.01" data-table="hvSeries" data-idx="${idx}" data-field="module_kwh" value="${s.module_kwh}"></td>
+      <td><input type="number" data-table="hvSeries" data-idx="${idx}" data-field="min_per_cluster" value="${s.min_per_cluster}"></td>
+      <td><input type="number" data-table="hvSeries" data-idx="${idx}" data-field="max_per_cluster.30K" value="${s.max_per_cluster['30K']}"></td>
+      <td><input type="number" data-table="hvSeries" data-idx="${idx}" data-field="max_per_cluster.50K" value="${s.max_per_cluster['50K']}"></td>
+      <td><input type="number" data-table="hvSeries" data-idx="${idx}" data-field="max_per_cluster.80K" value="${s.max_per_cluster['80K']}"></td>
+      <td><input type="text" data-table="hvSeries" data-idx="${idx}" data-field="pdu" value="${escapeHtml(s.pdu)}"></td>
+      <td class="actions"><button data-remove="hvSeries" data-idx="${idx}">remove</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Delegate change events on tables
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  const table = el.getAttribute('data-table');
+  if (!table) return;
+  const idx = parseInt(el.getAttribute('data-idx'), 10);
+  const field = el.getAttribute('data-field');
+  const map = { lvInv: CONFIG.lv.inverters, lvPack: CONFIG.lv.packs, hvInv: CONFIG.hv.inverters, hvSeries: CONFIG.hv.series };
+  const arr = map[table];
+  if (!arr || !arr[idx]) return;
+  let val;
+  if (el.type === 'number') val = parseFloat(el.value);
+  else val = el.value;
+  // Nested path support (max_per_cluster.30K)
+  if (field.includes('.')) {
+    const [outer, inner] = field.split('.');
+    arr[idx][outer] = arr[idx][outer] || {};
+    arr[idx][outer][inner] = val;
+  } else {
+    arr[idx][field] = val;
+  }
+  markDirty();
+});
+
+// Delegate remove buttons
+document.addEventListener('click', (e) => {
+  const el = e.target;
+  if (el.matches('[data-remove]')) {
+    const table = el.getAttribute('data-remove');
+    const idx = parseInt(el.getAttribute('data-idx'), 10);
+    const map = { lvInv: CONFIG.lv.inverters, lvPack: CONFIG.lv.packs, hvInv: CONFIG.hv.inverters, hvSeries: CONFIG.hv.series };
+    if (!map[table]) return;
+    map[table].splice(idx, 1);
+    renderAllTables();
+    markDirty();
+  }
+  if (el.matches('[data-add]')) {
+    const which = el.getAttribute('data-add');
+    if (which === 'lvInv') CONFIG.lv.inverters.push({ model: 'NEW-MODEL', power_kw: 10, phase: '1', type: 'hybrid' });
+    if (which === 'lvPack') CONFIG.lv.packs.push({ model: 'NEW-PACK', kwh: 5.12, voltage_v: 51.2 });
+    if (which === 'hvInv') CONFIG.hv.inverters.push({ model: 'NEW-HV', power_kw: 30, phase: '3', max_clusters_per_inverter: 1, max_charge_a: 75, battery_v_min: 160, battery_v_max: 700 });
+    if (which === 'hvSeries') CONFIG.hv.series.push({ name: 'NEW', module_kwh: 5, min_per_cluster: 5, max_per_cluster: { '30K': 16, '50K': 16, '80K': 16 }, pdu: 'NEW-PDU', rack: { kind: 'team_confirmed', label: 'TBC' } });
+    renderAllTables();
+    markDirty();
+  }
+});
+
+function renderAllTables() { renderLvInverters(); renderLvPacks(); renderHvInverters(); renderHvSeries(); }
+
+// ===========================================================================
+// SIMULATOR
+// ===========================================================================
+
+function runSimulation() {
+  const input = {
+    load_kw: parseFloat(document.getElementById('simLoad').value),
+    storage_kwh: parseFloat(document.getElementById('simStorage').value),
+    phase: document.getElementById('simPhase').value,
+    voltage_pref: document.getElementById('simVoltage').value,
+    off_grid: document.getElementById('simOffGrid').value === 'true',
+    max_parallel: document.getElementById('simMaxParallel').value === 'true'
+  };
+  const result = proposeBatterySystem(input, CONFIG);
+  const statusEl = document.getElementById('simStatus');
+  const outEl = document.getElementById('simOut');
+  const auditEl = document.getElementById('simAudit');
+
+  let statusClass = 'idle', statusText = result.status;
+  if (result.status === 'ok') {
+    statusClass = 'ok';
+    statusText = `OK (${result.voltage})`;
+  } else if (result.status === 'suggest_hv') {
+    statusClass = 'suggest';
+    statusText = 'SUGGEST HV';
+  } else if (result.status === 'no_lv_fit' || result.status === 'no_hv_fit') {
+    statusClass = 'no';
+    statusText = result.status.replace('_', ' ').toUpperCase();
+  } else if (result.status === 'need_input') {
+    statusClass = 'need';
+    statusText = 'NEED INPUT';
+  }
+  statusEl.className = `sim-status ${statusClass}`;
+  statusEl.textContent = statusText;
+
+  outEl.textContent = renderBom(result, input);
+  if (result.audit) {
+    auditEl.innerHTML = result.audit.map(a => `<div>${escapeHtml(a)}</div>`).join('');
+  } else {
+    auditEl.innerHTML = '<em>(no audit trail)</em>';
+  }
+}
+
+document.getElementById('simRun').addEventListener('click', runSimulation);
+document.getElementById('auditToggle').addEventListener('click', () => {
+  document.getElementById('simAudit').classList.toggle('shown');
+  const btn = document.getElementById('auditToggle');
+  btn.textContent = btn.textContent === 'Show audit' ? 'Hide audit' : 'Show audit';
+});
+
+// Example scenarios
+const EXAMPLES = {
+  'lv-100-80':  { load: 100, storage:  80, phase: '3', voltage: 'any',  offGrid: false, label: '100kW / 80kWh, 3-phase commercial backup' },
+  'lv-30-50':   { load:  30, storage:  50, phase: '3', voltage: 'any',  offGrid: false, label: '30kW / 50kWh, 3-phase' },
+  'lv-10-30':   { load:  10, storage:  30, phase: '1', voltage: 'any',  offGrid: false, label: '10kW / 30kWh, 1-phase residential' },
+  'lv-6-20-og': { load:   6, storage:  20, phase: '1', voltage: 'any',  offGrid: true,  label: '6kW / 20kWh, off-grid' },
+  'lv-200-600': { load: 200, storage: 600, phase: '3', voltage: 'any',  offGrid: false, label: '200kW / 600kWh, LV fails → HV' },
+  'hv-300-480': { load: 300, storage: 480, phase: '3', voltage: 'hv',   offGrid: false, label: '300kW / 480kWh HV' },
+  'hv-150-360': { load: 150, storage: 360, phase: '3', voltage: 'hv',   offGrid: false, label: '150kW / 360kWh HV' },
+  'hv-100-230': { load: 100, storage: 230, phase: '3', voltage: 'hv',   offGrid: false, label: '100kW / 230kWh HV' },
+  'hv-60-90':   { load:  60, storage:  90, phase: '3', voltage: 'hv',   offGrid: false, label: '60kW / 90kWh HV (BOS-B floor)' }
+};
+
+document.querySelectorAll('[data-ex]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const ex = EXAMPLES[btn.getAttribute('data-ex')];
+    if (!ex) return;
+    document.getElementById('simLoad').value = ex.load;
+    document.getElementById('simStorage').value = ex.storage;
+    document.getElementById('simPhase').value = ex.phase;
+    document.getElementById('simVoltage').value = ex.voltage;
+    document.getElementById('simOffGrid').value = String(ex.offGrid);
+    document.getElementById('simMaxParallel').value = 'false';
+    runSimulation();
+  });
+});
+
+// Export config
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(CONFIG, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'config.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+// Reset
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset all fields to defaults? This discards unsaved changes.')) return;
+  CONFIG = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  hydrateBindings();
+  renderAllTables();
+  dirty = false;
+  document.getElementById('dirtyDot').classList.remove('shown');
+  document.getElementById('dirtyText').textContent = 'reset to defaults';
+});
+
+// Sticky nav highlight on scroll
+const links = document.querySelectorAll('nav.sidenav a');
+const sections = document.querySelectorAll('section.card[id]');
+window.addEventListener('scroll', () => {
+  let cur = sections[0].id;
+  for (const s of sections) {
+    if (s.getBoundingClientRect().top < 120) cur = s.id;
+  }
+  links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
+});
+
+// Init
+hydrateBindings();
+renderAllTables();
+runSimulation();
+</script>
+
+</body>
+</html>

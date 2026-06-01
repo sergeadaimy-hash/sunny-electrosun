@@ -417,7 +417,8 @@ All listed in `.env.example`. Required at runtime:
 | `OWNER_WHATSAPP` | E.164 digits, currently `2347041328055`. Receives escalation alerts and reports. |
 | `OWNER_EMAIL`, `SMTP_*` | Email fallback when WhatsApp report fails. Optional. |
 | `PORT` | Express port. Defaults to 3000. |
-| `API_KEY` | Required by `/api/*`. If unset, every API call returns 503. `/version` and `/health` bypass this. |
+| `API_KEY` | Required by `/api/*`. If unset, every API call returns 503. `/version` and `/health` bypass this. Master key = full admin role. |
+| `INBOX_USER`, `INBOX_PASSWORD`, `INBOX_API_KEY` | Inbox-only team login (2026-06-01). When all three are set, a team member signs in at `/admin` or `/inbox` with username + password; `POST /inbox-login` validates them and returns `INBOX_API_KEY`. That key is tagged `role=inbox` by the `api/dashboard.js` auth middleware and is allowed ONLY on the inbox whitelist (`/whoami`, `/inbox`, `/stats/today`, `/queries/pending`, `/conversations/:id`, `…/handle`, `…/release`, `…/send-reply`); every other endpoint returns 403. The admin page calls `GET /api/whoami` after login and hides all non-Inbox tabs + the budget badge for the inbox role. `INBOX_API_KEY` MUST be a different secret from the master `API_KEY`. Restriction is server-enforced, not just UI hiding. Login is throttled (8 attempts / 10 min / IP). Leave all three blank to disable. |
 | `DB_PATH` | SQLite file location. `/data/sunny.db` on Railway. |
 | `MEDIA_DIR` | Downloaded media location. Defaults to `<DB_PATH dirname>/media`. |
 | `LOG_TO_FILE` | Default true. Set false on cloud PaaS to disable rotating-file logger and DB snapshot. |

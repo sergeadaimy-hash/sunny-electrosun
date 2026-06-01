@@ -1,0 +1,120 @@
+{
+  "version": "v5.1-2026-05-15",
+  "lv": {
+    "ceilings": {
+      "max_packs_per_system": 32,
+      "max_inverters_paralleled": 10,
+      "load_kw_default_threshold": 20
+    },
+    "tolerance_percent": 2,
+    "headroom_factor": 1.0,
+    "_comment_headroom": "Set to 1.25 if customer's stated kW is continuous load. Default 1.0 means treat the customer's number as peak load (matches the v5.1 docx worked references).",
+    "inverters": [
+      { "model": "SUN-20K-SG05LP3-EU-SM2",       "power_kw": 20, "phase": "3", "type": "hybrid"   },
+      { "model": "SUN-18K-SG01LP1-EU-AM3-P",     "power_kw": 18, "phase": "1", "type": "hybrid"   },
+      { "model": "SUN-16K-SG05LP3-EU-SM2",       "power_kw": 16, "phase": "3", "type": "hybrid"   },
+      { "model": "SUN-16K-SG01LP1-EU",           "power_kw": 16, "phase": "1", "type": "hybrid"   },
+      { "model": "SUN-12K-SG04LP3-EU",           "power_kw": 12, "phase": "3", "type": "hybrid"   },
+      { "model": "SUN-12K-SG02LP1-EU-AM3-P",     "power_kw": 12, "phase": "1", "type": "hybrid"   },
+      { "model": "SUN-10K-SG02LP1-EU-AM3-P",     "power_kw": 10, "phase": "1", "type": "hybrid"   },
+      { "model": "SUN-8K-SG05LP1-EU-SM2-P",      "power_kw":  8, "phase": "1", "type": "hybrid"   },
+      { "model": "SUN-6K-OG01LP1-EU-AM2",        "power_kw":  6, "phase": "1", "type": "off-grid" },
+      { "model": "SUN-5K-SG04LP1-EU-SM2",        "power_kw":  5, "phase": "1", "type": "hybrid"   }
+    ],
+    "packs": [
+      { "model": "SE-F5.12", "kwh":  5.12, "voltage_v": 51.2 },
+      { "model": "SE-F12",   "kwh": 12.00, "voltage_v": 51.2 },
+      { "model": "SE-F16",   "kwh": 16.00, "voltage_v": 51.2 }
+    ]
+  },
+  "hv": {
+    "ceilings": {
+      "max_inverters_paralleled": 10
+    },
+    "tolerance_percent": 2,
+    "rules": {
+      "equal_modules_per_inverter": true,
+      "drop_on_floor_violation": true
+    },
+    "_comment_max_clusters": "The §9HV.2 inverter table says SUN-80K max_clusters=2, but the §9HV.9 worked references run 3 clusters per 80K (e.g. 150kW/360kWh BOS-G). Set enforce_max_clusters_per_inverter=true to honor the table cap (drops series that exceed). Default false matches the worked examples; owner to clarify which is authoritative.",
+    "enforce_max_clusters_per_inverter": false,
+    "inverters": [
+      {
+        "model": "SUN-30K-SG02HP3-EU-AM3",
+        "power_kw": 30,
+        "phase": "3",
+        "max_clusters_per_inverter": 1,
+        "max_charge_a": 75,
+        "battery_v_min": 160,
+        "battery_v_max": 700
+      },
+      {
+        "model": "SUN-50K-SG01HP3-EU-BM4",
+        "power_kw": 50,
+        "phase": "3",
+        "max_clusters_per_inverter": 2,
+        "max_charge_a": 100,
+        "battery_v_min": 160,
+        "battery_v_max": 800
+      },
+      {
+        "model": "SUN-80K-SG02HP3-EU-EM6",
+        "power_kw": 80,
+        "phase": "3",
+        "max_clusters_per_inverter": 2,
+        "max_charge_a": 160,
+        "battery_v_min": 160,
+        "battery_v_max": 1000
+      }
+    ],
+    "series": [
+      {
+        "name": "BOS-G",
+        "module_kwh": 5.12,
+        "min_per_cluster": 5,
+        "max_per_cluster": { "30K": 16, "50K": 16, "80K": 16 },
+        "pdu": "BOS-G-PDU-2",
+        "rack": {
+          "kind": "single_type",
+          "model": "3U-RACK",
+          "modules_per_rack": 12,
+          "pdu_per_rack": 1
+        }
+      },
+      {
+        "name": "BOS-A",
+        "module_kwh": 7.68,
+        "min_per_cluster": 7,
+        "max_per_cluster": { "30K": 16, "50K": 16, "80K": 21 },
+        "pdu": "BOS-A-PDU-2",
+        "rack": {
+          "kind": "two_type",
+          "rack_a": { "model": "BOS-A-RACK11", "capacity": 10 },
+          "rack_b": { "model": "BOS-A-RACK14", "capacity": 13 },
+          "pick_rules": [
+            { "modules_min":  7, "modules_max": 10, "result": [{ "ref": "rack_a", "qty": 1 }] },
+            { "modules_min": 11, "modules_max": 13, "result": [{ "ref": "rack_b", "qty": 1 }] },
+            { "modules_min": 14, "modules_max": 16, "result": [{ "ref": "rack_b", "qty": 1 }, { "ref": "rack_a", "qty": 1 }] },
+            { "modules_min": 17, "modules_max": 21, "result": [{ "ref": "rack_b", "qty": 2 }] }
+          ]
+        }
+      },
+      {
+        "name": "BOS-B",
+        "module_kwh": 16.08,
+        "min_per_cluster": 7,
+        "max_per_cluster": { "30K": 13, "50K": 13, "80K": 16 },
+        "pdu": "BOS-B-PDU",
+        "rack": {
+          "kind": "team_confirmed",
+          "label": "BOS-B specific (confirmed with team)"
+        }
+      }
+    ]
+  },
+  "messages": {
+    "suggest_hv": "For your load and storage, a high-voltage system is the cleaner fit. Here is the HV BOM.",
+    "no_hv_fit": "To meet this load and storage on the configurations we carry would exceed our largest setup. Options: reduce storage target, reduce backed-up load, or split into two systems.",
+    "lv_full_parallel_no_fit": "To meet this load and storage on LV would exceed the 10-inverter / 32-pack ceiling. The configuration isn't buildable on LV. Options: (a) reduce storage target, (b) reduce backed-up load, or (c) accept the HV BOM."
+  }
+}

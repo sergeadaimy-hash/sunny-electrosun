@@ -1769,9 +1769,11 @@
       </div>
     </div>
     <h1>Welcome back.</h1>
-    <p>Sign in with your dashboard API key to monitor conversations, leads, and the live knowledge base.</p>
-    <label class="field-label" for="api-key-input">API key</label>
-    <input id="api-key-input" type="password" placeholder="Paste your API key" autocomplete="off">
+    <p>Team members: sign in with your username and password. Administrators: leave the username blank and paste your API key.</p>
+    <label class="field-label" for="username-input">Username</label>
+    <input id="username-input" type="text" placeholder="Leave blank if you are the administrator" autocomplete="username">
+    <label class="field-label" for="api-key-input">Password / API key</label>
+    <input id="api-key-input" type="password" placeholder="Your password, or the admin API key" autocomplete="current-password">
     <button id="login-btn">Sign in</button>
     <div class="login-error" id="login-error"></div>
     <div class="login-foot">Electro-Sun Global Services Ltd.</div>
@@ -1978,7 +1980,9 @@
 
 <script>
 const API_KEY_STORAGE = 'electrosun_admin_api_key';
+const ROLE_STORAGE = 'electrosun_admin_role';
 let apiKey = localStorage.getItem(API_KEY_STORAGE);
+let userRole = localStorage.getItem(ROLE_STORAGE) || 'admin';
 let allConversations = [];
 let pendingQueries = [];
 let currentConversationId = null;
@@ -2025,24 +2029,61 @@ function showApp() {
 }
 function logout() {
   localStorage.removeItem(API_KEY_STORAGE);
+  localStorage.removeItem(ROLE_STORAGE);
   apiKey = null;
+  userRole = 'admin';
   showLogin();
 }
 
+// Restricts the UI for the inbox-only role: hide every tab except Inbox and the
+// budget badge, and force the inbox view. The server enforces the same limits,
+// so this is presentation only, not the security boundary.
+function applyRole(role) {
+  const isInbox = role === 'inbox';
+  document.querySelectorAll('#nav-tabs button').forEach(b => {
+    if (b.dataset.view !== 'view-inbox') b.classList.toggle('hidden', isInbox);
+  });
+  const budgetEl = document.getElementById('budget-badge');
+  if (budgetEl) budgetEl.classList.toggle('hidden', isInbox);
+  if (isInbox) switchView('view-inbox');
+}
+
 async function login() {
-  const key = document.getElementById('api-key-input').value.trim();
+  const username = document.getElementById('username-input').value.trim();
+  const secret = document.getElementById('api-key-input').value.trim();
   const errEl = document.getElementById('login-error');
   errEl.textContent = '';
-  if (!key) { errEl.textContent = 'Enter the API key.'; return; }
-  apiKey = key;
+  if (!secret) {
+    errEl.textContent = username ? 'Enter your password.' : 'Enter the API key.';
+    return;
+  }
   try {
-    await apiFetch('/budget/today');
-    localStorage.setItem(API_KEY_STORAGE, key);
+    if (username) {
+      // Team member: exchange username + password for an inbox key.
+      const res = await fetch('/inbox-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password: secret })
+      });
+      if (!res.ok) throw new Error('login failed');
+      const data = await res.json();
+      apiKey = data.key;
+    } else {
+      // Administrator: the secret is the master API key.
+      apiKey = secret;
+    }
+    const who = await apiFetch('/whoami');
+    userRole = who.role || 'admin';
+    localStorage.setItem(API_KEY_STORAGE, apiKey);
+    localStorage.setItem(ROLE_STORAGE, userRole);
+    applyRole(userRole);
     showApp();
     await refreshAll();
     refreshTimer = setInterval(refreshAll, 15000);
   } catch (err) {
-    errEl.textContent = 'Sign in failed. Check the key and try again.';
+    errEl.textContent = username
+      ? 'Sign in failed. Check your username and password.'
+      : 'Sign in failed. Check the key and try again.';
     apiKey = null;
   }
 }
@@ -2485,11 +2526,13 @@ async function refreshAll() {
   if (inFlight) return;
   inFlight = true;
   try {
-    const [inbox, pending, budget] = await Promise.all([
+    const reqs = [
       apiFetch('/inbox?limit=200'),
-      apiFetch('/queries/pending'),
-      apiFetch('/budget/today')
-    ]);
+      apiFetch('/queries/pending')
+    ];
+    // The inbox-only role is not allowed to read the budget endpoint.
+    if (userRole !== 'inbox') reqs.push(apiFetch('/budget/today'));
+    const [inbox, pending, budget] = await Promise.all(reqs);
     allConversations = inbox.conversations || [];
     pendingQueries = pending.pending || [];
     renderHeader(budget);
@@ -2519,6 +2562,7 @@ function renderHeader(budget) {
   pendingEl.classList.toggle('over', pendingQueries.length > 0);
 
   const budgetEl = document.getElementById('budget-badge');
+  if (!budget) { return; }
   if (budget.budget_usd !== null) {
     budgetEl.textContent = '$' + budget.spend_usd + ' / $' + budget.budget_usd;
     budgetEl.classList.toggle('over', !!budget.over_budget);
@@ -3537,6 +3581,7 @@ function openConvFromHashIfAny() {
 window.addEventListener('hashchange', openConvFromHashIfAny);
 
 if (apiKey) {
+  applyRole(userRole);
   showApp();
   refreshAll().then(() => {
     refreshTimer = setInterval(refreshAll, 15000);

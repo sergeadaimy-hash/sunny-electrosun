@@ -56,16 +56,54 @@ const {
 
 const router = express.Router();
 
+// Endpoints the inbox-only role is allowed to reach. Anything not listed here
+// returns 403 for that role, so the restriction is enforced on the server and
+// not merely hidden in the UI. Each entry is { method, test(path) }.
+const INBOX_ALLOWED = [
+  { method: 'GET', test: (p) => p === '/whoami' },
+  { method: 'GET', test: (p) => p === '/inbox' },
+  { method: 'GET', test: (p) => p === '/stats/today' },
+  { method: 'GET', test: (p) => p === '/queries/pending' },
+  { method: 'GET', test: (p) => /^\/conversations\/\d+$/.test(p) },
+  { method: 'POST', test: (p) => /^\/conversations\/\d+\/handle$/.test(p) },
+  { method: 'POST', test: (p) => /^\/conversations\/\d+\/release$/.test(p) },
+  { method: 'POST', test: (p) => /^\/conversations\/\d+\/send-reply$/.test(p) }
+];
+
+function inboxRoleAllows(method, urlPath) {
+  return INBOX_ALLOWED.some((r) => r.method === method && r.test(urlPath));
+}
+
 router.use((req, res, next) => {
   const apiKey = req.get('X-API-Key') || (req.query && req.query.key);
   if (!process.env.API_KEY) {
     logger.warn('api.no_key_configured');
     return res.status(503).json({ error: 'API_KEY not configured on server' });
   }
-  if (apiKey !== process.env.API_KEY) {
-    return res.status(401).json({ error: 'invalid api key' });
+
+  if (apiKey === process.env.API_KEY) {
+    req.role = 'admin';
+    return next();
   }
-  next();
+
+  const inboxKey = process.env.INBOX_API_KEY;
+  if (inboxKey && apiKey === inboxKey) {
+    req.role = 'inbox';
+    // req.path strips the /api mount prefix and the query string.
+    if (!inboxRoleAllows(req.method, req.path)) {
+      logger.warn('api.inbox_role_forbidden', { method: req.method, path: req.path });
+      return res.status(403).json({ error: 'forbidden for this account' });
+    }
+    return next();
+  }
+
+  return res.status(401).json({ error: 'invalid api key' });
+});
+
+// Lets the page discover which role the presented key has, so it can hide the
+// non-inbox tabs for the inbox-only account.
+router.get('/whoami', (req, res) => {
+  res.json({ role: req.role || 'admin' });
 });
 
 function parseInt32(v, fallback) {

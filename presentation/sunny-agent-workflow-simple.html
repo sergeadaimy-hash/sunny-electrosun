@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How Sunny works</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg: #f4f7f5;
+  --surface: #ffffff;
+  --surface-2: #f8faf9;
+  --text: #1f2a26;
+  --text-soft: #5a6b65;
+  --muted: #93a39d;
+  --brand: #128c4f;
+  --brand-soft: #d7f1e2;
+  --accent: #25d366;
+  --line: #e2eae5;
+  --shadow: 0 1px 2px rgba(20, 50, 36, 0.04), 0 8px 24px rgba(20, 50, 36, 0.06);
+  --radius: 12px;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+
+  --c-customer: #f0fbf3;
+  --c-customer-stroke: #6bbf85;
+  --c-think: #ecf3ff;
+  --c-think-stroke: #5483d6;
+  --c-decide: #fdf0f0;
+  --c-decide-stroke: #c5575e;
+  --c-team: #fff8e7;
+  --c-team-stroke: #d6a637;
+  --c-safety: #fff4ec;
+  --c-safety-stroke: #c97a36;
+  --c-send: #e8f7ff;
+  --c-send-stroke: #4794c9;
+  --c-data: #f1f0ec;
+  --c-data-stroke: #8a836e;
+  --c-bg-task: #f7eaf7;
+  --c-bg-task-stroke: #a85aa8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+header.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding: 18px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+header.topbar h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+header.topbar .sub {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.toolbar button {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: var(--sans);
+  transition: all 0.15s;
+}
+.toolbar button:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.toolbar .primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+  font-weight: 500;
+}
+.toolbar .primary:hover {
+  background: #0f6f3f;
+  color: #fff;
+  border-color: #0f6f3f;
+}
+
+main.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 20px;
+  padding: 20px 28px 40px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  main.layout { grid-template-columns: 1fr; }
+}
+
+.intro-card {
+  grid-column: 1 / -1;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px 26px;
+  margin-bottom: 4px;
+}
+.intro-card h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.intro-card p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 80ch;
+}
+
+.diagram-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  overflow: hidden;
+  position: relative;
+}
+.diagram-card .label-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.diagram-card .label-bar h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+}
+.zoom-controls button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+.zoom-controls button:hover { color: var(--brand); border-color: var(--brand); }
+#mermaidWrap {
+  overflow: auto;
+  max-height: 80vh;
+  padding: 12px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  position: relative;
+}
+#mermaidWrap .mermaid { transform-origin: top left; transition: transform 0.2s; }
+.mermaid svg .node-clickable rect,
+.mermaid svg .node-clickable polygon,
+.mermaid svg .node-clickable circle {
+  cursor: pointer;
+  transition: filter 0.15s, stroke-width 0.15s;
+}
+.mermaid svg .node-clickable:hover rect,
+.mermaid svg .node-clickable:hover polygon,
+.mermaid svg .node-clickable:hover circle {
+  filter: brightness(0.96);
+  stroke-width: 2.5px;
+}
+.mermaid svg .node.demo-active rect,
+.mermaid svg .node.demo-active polygon,
+.mermaid svg .node.demo-active circle {
+  filter: drop-shadow(0 0 0.6rem rgba(37, 211, 102, 0.7));
+  stroke: var(--brand) !important;
+  stroke-width: 3px !important;
+}
+
+aside.detail {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  position: sticky;
+  top: 102px;
+  max-height: calc(100vh - 124px);
+  overflow-y: auto;
+}
+aside.detail .pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  margin-bottom: 10px;
+}
+aside.detail h3 {
+  margin: 0 0 14px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+aside.detail p {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+  margin: 0 0 14px;
+}
+aside.detail .section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  margin: 18px 0 8px;
+}
+aside.detail .example {
+  background: var(--surface-2);
+  border-left: 3px solid var(--brand);
+  padding: 12px 14px;
+  border-radius: 0 8px 8px 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+aside.detail .example strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+  margin-bottom: 4px;
+}
+aside.detail .why {
+  background: #fff8e7;
+  border-left: 3px solid #d6a637;
+  padding: 12px 14px;
+  border-radius: 0 8px 8px 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+aside.detail .why strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a6a1a;
+  margin-bottom: 4px;
+}
+aside.detail .hint {
+  color: var(--muted);
+  font-size: 14px;
+  font-style: italic;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1.5px solid;
+}
+
+footer.note {
+  padding: 24px 28px 40px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+.demo-status {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--text);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transition: opacity 0.2s;
+  max-width: 60%;
+}
+.demo-status.active { opacity: 1; }
+.demo-status .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+  margin-right: 8px;
+  animation: pulse 1.4s infinite ease-in-out;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>How Sunny works</h1>
+    <div class="sub">A plain-English walkthrough of what happens when a customer messages us.</div>
+  </div>
+  <div class="toolbar">
+    <button class="primary" id="playDemoBtn">▶ Watch Sunny answer a customer</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <section class="intro-card">
+    <h2>Read me first</h2>
+    <p>Sunny is the ElectroSun WhatsApp account manager. He runs around the clock. When any customer messages our business number, Sunny reads it, understands what they're asking, checks our live stock and prices, writes a reply, and sends it back, usually within seconds. If the question needs the human team, Sunny alerts the owner on WhatsApp with the customer's details, conversation summary, and a one-tap direct link. Click any box below to see what it does and a real example of how it plays out.</p>
+  </section>
+
+  <section class="diagram-card">
+    <div class="label-bar">
+      <h2>The journey of a message</h2>
+      <div class="zoom-controls">
+        <button id="zoomOut" title="Zoom out">−</button>
+        <button id="zoomReset" title="Reset zoom">⌂</button>
+        <button id="zoomIn" title="Zoom in">+</button>
+      </div>
+    </div>
+
+    <div id="mermaidWrap">
+      <div class="mermaid" id="mermaidDiagram">
+flowchart TB
+
+  subgraph S1["1. The customer reaches us"]
+    direction TB
+    N1[Customer sends a<br/>WhatsApp message]:::customer
+    N2[Sunny receives the<br/>message and confirms<br/>it's a genuine one]:::customer
+    N3{Was it a voice note?}:::customer
+    N4[Sunny listens and<br/>writes down what<br/>the customer said]:::customer
+    N5[Sunny opens the<br/>customer's record<br/>or starts a new one]:::customer
+
+    N1 --> N2 --> N3
+    N3 -->|yes| N4 --> N5
+    N3 -->|no| N5
+  end
+
+  subgraph S2["2. Sunny decides what kind of conversation this is"]
+    direction TB
+    N6{Is the customer<br/>the owner asking<br/>about our business?}:::think
+    N7[Owner gets a<br/>live answer about<br/>today's activity]:::think
+    N8{Has someone from<br/>the team already<br/>taken over this chat?}:::think
+    N9[Sunny stays out of<br/>the way until the<br/>team finishes]:::think
+    N10[Sunny waits a few<br/>seconds in case more<br/>messages are coming]:::think
+
+    N5 --> N6
+    N6 -->|yes| N7
+    N6 -->|no, customer| N8
+    N8 -->|yes| N9
+    N8 -->|no| N10
+  end
+
+  subgraph S3["3. Sunny understands the customer"]
+    direction TB
+    N11{Is it just a<br/>casual greeting?}:::think
+    N12[Reply with a warm<br/>welcome and ask one<br/>opening question]:::think
+    N13[Read carefully:<br/>What do they want?<br/>How serious are they?<br/>Are they ready to buy?]:::think
+    N14[Remember the new<br/>details about the<br/>customer for later]:::think
+
+    N10 --> N11
+    N11 -->|yes| N12
+    N11 -->|no| N13
+    N13 --> N14
+    N12 --> N14
+  end
+
+  subgraph S4["4. Sunny picks one of three paths"]
+    direction TB
+    N15{What does this<br/>customer need?}:::decide
+    N16[🔥 Customer is ready<br/>to pay → alert the<br/>team right away]:::decide
+    N17[❓ Sunny doesn't<br/>have the answer →<br/>quietly ask the team]:::decide
+    N18[💬 Sunny can answer<br/>this himself]:::decide
+    N19[Send the team a<br/>WhatsApp with the<br/>customer name, summary,<br/>and a direct link]:::team
+
+    N14 --> N15
+    N15 -->|ready to buy| N16
+    N15 -->|needs team input| N17
+    N15 -->|standard question| N18
+    N16 --> N19
+    N17 --> N19
+  end
+
+  subgraph S5["5. Sunny writes the reply"]
+    direction TB
+    N20[Pull everything together:<br/>customer history, live stock,<br/>prices, brochures, and<br/>Sunny's rulebook]:::think
+    N21[Write a clear, warm reply<br/>using only what's actually<br/>in stock today]:::think
+
+    N18 --> N20
+    N16 --> N20
+    N17 --> N20
+    N20 --> N21
+  end
+
+  subgraph S6["6. Final safety checks before sending"]
+    direction TB
+    Q1[Keep the tone right:<br/>no pushy questions,<br/>no robotic stalling]:::safety
+    Q2[Match what's actually<br/>in stock: never invent<br/>a product we don't carry]:::safety
+    Q3[Quote prices only when<br/>asked. Never list the<br/>whole catalog or stock]:::safety
+    Q4[Protect contact info:<br/>no surprise phone numbers,<br/>no private team numbers]:::safety
+    Q5[Battery and inverter<br/>configurations are valid<br/>and the math is right]:::safety
+    Q6[Format the reply<br/>cleanly with line breaks,<br/>no internal labels leaking]:::safety
+
+    N21 --> Q1 --> Q2 --> Q3 --> Q4 --> Q5 --> Q6
+  end
+
+  subgraph S7["7. Send and save"]
+    direction TB
+    S_1[Send the reply to the<br/>customer on WhatsApp]:::send
+    S_2[Save the message in<br/>Sunny's memory so<br/>he remembers later]:::send
+    S_3{Is this customer<br/>ready to buy?}:::send
+    S_4[Add a direct line<br/>to the specialist<br/>at the bottom]:::send
+
+    Q6 --> S_1 --> S_2
+    S_2 --> S_3
+    S_3 -->|yes| S_4
+  end
+
+  subgraph S8["What Sunny knows and where it comes from"]
+    direction TB
+    D1[Live stock list<br/>edited from the<br/>admin Stock page]:::data
+    D2[Product brochures<br/>attached to each item]:::data
+    D3[Sunny's rulebook<br/>personality, tone,<br/>and selling rules]:::data
+    D4[Customer records and<br/>full conversation history]:::data
+    D5[Open questions waiting<br/>for the team to answer]:::data
+    D6[Daily AI cost tracker<br/>with a safety budget]:::data
+  end
+
+  subgraph S9["Things Sunny does in the background"]
+    direction TB
+    T1[Every 2 hours: send the<br/>owner a quick activity update]:::bgtask
+    T2[Every evening at 9pm:<br/>send the day's full summary]:::bgtask
+    T3[At 9:30pm: surface patterns<br/>Sunny noticed today]:::bgtask
+    T4[Watch open questions:<br/>remind the team at 23h,<br/>auto-close at 24h]:::bgtask
+    T5[If the team is silent for<br/>15 minutes after taking over,<br/>hand the chat back to Sunny]:::bgtask
+  end
+
+  D1 -.feeds.-> N20
+  D2 -.feeds.-> N20
+  D3 -.feeds.-> N13
+  D3 -.feeds.-> N20
+  D3 -.feeds.-> N7
+  D4 -.feeds.-> N13
+  D4 -.feeds.-> N20
+  D5 -.read & write.-> N17
+  D6 -.records cost of.-> N21
+  T5 -.releases.-> N8
+
+  click N1 call showNodeDetails("customer_msg")
+  click N2 call showNodeDetails("verify")
+  click N3 call showNodeDetails("voice_branch")
+  click N4 call showNodeDetails("voice_transcribe")
+  click N5 call showNodeDetails("get_contact")
+  click N6 call showNodeDetails("owner_check")
+  click N7 call showNodeDetails("owner_qa")
+  click N8 call showNodeDetails("human_check")
+  click N9 call showNodeDetails("human_skip")
+  click N10 call showNodeDetails("debounce")
+  click N11 call showNodeDetails("greeting_check")
+  click N12 call showNodeDetails("greeting_reply")
+  click N13 call showNodeDetails("read_customer")
+  click N14 call showNodeDetails("remember")
+  click N15 call showNodeDetails("path_decision")
+  click N16 call showNodeDetails("hot_path")
+  click N17 call showNodeDetails("silent_path")
+  click N18 call showNodeDetails("answer_path")
+  click N19 call showNodeDetails("notify_team")
+  click N20 call showNodeDetails("gather")
+  click N21 call showNodeDetails("write_reply")
+  click Q1 call showNodeDetails("safety_tone")
+  click Q2 call showNodeDetails("safety_stock")
+  click Q3 call showNodeDetails("safety_prices")
+  click Q4 call showNodeDetails("safety_contact")
+  click Q5 call showNodeDetails("safety_design")
+  click Q6 call showNodeDetails("safety_format")
+  click S_1 call showNodeDetails("send_message")
+  click S_2 call showNodeDetails("save_history")
+  click S_3 call showNodeDetails("hot_handoff")
+  click S_4 call showNodeDetails("specialist_link")
+  click D1 call showNodeDetails("d_stock")
+  click D2 call showNodeDetails("d_brochures")
+  click D3 call showNodeDetails("d_rulebook")
+  click D4 call showNodeDetails("d_history")
+  click D5 call showNodeDetails("d_open_qs")
+  click D6 call showNodeDetails("d_costs")
+  click T1 call showNodeDetails("t_2hourly")
+  click T2 call showNodeDetails("t_daily")
+  click T3 call showNodeDetails("t_learning")
+  click T4 call showNodeDetails("t_window")
+  click T5 call showNodeDetails("t_release")
+
+  classDef customer fill:#f0fbf3,stroke:#6bbf85,stroke-width:1.5px,color:#1f2a26;
+  classDef think fill:#ecf3ff,stroke:#5483d6,stroke-width:1.5px,color:#1f2a26;
+  classDef decide fill:#fdf0f0,stroke:#c5575e,stroke-width:1.5px,color:#1f2a26;
+  classDef team fill:#fff8e7,stroke:#d6a637,stroke-width:1.5px,color:#1f2a26;
+  classDef safety fill:#fff4ec,stroke:#c97a36,stroke-width:1.5px,color:#1f2a26;
+  classDef send fill:#e8f7ff,stroke:#4794c9,stroke-width:1.5px,color:#1f2a26;
+  classDef data fill:#f1f0ec,stroke:#8a836e,stroke-width:1.5px,color:#1f2a26;
+  classDef bgtask fill:#f7eaf7,stroke:#a85aa8,stroke-width:1.5px,color:#1f2a26;
+      </div>
+
+      <div class="demo-status" id="demoStatus"><span class="dot"></span><span id="demoStatusText">Watching Sunny work...</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-customer);border-color:var(--c-customer-stroke)"></span>Customer interaction</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-think);border-color:var(--c-think-stroke)"></span>Sunny thinking</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-decide);border-color:var(--c-decide-stroke)"></span>Decision point</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-team);border-color:var(--c-team-stroke)"></span>Team handoff</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-safety);border-color:var(--c-safety-stroke)"></span>Safety check</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-send);border-color:var(--c-send-stroke)"></span>Send to customer</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-data);border-color:var(--c-data-stroke)"></span>What Sunny knows</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--c-bg-task);border-color:var(--c-bg-task-stroke)"></span>Background task</div>
+    </div>
+  </section>
+
+  <aside class="detail" id="detailPanel">
+    <span class="pill" id="dPill" style="display:none">layer</span>
+    <h3 id="dTitle">Pick any box to see what it does</h3>
+    <p id="dSummary" class="hint">Each step in the diagram is clickable. You'll see what Sunny is doing at that point, and a real-world example of the customer experience.</p>
+    <div id="dExtras"></div>
+  </aside>
+
+</main>
+
+<footer class="note">
+  Plain-English draft for non-technical reviewers. Same workflow as the engineering view, told as a story.
+</footer>
+
+<script>
+const NODES = {
+  customer_msg: {
+    layer: "Customer interaction",
+    title: "Customer sends a WhatsApp message",
+    summary: "Every interaction begins here. A customer types a message into WhatsApp and sends it to our ElectroSun business number. It could be a quick hello, a price question, a voice note describing a project, or a photo of a meter reading.",
+    example: { label: "Real example", text: "Larris sends: \"Hello, I'm interested in Deye products. Do you have a 8kW single-phase?\"" }
+  },
+  verify: {
+    layer: "Customer interaction",
+    title: "Sunny receives the message",
+    summary: "WhatsApp delivers the message to Sunny in seconds. Sunny first confirms the message is genuine and not a spoofed request. If anything looks off, it gets rejected silently before Sunny ever sees the content.",
+    why: { label: "Why this matters", text: "Without this check, anyone could fake messages claiming to be from a customer and trick Sunny into replying or alerting the team." }
+  },
+  voice_branch: {
+    layer: "Customer interaction",
+    title: "Was it a voice note?",
+    summary: "Customers in Nigeria often send voice notes instead of typing, especially for longer explanations. Sunny detects voice notes and handles them differently from text."
+  },
+  voice_transcribe: {
+    layer: "Customer interaction",
+    title: "Sunny listens to voice notes",
+    summary: "When a voice note arrives, Sunny downloads the audio, transcribes it to text, and then treats it like any other message. This means a customer who prefers speaking can describe a full solar setup by voice and still get a precise BOM in return.",
+    example: { label: "Real example", text: "Customer sends a 25-second voice note describing their three-bedroom flat with 2 ACs and 5 LED lights. Sunny transcribes it, recognizes the load, and proposes the right inverter + battery." }
+  },
+  get_contact: {
+    layer: "Customer interaction",
+    title: "Sunny opens the customer's record",
+    summary: "Sunny looks up the phone number. If this customer has messaged before, Sunny pulls up the full history. If they're new, Sunny creates a fresh record with their WhatsApp name and starts a new conversation thread.",
+    why: { label: "Why this matters", text: "Every reply Sunny writes is informed by what this specific customer told him in past conversations. If they already shared their location or load size, Sunny won't ask again." }
+  },
+
+  owner_check: {
+    layer: "Decision",
+    title: "Is the owner asking Sunny something?",
+    summary: "The owner can WhatsApp Sunny directly to ask questions about the business: how many hot leads today, what's the recent activity, who's been asking about which products. Sunny recognizes the owner's number and switches into a different mode for those messages."
+  },
+  owner_qa: {
+    layer: "Sunny thinking",
+    title: "Sunny answers the owner from live data",
+    summary: "Sunny pulls together a fresh snapshot of today's stats, recent hot leads, pending questions, and recent customer activity, then answers the owner's question grounded in real numbers.",
+    example: { label: "Real example", text: "Owner asks: \"Any hot leads in the last hour?\" Sunny replies: \"Two: Patrick wants 16kW single-phase, Lawal needs a 30kWh battery. Both have specialist links.\"" }
+  },
+  human_check: {
+    layer: "Decision",
+    title: "Has someone from the team already taken over?",
+    summary: "If a teammate manually replied to this customer from the admin page, the conversation goes into \"team-handled\" mode. Sunny stays out of the way so two voices don't talk over each other."
+  },
+  human_skip: {
+    layer: "Sunny thinking",
+    title: "Sunny stays out of the way",
+    summary: "Sunny still saves every message the customer sends, so nothing is lost. He just doesn't auto-reply. After the team has been silent for 15 minutes, Sunny automatically picks the chat back up.",
+    why: { label: "Why this matters", text: "The team can step in for sensitive deals or specific questions without worrying Sunny will jump in mid-conversation." }
+  },
+  debounce: {
+    layer: "Sunny thinking",
+    title: "Wait a few seconds in case more messages are coming",
+    summary: "Customers often send 2 or 3 messages in a row (\"Hi\" → \"Do you have 16kW?\" → \"How much?\"). Sunny waits a moment, gathers all of them together, then answers once with a complete reply instead of three rapid-fire ones.",
+    example: { label: "Real example", text: "Customer types \"Hi\", then \"Do you have 16kW?\", then \"3-phase\". Sunny waits 6 seconds, then answers all three in one clean reply." }
+  },
+
+  greeting_check: {
+    layer: "Decision",
+    title: "Is it just a casual greeting?",
+    summary: "If the customer only said \"hello\", \"good morning\", \"hi sir\" with no real question yet, Sunny doesn't waste effort analyzing. He greets them warmly and asks one opening question."
+  },
+  greeting_reply: {
+    layer: "Sunny thinking",
+    title: "Welcome them warmly",
+    summary: "Sunny sends a short welcome that includes our two office addresses, both warehouse locations, and the team's contact numbers. Then he asks what they're sizing for.",
+    why: { label: "Why this matters", text: "Customers feel seen, get our locations upfront, and know exactly who to reach for what." }
+  },
+  read_customer: {
+    layer: "Sunny thinking",
+    title: "Read the customer carefully",
+    summary: "For non-greeting messages, Sunny takes the time to figure out: what does this customer actually want? How serious are they? Have they given clear signals that they're ready to buy, just shopping around, or completely cold?",
+    example: { label: "Real example", text: "\"I need a 20kW for my factory, send me the account so I can pay today\" → ready to buy (urgent). \"What sizes do you have?\" → just exploring." }
+  },
+  remember: {
+    layer: "Sunny thinking",
+    title: "Remember the new details",
+    summary: "Anything the customer just shared (their location, the size they want, their phase, their use case) gets saved on their record. Sunny will never re-ask the same question across the conversation."
+  },
+
+  path_decision: {
+    layer: "Decision",
+    title: "Pick the right path",
+    summary: "Based on what the customer wants and how ready they are, Sunny picks one of three paths: hot lead handoff, quiet team query, or normal reply."
+  },
+  hot_path: {
+    layer: "Decision",
+    title: "Hot lead: customer is ready to pay",
+    summary: "When a customer says something committal (\"send me the account\", \"I want to pay now\", \"send the proforma\"), Sunny treats it as a hot lead. The team gets an urgent WhatsApp alert immediately. The customer gets a one-sentence acknowledgement and a direct WhatsApp link to a specialist.",
+    example: { label: "Real example", text: "Customer: \"Send me the account.\" Sunny to customer: \"Noted, a specialist will reach out shortly with the account details. \\n\\nDirect line: wa.me/2347041328055\". Owner gets a red HOT alert with the conversation summary." }
+  },
+  silent_path: {
+    layer: "Decision",
+    title: "Quiet question for the team",
+    summary: "When a customer asks something Sunny can't confirm (a custom configuration, an exact install date, a price for a product we don't stock), Sunny tells the customer he'll confirm with the team, then quietly pings the team behind the scenes with the question.",
+    why: { label: "Why this matters", text: "The customer feels heard immediately. The team gets a clean notification with the customer's full context and can answer when they have a moment." }
+  },
+  answer_path: {
+    layer: "Decision",
+    title: "Sunny can answer this himself",
+    summary: "Most messages fall here. Sunny has the stock list, prices, brochures, and rulebook to answer directly without needing the team.",
+    example: { label: "Real example", text: "\"How much is the 16kW Deye?\" → Sunny replies with the current price from live stock." }
+  },
+  notify_team: {
+    layer: "Team handoff",
+    title: "Notify the team on WhatsApp",
+    summary: "When the team needs to be alerted (hot lead or open question), Sunny sends them a formatted WhatsApp message that includes the customer's name and phone, what they just asked, a 6-turn summary of the conversation, a deep link straight to the admin inbox, and a one-tap WhatsApp link to message the customer back.",
+    example: { label: "Owner gets", text: "🔥 HOT LEAD — Larris (+234 802 946 5652) just said \"send me the account\". Summary: he's looking at 8kW single-phase + 10kWh battery. Open in admin → Reply on WhatsApp →" }
+  },
+
+  gather: {
+    layer: "Sunny thinking",
+    title: "Pull everything together",
+    summary: "Before writing the reply, Sunny gathers: the full conversation history, the live stock list with prices and current quantities for both Abuja and Lagos warehouses, any product brochures relevant to the question, the rules and tone he must follow (the master rulebook), and what we already know about this customer.",
+    why: { label: "Why this matters", text: "By assembling everything fresh on every message, Sunny never quotes a stale price or an out-of-date stock state. If the owner edited a price 2 minutes ago, Sunny uses the new one." }
+  },
+  write_reply: {
+    layer: "Sunny thinking",
+    title: "Write the reply",
+    summary: "Sunny composes the reply using only what's actually true today. He matches the customer's language (English, Pidgin, Hausa, Yoruba, or Igbo), stays warm and Nigerian in tone, and never volunteers prices the customer didn't ask for.",
+    example: { label: "Real example", text: "Customer: \"Do you have 16kW single-phase?\" Sunny: \"Yes, the SUN-16K-SG01LP1-EU. Available now at both warehouses.\"" }
+  },
+
+  safety_tone: {
+    layer: "Safety check",
+    title: "Keep the tone right",
+    summary: "Sunny strips out anything that would sound pushy or robotic before sending: \"Want to proceed?\", \"Are you ready to pay?\", \"Should I send the proforma?\", \"Will share the figure once confirmed.\" Nigerian customers dislike being rushed; the customer drives the close, not Sunny.",
+    why: { label: "Why this matters", text: "These tail questions used to slip into replies and made Sunny sound like a salesman pushing for a close. Customers feel more at ease without them." }
+  },
+  safety_stock: {
+    layer: "Safety check",
+    title: "Match what's actually in stock",
+    summary: "If Sunny accidentally invents a product variant we don't carry (like \"20kW single-phase incoming within 20 days\" when we only stock the 20kW three-phase), the safety check catches it and replaces it with \"the team will confirm shortly.\" Sunny never quotes a model or stock state we haven't actually entered into the system."
+  },
+  safety_prices: {
+    layer: "Safety check",
+    title: "Keep prices appropriate",
+    summary: "Sunny only quotes prices when the customer explicitly asked. He never dumps the full catalog or stock list, even when asked. If a customer says \"send me your price list\", Sunny politely asks them which product or size they're sizing for, so the team can quote that specific one.",
+    why: { label: "Why this matters", text: "Stops the model from accidentally exposing prices to competitors or volunteering quotes on adjacent products the customer didn't ask about." }
+  },
+  safety_contact: {
+    layer: "Safety check",
+    title: "Protect contact information",
+    summary: "Sunny never lists multiple phone numbers in one reply, never exposes the team's private number outside the official handoff link, and never includes contact dumps. Phone numbers only appear when a customer explicitly asks for one."
+  },
+  safety_design: {
+    layer: "Safety check",
+    title: "Battery and inverter math is valid",
+    summary: "Before sending a battery system proposal (a BOM), Sunny runs the math through a deterministic check: the cluster count is right, every cluster has enough batteries, the inverter matches the battery type (high-voltage with high-voltage, never mixed), the number of racks is correct, and the splits are balanced. Any option that doesn't pass gets silently dropped from the customer-facing reply.",
+    example: { label: "Real example", text: "Customer asks for a 200 kWh system. Sunny proposes three battery options. One of them turns out to have an invalid cluster split. That option vanishes from the customer's view; only the two valid ones show up." }
+  },
+  safety_format: {
+    layer: "Safety check",
+    title: "Clean formatting",
+    summary: "Sunny makes sure the reply reads well on WhatsApp: blank lines between sections, one fact per line, no internal labels (like §9.0 or \"small-app default\") accidentally leaked, no fancy dashes that look weird, no dropped options listed as \"not in stock, skipped\"."
+  },
+
+  send_message: {
+    layer: "Send to customer",
+    title: "Send the reply on WhatsApp",
+    summary: "Sunny sends the polished reply to the customer through the official WhatsApp Business API. The customer typically gets it within 1-2 seconds of their original message."
+  },
+  save_history: {
+    layer: "Send to customer",
+    title: "Save to memory",
+    summary: "Sunny saves the outbound message in his memory alongside the original inbound. This way, every future reply has the full conversation context.",
+    why: { label: "Why this matters", text: "When the customer comes back tomorrow, Sunny remembers everything: size discussed, location, budget, what worked, what didn't." }
+  },
+  hot_handoff: {
+    layer: "Decision",
+    title: "Is this customer ready to buy?",
+    summary: "If the conversation was flagged as a hot lead (customer asked to pay), Sunny appends one extra thing to the reply: a direct WhatsApp link to the specialist."
+  },
+  specialist_link: {
+    layer: "Team handoff",
+    title: "Append direct line to specialist",
+    summary: "At the bottom of the reply, the customer sees: \"Direct line to the specialist: wa.me/...\". One tap and they're in a WhatsApp chat with the human team, with their context already pre-filled.",
+    example: { label: "Real example", text: "Customer taps the link. WhatsApp opens with: \"Hi, I was speaking with ElectroSun and want to proceed. Pls I have 13kw load and i want 65kwh backup.\"" }
+  },
+
+  d_stock: {
+    layer: "What Sunny knows",
+    title: "Live product stock",
+    summary: "The single source of truth for what we sell, what it costs, and what's currently in stock. Edited from the admin Stock page. Two warehouse columns (Abuja, Lagos) per item, with state (in stock / incoming / out of stock), quantity, and ETA. Sunny reads the latest version on every customer reply, so price or stock edits take effect immediately."
+  },
+  d_brochures: {
+    layer: "What Sunny knows",
+    title: "Product brochures",
+    summary: "Each inventory item can have a PDF or image brochure attached. When a customer asks for a datasheet, brochure, or specs, Sunny finds the right one and sends it as a WhatsApp document attachment."
+  },
+  d_rulebook: {
+    layer: "What Sunny knows",
+    title: "Sunny's rulebook",
+    summary: "The master prompt that defines Sunny's personality, voice, tone, hard rules (no compliments, no pushy questions, no double-dashes, never reveal he's AI, never negotiate, etc.), and the technical battery configuration rules. Edited directly from the admin Knowledge page."
+  },
+  d_history: {
+    layer: "What Sunny knows",
+    title: "Customer records and history",
+    summary: "Every customer, every conversation, every message both ways, every product they asked about, every decision logged. Sunny uses this to remember who's who and to inform every reply."
+  },
+  d_open_qs: {
+    layer: "What Sunny knows",
+    title: "Open questions waiting on the team",
+    summary: "When Sunny pings the team with a quiet question, that question is tracked here. After 23 hours, Sunny reminds the team. After 24 hours, the question auto-closes."
+  },
+  d_costs: {
+    layer: "What Sunny knows",
+    title: "Daily AI cost tracker",
+    summary: "Every reply Sunny writes costs a small amount on the AI side. Sunny tracks the daily total and has a safety budget (today: $20). If the budget is exceeded, Sunny falls back to a cheaper model for the rest of the day."
+  },
+
+  t_2hourly: {
+    layer: "Background task",
+    title: "Two-hourly activity update",
+    summary: "Every 2 hours, Sunny sends the owner a short WhatsApp summary: new customers, hot leads, open questions, today's spend so far. Currently disabled while the team is in testing mode."
+  },
+  t_daily: {
+    layer: "Background task",
+    title: "End-of-day report at 9pm",
+    summary: "At 9pm Lagos time, Sunny sends a full daily summary to the owner: total inbound messages, hot leads, conversions, top products discussed, anything that didn't get answered. Database snapshot is also archived."
+  },
+  t_learning: {
+    layer: "Background task",
+    title: "Daily learning report at 9:30pm",
+    summary: "Sunny scans the day for patterns: unanswered questions, repeated requests for products we don't stock, contacts that didn't fit any clear category. Surfaces them to the owner so the prompts or stock can be tuned."
+  },
+  t_window: {
+    layer: "Background task",
+    title: "Watch open questions",
+    summary: "Every 30 minutes, Sunny scans the open team questions. After 23 hours, the team gets a reminder. After 24 hours, the question is closed automatically so it doesn't stay open indefinitely."
+  },
+  t_release: {
+    layer: "Background task",
+    title: "Hand the chat back to Sunny",
+    summary: "When the team takes over a chat manually and then goes silent, Sunny watches the inactivity. After 15 minutes with no team reply, the chat is automatically released and Sunny resumes handling the customer's new messages."
+  }
+};
+
+const LAYER_COLORS = {
+  "Customer interaction": { bg: "#f0fbf3", stroke: "#6bbf85" },
+  "Sunny thinking": { bg: "#ecf3ff", stroke: "#5483d6" },
+  "Decision": { bg: "#fdf0f0", stroke: "#c5575e" },
+  "Team handoff": { bg: "#fff8e7", stroke: "#d6a637" },
+  "Safety check": { bg: "#fff4ec", stroke: "#c97a36" },
+  "Send to customer": { bg: "#e8f7ff", stroke: "#4794c9" },
+  "What Sunny knows": { bg: "#f1f0ec", stroke: "#8a836e" },
+  "Background task": { bg: "#f7eaf7", stroke: "#a85aa8" }
+};
+
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  themeVariables: {
+    fontFamily: '-apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif',
+    fontSize: '13px',
+    primaryColor: '#ffffff',
+    primaryBorderColor: '#a8b3ae',
+    primaryTextColor: '#1f2a26',
+    lineColor: '#9aa9a4',
+    edgeLabelBackground: '#ffffff'
+  },
+  flowchart: {
+    htmlLabels: true,
+    nodeSpacing: 36,
+    rankSpacing: 56,
+    curve: 'basis'
+  },
+  securityLevel: 'loose'
+});
+
+window.showNodeDetails = function(id) {
+  const node = NODES[id];
+  const dTitle = document.getElementById('dTitle');
+  const dPill = document.getElementById('dPill');
+  const dSummary = document.getElementById('dSummary');
+  const dExtras = document.getElementById('dExtras');
+
+  if (!node) {
+    dTitle.textContent = 'No detail registered';
+    dPill.style.display = 'none';
+    dSummary.textContent = '';
+    dSummary.classList.add('hint');
+    dExtras.innerHTML = '';
+    return;
+  }
+  dTitle.textContent = node.title;
+  dPill.style.display = 'inline-block';
+  dPill.textContent = node.layer;
+  const c = LAYER_COLORS[node.layer];
+  if (c) { dPill.style.background = c.bg; dPill.style.color = c.stroke; dPill.style.borderColor = c.stroke; }
+  dSummary.classList.remove('hint');
+  dSummary.textContent = node.summary || '';
+
+  let extras = '';
+  if (node.example) {
+    extras += `<div class="example"><strong>${node.example.label || 'Example'}</strong>${node.example.text}</div>`;
+  }
+  if (node.why) {
+    extras += `<div class="why" style="margin-top:14px"><strong>${node.why.label || 'Why this matters'}</strong>${node.why.text}</div>`;
+  }
+  dExtras.innerHTML = extras;
+};
+
+// Zoom controls
+let zoom = 1;
+function applyZoom() {
+  const el = document.getElementById('mermaidDiagram');
+  if (el) el.style.transform = `scale(${zoom})`;
+}
+document.getElementById('zoomIn').addEventListener('click', () => { zoom = Math.min(2, zoom + 0.1); applyZoom(); });
+document.getElementById('zoomOut').addEventListener('click', () => { zoom = Math.max(0.4, zoom - 0.1); applyZoom(); });
+document.getElementById('zoomReset').addEventListener('click', () => { zoom = 1; applyZoom(); });
+
+// Demo trace: animate a customer message through the flow, narrating with friendly text
+const TRACE_STEPS = [
+  { id: 'N1', narration: 'Customer sends a WhatsApp message...' },
+  { id: 'N2', narration: 'Sunny receives it and verifies it\'s real.' },
+  { id: 'N3', narration: 'Checking if it\'s a voice note...' },
+  { id: 'N5', narration: 'Opening the customer\'s record.' },
+  { id: 'N6', narration: 'Is this the owner asking? No, it\'s a customer.' },
+  { id: 'N8', narration: 'Is the team handling this already? No.' },
+  { id: 'N10', narration: 'Waiting a moment in case more messages arrive.' },
+  { id: 'N11', narration: 'Is it just a greeting? No, it\'s a real question.' },
+  { id: 'N13', narration: 'Sunny reads carefully: what does the customer want?' },
+  { id: 'N14', narration: 'Remembering the new details.' },
+  { id: 'N15', narration: 'Picking the right path...' },
+  { id: 'N18', narration: 'Sunny can answer this himself.' },
+  { id: 'N20', narration: 'Pulling together stock, prices, brochures, history...' },
+  { id: 'N21', narration: 'Writing the reply.' },
+  { id: 'Q1', narration: 'Safety check: tone is right, not pushy.' },
+  { id: 'Q2', narration: 'Safety check: matching what\'s actually in stock.' },
+  { id: 'Q3', narration: 'Safety check: prices are appropriate.' },
+  { id: 'Q4', narration: 'Safety check: contact info is protected.' },
+  { id: 'Q5', narration: 'Safety check: battery math is valid.' },
+  { id: 'Q6', narration: 'Safety check: formatting is clean.' },
+  { id: 'S_1', narration: 'Sending the reply to the customer.' },
+  { id: 'S_2', narration: 'Saving the conversation in memory.' }
+];
+let traceTimer = null;
+const demoStatus = document.getElementById('demoStatus');
+const demoText = document.getElementById('demoStatusText');
+
+function clearTrace() {
+  document.querySelectorAll('.mermaid svg .node.demo-active').forEach(n => n.classList.remove('demo-active'));
+  demoStatus.classList.remove('active');
+}
+function highlightNode(mermaidId) {
+  const svg = document.querySelector('#mermaidDiagram svg');
+  if (!svg) return null;
+  const candidates = svg.querySelectorAll(`g.node[id*="${mermaidId}"]`);
+  if (candidates.length) {
+    candidates[0].classList.add('demo-active');
+    return candidates[0];
+  }
+  return null;
+}
+function playDemo() {
+  clearTrace();
+  demoStatus.classList.add('active');
+  let i = 0;
+  const refs = [];
+  function step() {
+    if (i > 0 && refs[i-1]) refs[i-1].classList.remove('demo-active');
+    if (i >= TRACE_STEPS.length) {
+      demoText.textContent = '✓ Reply delivered to the customer';
+      setTimeout(clearTrace, 1800);
+      return;
+    }
+    const s = TRACE_STEPS[i];
+    const node = highlightNode(s.id);
+    refs[i] = node;
+    demoText.textContent = s.narration;
+    if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    i++;
+    traceTimer = setTimeout(step, 700);
+  }
+  step();
+}
+document.getElementById('playDemoBtn').addEventListener('click', () => {
+  if (traceTimer) { clearTimeout(traceTimer); traceTimer = null; }
+  playDemo();
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (traceTimer) { clearTimeout(traceTimer); traceTimer = null; }
+  clearTrace();
+  document.getElementById('dTitle').textContent = 'Pick any box to see what it does';
+  document.getElementById('dPill').style.display = 'none';
+  const p = document.getElementById('dSummary');
+  p.textContent = 'Each step in the diagram is clickable. You\'ll see what Sunny is doing at that point, and a real-world example of the customer experience.';
+  p.classList.add('hint');
+  document.getElementById('dExtras').innerHTML = '';
+});
+
+// Mark nodes as clickable for hover effect
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    const svg = document.querySelector('#mermaidDiagram svg');
+    if (!svg) return;
+    svg.querySelectorAll('g.node').forEach(n => n.classList.add('node-clickable'));
+    svg.style.maxWidth = 'none';
+  }, 800);
+});
+</script>
+
+</body>
+</html>
