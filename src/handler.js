@@ -15,7 +15,8 @@ const {
   getOpenPendingQueryForContact,
   touchPendingQueryAssistantReply,
   getContactById,
-  getMessagesForConversation
+  getMessagesForConversation,
+  updateContactFields
 } = require('./memory');
 const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
@@ -270,6 +271,25 @@ function buildDealerPricingContext() {
     '- Do NOT include any URL or phone number; the system does NOT append a Sales Manager link for dealer flows.',
     '- Do NOT ask further qualifying questions (the team will gather those when they reach out).'
   ].join('\n');
+}
+
+// Gather-first context: a serious lead needs one routing detail before the
+// team is brought in. Tell Sunny to ask exactly one short question this turn,
+// without handing off, naming the team, or emitting any link/number.
+function buildGatherFirstContext(classification) {
+  const cat = String((classification && classification.routing_category) || '').toLowerCase();
+  const region = String((classification && classification.routing_region) || '').toLowerCase();
+  const lines = [
+    '# Routing context (treat as authoritative)',
+    'This customer looks serious, but before the team is brought in you need ONE more detail. Acknowledge briefly, then ask ONE short, natural question this turn. Do NOT hand off yet, do NOT mention the team, the Sales Manager, or a specialist, and do NOT include any URL or phone number.'
+  ];
+  if (cat === 'daily_sales' && region !== 'abuja' && region !== 'lagos') {
+    lines.push('Missing detail: their location. Ask whether they are in Abuja or Lagos (this also tells us pickup vs delivery). Just that one question.');
+  } else {
+    lines.push('Missing detail: what they actually need. Ask briefly about the product or the system size they have in mind (for example the kW size, or whether it is a small home setup or a larger project). Just that one question.');
+  }
+  lines.push('Maximum 2 short sentences total.');
+  return lines.join('\n');
 }
 
 function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
@@ -1192,6 +1212,36 @@ async function processCustomerBatch(entry) {
     classification.escalation_type = null;
   }
 
+  // Deferred-handoff resume (gather-first). A prior turn deferred this lead's
+  // alert to first ask for a routing detail (product/scale, or Abuja vs Lagos).
+  // If that detail has now arrived, fire the owed escalation even though THIS
+  // message alone may not re-trigger one, a bare "Lagos" carries no commitment
+  // phrase and would otherwise be demoted to WARM/COLD and dropped.
+  if (
+    !escalationsDisabled() &&
+    refreshedContact.deferred_handoff &&
+    ownerRouting.hasRoutingInfo(classification)
+  ) {
+    const deferredType = refreshedContact.deferred_handoff;
+    classification.needs_escalation = true;
+    classification.escalation_type = deferredType;
+    if (!ownerRouting.isSeriousOrHot(classification)) {
+      classification.category = deferredType === 'hot_lead' ? 'HOT' : 'SERIOUS';
+    }
+    try {
+      updateContactFields(contact.id, { deferred_handoff: null, deferred_handoff_at: null });
+    } catch (err) {
+      logger.warn('handler.escalation.deferred_handoff_clear_fail', { message: err.message });
+    }
+    refreshedContact.deferred_handoff = null;
+    logger.info('handler.escalation.deferred_handoff_resumed', {
+      contactId: contact.id,
+      escalation_type: deferredType,
+      routing_category: classification.routing_category,
+      routing_region: classification.routing_region
+    });
+  }
+
   const isHotEscalation = !!(classification.needs_escalation && classification.escalation_type === 'hot_lead');
   // Casual-confirm gate ONLY applies to non-HOT messages. HOT was already vetted by
   // the classifier's HOT_TRIGGER_RE whitelist; a short "i want to pay" is not casual,
@@ -1226,8 +1276,35 @@ async function processCustomerBatch(entry) {
     }
   }
 
+  // Gather-first: a SERIOUS/HOT lead would escalate, but we don't yet know
+  // enough to route it (product/scale unknown, or a daily sale with no stated
+  // city). Defer the alert this turn, remember it on the contact, and let the
+  // reply ask the one missing detail. The deferred-handoff resume above fires
+  // the owed alert once the customer supplies it.
+  const gatherFirst =
+    classification.needs_escalation &&
+    !customerIsCasualConfirm &&
+    !escalationsDisabled() &&
+    ownerRouting.isSeriousOrHot(classification) &&
+    !ownerRouting.routingInfoSufficient(classification);
+
   let escResult = null;
-  if (classification.needs_escalation && !customerIsCasualConfirm) {
+  if (gatherFirst) {
+    try {
+      updateContactFields(contact.id, {
+        deferred_handoff: classification.escalation_type || 'silent_query',
+        deferred_handoff_at: new Date().toISOString()
+      });
+    } catch (err) {
+      logger.warn('handler.escalation.gather_first_persist_fail', { message: err.message });
+    }
+    logger.info('handler.escalation.gather_first_deferred', {
+      contactId: contact.id,
+      escalation_type: classification.escalation_type,
+      routing_category: classification.routing_category,
+      routing_region: classification.routing_region
+    });
+  } else if (classification.needs_escalation && !customerIsCasualConfirm) {
     escResult = await notifyOwnerForEscalation({
       contact: refreshedContact,
       classification,
@@ -1244,7 +1321,9 @@ async function processCustomerBatch(entry) {
     });
   }
 
-  const isHot = isHotEscalation;
+  // During gather-first we are NOT handing off yet, so HOT handoff behaviors
+  // (HOT expert context, wa.me link, handoff backstops) must stay off.
+  const isHot = isHotEscalation && !gatherFirst;
   const currentOpen = isHot ? null : getOrAutoResolveStalePending(contact.id);
 
   // Reply-once-on-follow-up suppression. If a pending_queries row is open
@@ -1276,7 +1355,9 @@ async function processCustomerBatch(entry) {
 
   const customerIsGratitude = customerIsCasualConfirm && isGratitudeMessage(safeCombinedText);
   let expertContext = null;
-  if (isHot) {
+  if (gatherFirst) {
+    expertContext = buildGatherFirstContext(classification);
+  } else if (isHot) {
     expertContext = buildExpertContext({ isHot: true });
   } else if (
     classification.needs_escalation &&
@@ -1502,7 +1583,7 @@ async function processCustomerBatch(entry) {
   // and no hot_lead alert has fired this turn, force one. This runs BEFORE the
   // generic backstop and is NOT satisfied by a silent_query follow-up ping
   // having fired earlier — a HOT signal outranks a silent_query follow-up.
-  if (replyMentionsHotHandoff && !escalationsDisabled()) {
+  if (replyMentionsHotHandoff && !escalationsDisabled() && !gatherFirst) {
     const hotAlertAlreadyFiredThisTurn = !!(
       escResult &&
       escResult.ownerNotified &&
@@ -1546,7 +1627,7 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  if (replyMentionsHandoff && !escalationsDisabled()) {
+  if (replyMentionsHandoff && !escalationsDisabled() && !gatherFirst) {
     const ownerAlreadyNotifiedThisTurn = !!(escResult && (escResult.ownerNotified || escResult.freshPendingId));
     if (!ownerAlreadyNotifiedThisTurn) {
       logger.info('handler.handoff_in_reply_owner_alert', {
@@ -1593,7 +1674,8 @@ async function processCustomerBatch(entry) {
   // produced a wa.me link itself.
   const isHotHandoffThisTurn = !!(
     classification.needs_escalation &&
-    classification.escalation_type === 'hot_lead'
+    classification.escalation_type === 'hot_lead' &&
+    !gatherFirst
   );
   if (isHotHandoffThisTurn && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);

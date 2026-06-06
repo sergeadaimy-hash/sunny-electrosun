@@ -90,10 +90,18 @@ function normalizeRegion(classification) {
 // Used by the gather-first guard (ask the customer before alerting).
 function routingInfoSufficient(classification) {
   if (!isSeriousOrHot(classification)) return true; // not routed; general owner
+  return hasRoutingInfo(classification);
+}
+
+// Whether the routing-determining details are present, INDEPENDENT of the
+// current category. Used by the deferred-handoff resume: a follow-up like a
+// bare "Lagos" may have been demoted to COLD, but if it now supplies the
+// missing region we can still fire the owed alert.
+function hasRoutingInfo(classification) {
   const cat = normalizeRoutingCategory(classification);
-  if (cat === 'unknown') return false;
-  if (cat === 'daily_sales' && normalizeRegion(classification) === 'unknown') return false;
-  return true;
+  if (cat === 'big_project') return true;
+  if (cat === 'daily_sales') return normalizeRegion(classification) !== 'unknown';
+  return false;
 }
 
 // --- Pure decision core ----------------------------------------------------
@@ -213,6 +221,7 @@ module.exports = {
   isAlertOnly,
   isSeriousOrHot,
   routingInfoSufficient,
+  hasRoutingInfo,
   decideRecipient,
   resolveRecipient,
   getLastAssignee,

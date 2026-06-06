@@ -120,10 +120,22 @@ before the numbers are configured (everything routes to Patrick until set).
 ### Handler wiring (`src/handler.js`)
 In `notifyOwnerForEscalation` / the escalation decision point:
 1. If lead is NOT SERIOUS/HOT -> send to `OWNER_WHATSAPP` as today (no change).
-2. If SERIOUS/HOT but `routingInfoSufficient` is false -> do NOT alert. Build
-   an `expertContext` block instructing Sunny to ask the one missing detail
-   (product/scale, or "Abuja or Lagos?"), and let `generateReply` answer. The
-   alert fires on a later turn once the detail arrives.
+2. If SERIOUS/HOT but `routingInfoSufficient` is false -> do NOT alert. Persist
+   a deferred-handoff flag on the contact (`deferred_handoff` =
+   escalation_type, `deferred_handoff_at`), build an `expertContext` block
+   instructing Sunny to ask the one missing detail (product/scale, or "Abuja
+   or Lagos?"), and let `generateReply` answer. The HOT expert context, the
+   wa.me link, and both handoff backstops are suppressed while deferring
+   (`isHot` is forced false, every handoff path gated on `!gatherFirst`).
+   **Deferred-handoff resume:** on a later turn, before the escalation
+   decision, if the contact has a `deferred_handoff` and `hasRoutingInfo` is
+   now true, restore `needs_escalation`/`escalation_type` (and re-assert the
+   category as HOT/SERIOUS, since a bare "Lagos" reply would otherwise be
+   demoted and the classifier would drop the alert), clear the flag, and let
+   the normal escalation fire to the resolved recipient. The classifier is
+   instructed to populate `routing_category`/`routing_region` whenever
+   determinable regardless of category, so the demoted follow-up still carries
+   the region.
 3. If sufficient -> `resolveRecipient` picks the number; send the (concise)
    alert there instead of to `OWNER_WHATSAPP`. The follow-up-ping path resolves
    to the same recipient (sticky), so repeat pings reach the assigned owner.

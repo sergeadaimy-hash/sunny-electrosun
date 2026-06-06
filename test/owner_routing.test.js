@@ -7,6 +7,7 @@ const assert = require('node:assert');
 const {
   decideRecipient,
   routingInfoSufficient,
+  hasRoutingInfo,
   numberForLabel,
   isFullOwner,
   isAlertOnly,
@@ -88,6 +89,27 @@ test('insufficient: daily sale with unknown region', () => {
 
 test('sufficient: cold lead never blocks (not routed)', () => {
   assert.equal(routingInfoSufficient({ category: 'COLD', routing_category: 'unknown' }), true);
+});
+
+// --- hasRoutingInfo (deferred-handoff resume gate, category-independent) ----
+
+test('hasRoutingInfo: big project is always enough', () => {
+  assert.equal(hasRoutingInfo({ routing_category: 'big_project' }), true);
+});
+
+test('hasRoutingInfo: daily needs a known region', () => {
+  assert.equal(hasRoutingInfo({ routing_category: 'daily_sales', routing_region: 'lagos' }), true);
+  assert.equal(hasRoutingInfo({ routing_category: 'daily_sales', routing_region: 'unknown' }), false);
+});
+
+test('hasRoutingInfo: works even when current category is COLD (demoted follow-up)', () => {
+  // A bare "Lagos" reply classified COLD but carrying the region must still
+  // satisfy the resume gate.
+  assert.equal(hasRoutingInfo({ category: 'COLD', routing_category: 'daily_sales', routing_region: 'lagos' }), true);
+});
+
+test('hasRoutingInfo: unknown category is not enough', () => {
+  assert.equal(hasRoutingInfo({ routing_category: 'unknown' }), false);
 });
 
 // --- numberForLabel + tier checks (env-driven) -----------------------------

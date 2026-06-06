@@ -204,7 +204,7 @@ Low confidence is NEVER a reason to escalate. Set confidence below 75, provide a
 Schema rules:
 •⁠  ⁠⁠ secondary_category ⁠: required (not null) ONLY when ⁠ category ⁠ is REPEAT_CLIENT. Otherwise null.
 •⁠  ⁠⁠ suggested_question ⁠: null when confidence is 75+. When provided, keep it short, casual, indirect.
-•⁠  ⁠⁠ routing_category ⁠ and ⁠ routing_region ⁠: fill ONLY when ⁠ category ⁠ is SERIOUS or HOT (otherwise null). They decide which team member gets the alert.
+•⁠  ⁠⁠ routing_category ⁠ and ⁠ routing_region ⁠: fill these WHENEVER you can determine them from the conversation, regardless of ⁠ category ⁠ (use null only when genuinely unknown). They decide which team member gets the alert, and a short follow-up like a bare "Lagos" must still set ⁠ routing_region ⁠ even if that lone message reads as COLD.
    - ⁠ routing_category ⁠: classify the deal. Check BIG PROJECT first; it wins on any single trigger.
      • ⁠ big_project ⁠ if ANY ONE is true: it is a High-Voltage (HV) system, OR system size is greater than 20 kW, OR deal value is greater than ₦15,000,000.
      • ⁠ daily_sales ⁠ only if ALL are true: size is 20 kW or less, AND value is ₦15,000,000 or less, AND it is NOT an HV system. (Standard inverter, battery, and panel sales.)

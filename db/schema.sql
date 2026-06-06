@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   brand_preference TEXT,
   budget_mentioned TEXT,
   assigned_big_project_owner TEXT,
+  deferred_handoff TEXT,
+  deferred_handoff_at TEXT,
   first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   last_active TIMESTAMP,
   notes TEXT
