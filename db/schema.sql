@@ -13,9 +13,18 @@ CREATE TABLE IF NOT EXISTS contacts (
   products_asked_about TEXT,
   brand_preference TEXT,
   budget_mentioned TEXT,
+  assigned_big_project_owner TEXT,
   first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   last_active TIMESTAMP,
   notes TEXT
+);
+
+-- Owner-alert routing state. Single-row key/value for the Category 2
+-- round-robin (last_big_project_assignee = 'charbel' | 'patrick').
+CREATE TABLE IF NOT EXISTS routing_state (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS conversations (

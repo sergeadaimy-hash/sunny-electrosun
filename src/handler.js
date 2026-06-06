@@ -27,6 +27,7 @@ const { answerOwnerQuestion } = require('./owner_qa');
 const { transcribeAudio } = require('./transcribe');
 const security = require('./security');
 const { buildOwnerAlertText } = require('./owner_alert');
+const ownerRouting = require('./owner_routing');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
 
@@ -472,8 +473,11 @@ function buildAdminConversationLink(conversationId) {
   return `${ADMIN_BASE_URL}/admin#conv=${conversationId}`;
 }
 
-async function notifyOwnerEscalation(contact, message, classification) {
-  const ownerPhone = process.env.OWNER_WHATSAPP;
+async function notifyOwnerEscalation(contact, message, classification, recipientPhone) {
+  // recipientPhone is resolved once by the caller (after throttles pass) so the
+  // Category 2 round-robin is not consumed by a throttled alert and the HOT
+  // retry does not double-flip. Falls back to OWNER_WHATSAPP.
+  const ownerPhone = recipientPhone || process.env.OWNER_WHATSAPP;
   if (!ownerPhone) {
     logger.warn('escalation.no_owner_phone');
     return null;
@@ -688,8 +692,12 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
           throttled: true
         };
       }
-      // Send a brief follow-up ping rather than the full alert.
-      const ownerPhone = process.env.OWNER_WHATSAPP;
+      // Send a brief follow-up ping rather than the full alert. Routes to the
+      // same recipient as the original alert: a big-project case already has a
+      // sticky owner (so resolveRecipient returns it without flipping), and a
+      // daily sale is deterministic by region.
+      const followRouted = ownerRouting.resolveRecipient(contact, classification);
+      const ownerPhone = followRouted.number || process.env.OWNER_WHATSAPP;
       let followSendRes = null;
       if (ownerPhone) {
         // Same concise shape as the main alert, just a repeat-ping header.
@@ -766,7 +774,13 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
     }
   }
 
-  let alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification);
+  // Resolve the recipient ONCE here, after all throttles passed, so a throttled
+  // alert never consumes a Category 2 round-robin slot. The same number is
+  // reused on the HOT retry below (no double-flip).
+  const routed = ownerRouting.resolveRecipient(contact, classification);
+  const recipientPhone = routed.number || process.env.OWNER_WHATSAPP;
+
+  let alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification, recipientPhone);
   // HOT alerts get one retry after a short delay if the first send fails. A
   // missed HOT alert means the brother doesn't find out a customer is ready
   // to pay; that's a much worse outcome than a duplicate send.
@@ -777,7 +791,7 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
       first_error: alertSendRes && alertSendRes.error
     });
     await new Promise(r => setTimeout(r, 1500));
-    alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification);
+    alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification, recipientPhone);
   }
   const ownerNotified = !!(alertSendRes && alertSendRes.ok);
   if (!ownerNotified) {
@@ -1652,8 +1666,18 @@ async function handleInbound(payload) {
         continue;
       }
 
-      const ownerPhone = process.env.OWNER_WHATSAPP;
-      if (ownerPhone && msg.from === ownerPhone) {
+      // Alert-only recipients (Abuja / Lagos sales desks): Sunny sends them
+      // alerts but never converses with them. Drop any inbound silently so
+      // they don't get treated as a customer.
+      if (ownerRouting.isAlertOnly(msg.from)) {
+        logger.info('handler.inbound.alert_only_ignored', {
+          from_tail: String(msg.from || '').slice(-4)
+        });
+        continue;
+      }
+
+      // Full owners (Patrick + Charbel): reply-relay to a QID, or Owner Q&A.
+      if (ownerRouting.isFullOwner(msg.from)) {
         if (msg.replyToId) {
           const pending = findPendingByAlertId(msg.replyToId);
           if (pending) {
@@ -1667,8 +1691,7 @@ async function handleInbound(payload) {
         }
       }
 
-      const ownerPhoneForRl = process.env.OWNER_WHATSAPP;
-      if (!ownerPhoneForRl || msg.from !== ownerPhoneForRl) {
+      if (!ownerRouting.isFullOwner(msg.from)) {
         const provisionalContact = getOrCreateContact(msg.from, msg.profileName);
         const rl = security.checkRateLimit(provisionalContact.id);
         if (!rl.allowed) {
@@ -1832,8 +1855,10 @@ async function recoverOrphanedInbound(maxAgeMinutes = 10) {
     return { recovered: 0 };
   }
 
-  const ownerPhone = process.env.OWNER_WHATSAPP;
-  const filtered = orphans.filter(o => !ownerPhone || o.phone !== ownerPhone);
+  // Never re-queue owner/sales-desk numbers as customer inbound.
+  const filtered = orphans.filter(o =>
+    !ownerRouting.isFullOwner(o.phone) && !ownerRouting.isAlertOnly(o.phone)
+  );
   logger.info('handler.recovery.orphans_found', {
     total: orphans.length,
     filtered: filtered.length,

@@ -310,6 +310,8 @@ const FALLBACK_CLASSIFICATION = {
   follow_up_in_days: null,
   owner_brief: null,
   owner_followup_draft: null,
+  routing_category: null,
+  routing_region: null,
   lead_data: {
     name: null, location: null, use_case: null, load_estimate: null, timeline: null,
     products_asked_about: null, brand_preference: null, budget_mentioned: null,

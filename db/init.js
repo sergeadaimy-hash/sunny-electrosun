@@ -84,7 +84,8 @@ function applyMigrations(db) {
       { name: 'client_type', type: 'TEXT' },
       { name: 'products_asked_about', type: 'TEXT' },
       { name: 'brand_preference', type: 'TEXT' },
-      { name: 'budget_mentioned', type: 'TEXT' }
+      { name: 'budget_mentioned', type: 'TEXT' },
+      { name: 'assigned_big_project_owner', type: 'TEXT' }
     ],
     pending_queries: [
       { name: 'expiring_warning_sent_at', type: 'TIMESTAMP' },
@@ -124,6 +125,17 @@ function applyMigrations(db) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_contacts_lead_temperature ON contacts(lead_temperature);
     CREATE INDEX IF NOT EXISTS idx_contacts_client_type ON contacts(client_type);
+  `);
+
+  // Owner-alert routing state (2026-06-06). Single-row key/value used by the
+  // Category 2 round-robin (last_big_project_assignee = 'charbel' | 'patrick').
+  // Must persist across container restarts so alternation does not reset.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS routing_state (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT
+    );
   `);
 }
 
