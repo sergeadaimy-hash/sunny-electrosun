@@ -26,6 +26,7 @@ const { DB_PATH } = require('../db/init');
 const { answerOwnerQuestion } = require('./owner_qa');
 const { transcribeAudio } = require('./transcribe');
 const security = require('./security');
+const { buildOwnerAlertText } = require('./owner_alert');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
 
@@ -480,40 +481,12 @@ async function notifyOwnerEscalation(contact, message, classification) {
 
   const rawType = classification && classification.escalation_type;
   const escalationType = ESCALATION_HEADERS[rawType] ? rawType : 'silent_query';
-  const customerWaLink = contact.phone
-    ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}`
-    : null;
 
-  const customerConv = getActiveConversation(contact.id);
-  const adminLink = customerConv && customerConv.id ? buildAdminConversationLink(customerConv.id) : null;
-  const brief = formatConversationBriefForOwner(contact.id, 6);
-
-  const signals = [];
-  if (classification && classification.category) signals.push(`Category: ${classification.category}`);
-  if (classification && classification.lead_temperature) signals.push(`Temp: ${classification.lead_temperature}`);
-  if (classification && classification.intent) signals.push(`Intent: ${classification.intent}`);
-
-  const lines = [];
-  lines.push(escalationHeader(escalationType));
-  lines.push(`Customer: ${contact.name || 'unknown'} (${contact.phone})`);
-  if (signals.length) lines.push(signals.join(' | '));
-  lines.push('');
-  lines.push('Latest message:');
-  lines.push(message);
-  if (brief) {
-    lines.push('');
-    lines.push('Conversation so far:');
-    lines.push(brief);
-  }
-  if (adminLink) {
-    lines.push('');
-    lines.push(`Open in admin: ${adminLink}`);
-  }
-  if (customerWaLink) {
-    lines.push(`Open WhatsApp chat: ${customerWaLink}`);
-  }
-
-  const alertText = lines.join('\n');
+  // Concise brief, not a transcript (2026-06-06). The summary + client-facing
+  // follow-up draft ride on the classifier output (classification.owner_brief
+  // / owner_followup_draft); buildOwnerAlertText handles the fallbacks when
+  // those are absent (synthetic classifications).
+  const alertText = buildOwnerAlertText(contact, classification, escalationHeader(escalationType));
   const sendRes = await sendMessage(ownerPhone, alertText);
   try {
     const ownerContact = getOrCreateContact(ownerPhone, null);
@@ -719,30 +692,12 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
       const ownerPhone = process.env.OWNER_WHATSAPP;
       let followSendRes = null;
       if (ownerPhone) {
-        const waLink = contact.phone ? `https://wa.me/${String(contact.phone).replace(/\D+/g, '')}` : null;
-        const followConv = getActiveConversation(contact.id);
-        const followAdminLink = followConv && followConv.id ? buildAdminConversationLink(followConv.id) : null;
-        const followBrief = formatConversationBriefForOwner(contact.id, 6);
-        const followLines = [
-          'FOLLOW-UP, same customer is still asking on the pending query.',
-          `Customer: ${contact.name || 'unknown'} (${contact.phone})`,
-          '',
-          'Latest message:',
-          safeCombinedText
-        ];
-        if (followBrief) {
-          followLines.push('');
-          followLines.push('Conversation so far:');
-          followLines.push(followBrief);
-        }
-        if (followAdminLink) {
-          followLines.push('');
-          followLines.push(`Open in admin: ${followAdminLink}`);
-        }
-        if (waLink) {
-          followLines.push(`Open WhatsApp chat: ${waLink}`);
-        }
-        const followText = followLines.join('\n');
+        // Same concise shape as the main alert, just a repeat-ping header.
+        const followText = buildOwnerAlertText(
+          contact,
+          classification,
+          'FOLLOW-UP, same customer is still asking on the pending query.'
+        );
         followSendRes = await sendMessage(ownerPhone, followText);
         try {
           const ownerContact = getOrCreateContact(ownerPhone, null);

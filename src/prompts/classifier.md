@@ -183,6 +183,8 @@ Low confidence is NEVER a reason to escalate. Set confidence below 75, provide a
   "escalation_type": "hot_lead|negotiation|silent_query|repeat_complex|null",
   "suggested_question": "string or null",
   "follow_up_in_days": null,
+  "owner_brief": "string or null",
+  "owner_followup_draft": "string or null",
   "lead_data": {
     "name": null,
     "location": null,
@@ -200,6 +202,9 @@ Low confidence is NEVER a reason to escalate. Set confidence below 75, provide a
 Schema rules:
 •⁠  ⁠⁠ secondary_category ⁠: required (not null) ONLY when ⁠ category ⁠ is REPEAT_CLIENT. Otherwise null.
 •⁠  ⁠⁠ suggested_question ⁠: null when confidence is 75+. When provided, keep it short, casual, indirect.
+•⁠  ⁠⁠ owner_brief ⁠ and ⁠ owner_followup_draft ⁠: fill these ONLY when ⁠ needs_escalation ⁠ is true (otherwise null). They feed the alert sent to the owner.
+   - ⁠ owner_brief ⁠: a 2-line, owner-facing summary of the situation. Plain language, no greeting, no fluff. Name the product when the case is about one. This is internal, never shown to the customer. Example: "Customer wants details on the Deye 6KW off-grid inverter.\nNo price or stock confirmed yet, needs a team reply."
+   - ⁠ owner_followup_draft ⁠: a short (1 to 2 sentence) client-facing follow-up opener the owner can send to the customer as-is. Reference the product/case so it reads naturally. No double dashes. Never invent a price, stock figure, spec, or timeline. Example: "Hello, this is ElectroSun following up on your Deye 6KW off-grid inverter enquiry. How can we help you move forward?"
 •⁠  ⁠⁠ follow_up_in_days ⁠: set a number (7, 14, 30) ONLY for SERIOUS leads where the customer gave a timeline. Otherwise null.
 •⁠  ⁠⁠ lead_data.previous_purchase ⁠: brief note for REPEAT_CLIENT (e.g. "12kW Deye hybrid, March 2024") if mentioned. Otherwise null.
 •⁠  ⁠⁠ lead_data ⁠: fill only fields explicitly present in the conversation. Use null for anything you have to guess.

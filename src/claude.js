@@ -308,6 +308,8 @@ const FALLBACK_CLASSIFICATION = {
   escalation_type: null,
   suggested_question: null,
   follow_up_in_days: null,
+  owner_brief: null,
+  owner_followup_draft: null,
   lead_data: {
     name: null, location: null, use_case: null, load_estimate: null, timeline: null,
     products_asked_about: null, brand_preference: null, budget_mentioned: null,
