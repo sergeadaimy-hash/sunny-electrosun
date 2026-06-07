@@ -1815,7 +1815,7 @@
       </nav>
     </div>
     <div class="header-stats">
-      <span class="badge" id="pending-badge">0 pending</span>
+      <span class="badge" id="hot-badge" title="HOT leads active today">0 hot</span>
       <span class="badge" id="budget-badge">$0.00</span>
       <button class="icon-btn" id="refresh-btn">Refresh</button>
       <button class="icon-btn" id="logout-btn">Sign out</button>
@@ -1991,7 +1991,6 @@ const ROLE_STORAGE = 'electrosun_admin_role';
 let apiKey = localStorage.getItem(API_KEY_STORAGE);
 let userRole = localStorage.getItem(ROLE_STORAGE) || 'admin';
 let allConversations = [];
-let pendingQueries = [];
 let currentConversationId = null;
 let activeFilter = 'all';
 let refreshTimer = null;
@@ -2578,14 +2577,13 @@ async function refreshAll() {
   try {
     const reqs = [
       apiFetch('/inbox?limit=200'),
-      apiFetch('/queries/pending')
+      apiFetch('/stats/today')
     ];
     // The inbox-only role is not allowed to read the budget endpoint.
     if (userRole !== 'inbox') reqs.push(apiFetch('/budget/today'));
-    const [inbox, pending, budget] = await Promise.all(reqs);
+    const [inbox, stats, budget] = await Promise.all(reqs);
     allConversations = inbox.conversations || [];
-    pendingQueries = pending.pending || [];
-    renderHeader(budget);
+    renderHeader(budget, stats);
     renderConversations();
     if (currentConversationId) {
       await loadConversationDetail(currentConversationId, false);
@@ -2606,10 +2604,15 @@ async function refreshAll() {
   }
 }
 
-function renderHeader(budget) {
-  const pendingEl = document.getElementById('pending-badge');
-  pendingEl.textContent = (pendingQueries.length || 0) + ' pending';
-  pendingEl.classList.toggle('over', pendingQueries.length > 0);
+function renderHeader(budget, stats) {
+  // Header now surfaces today's HOT leads instead of the all-time pending-query
+  // count (the old "242 pending" figure was stale and not actionable).
+  const hotEl = document.getElementById('hot-badge');
+  if (hotEl) {
+    const hot = (stats && typeof stats.hot === 'number') ? stats.hot : 0;
+    hotEl.textContent = hot + ' hot';
+    hotEl.classList.toggle('over', hot > 0);
+  }
 
   const budgetEl = document.getElementById('budget-badge');
   if (!budget) { return; }

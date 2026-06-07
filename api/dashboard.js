@@ -301,8 +301,15 @@ function buildStats(from, to) {
   const byCategory = db.prepare(
     'SELECT category, COUNT(*) AS n FROM contacts GROUP BY category'
   ).all();
+  // HOT deals active in the window (today, for the header badge). Counts a
+  // contact as hot when either the classifier category or the lead_temperature
+  // is HOT and they have been active within the window. Replaces the old
+  // all-time "pending queries" header figure, which grew stale and unrealistic.
+  const hot = db.prepare(
+    "SELECT COUNT(*) AS n FROM contacts WHERE (UPPER(COALESCE(lead_temperature,'')) = 'HOT' OR UPPER(COALESCE(category,'')) = 'HOT') AND last_active >= ? AND last_active < ?"
+  ).get(from, to).n;
 
-  return { from, to, inbound, outbound, new_contacts: newContacts, escalations, by_category: byCategory };
+  return { from, to, inbound, outbound, new_contacts: newContacts, escalations, hot, by_category: byCategory };
 }
 
 router.get('/inbox', (req, res) => {
