@@ -120,6 +120,43 @@ function escalationsDisabled() {
   return String(process.env.DISABLE_ESCALATIONS || '').toLowerCase() === 'true';
 }
 
+// --- Customer contact-number requests (owner directive 2026-06-07) ----------
+// When a customer asks for a phone/contact line, share the REGIONAL SALES desk
+// as a WhatsApp link only: Lagos -> Lagos Sales, Abuja -> Abuja Sales, unknown
+// region -> ask which city first. NEVER share an owner number (Patrick/Charbel
+// are the big-deal owners, not a regional desk). Deterministic so the LLM can't
+// mislabel the number or pick the wrong one.
+const CONTACT_REQUEST_RE = /\b(phone\s*(number|no|line)?|(your|the|a)\s+(number|line|contact)|number\s+to\s+(call|reach|contact)|to\s+call\b|call\s+(you|your\s+(team|office)|the\s+team)|how\s+(can|do|to)\s+(i\s+)?(reach|contact|call)|reach\s+(you|the\s+team|your\s+team|someone)|contact\s+(you|number|line|the\s+team|someone)|whats?app\s*(number|no|line|contact)?|hotline|customer\s+(care|service))\b/i;
+
+function regionSalesNumberDigits(region) {
+  if (region === 'lagos') return (process.env.SALES_LAGOS_WHATSAPP || '').replace(/\D/g, '') || null;
+  if (region === 'abuja') return (process.env.SALES_ABUJA_WHATSAPP || '').replace(/\D/g, '') || null;
+  return null;
+}
+
+function resolveContactRegion(classification, contact, text) {
+  const rc = String((classification && classification.routing_region) || '').toLowerCase();
+  if (rc === 'lagos' || rc === 'abuja') return rc;
+  const blob = `${text || ''} ${(contact && contact.location) || ''}`.toLowerCase();
+  if (/\blagos\b/.test(blob)) return 'lagos';
+  if (/\babuja\b/.test(blob)) return 'abuja';
+  return 'unknown';
+}
+
+// Build the deterministic reply for a contact-number request. Returns null when
+// we have a region but its desk number is not configured (so the caller asks
+// for the city instead of leaking nothing / an owner number).
+function buildContactReply(region) {
+  if (region === 'unknown') {
+    return 'Are you in Abuja or Lagos? Let me know and I\'ll share the right sales line.';
+  }
+  const digits = regionSalesNumberDigits(region);
+  if (!digits) return null;
+  const city = region === 'lagos' ? 'Lagos' : 'Abuja';
+  const prefill = encodeURIComponent('Hi, I was speaking with Electro-Sun and would like to continue.');
+  return `You can reach our ${city} sales team here: https://wa.me/${digits}?text=${prefill}`;
+}
+
 // Topic-shift patterns: signals that the customer's new inbound is
 // substantively different from a "still waiting on the team" follow-up. A
 // match means the customer is engaging with a new product, identifying
@@ -1296,6 +1333,40 @@ async function processCustomerBatch(entry) {
     classification.needs_escalation = false;
     classification.escalation_type = null;
     if (classification.lead_temperature === 'HOT') classification.lead_temperature = 'COLD';
+  }
+
+  // Contact-number request fast-path (owner directive 2026-06-07). When the
+  // customer asks for a phone/contact line, deterministically share the regional
+  // sales desk as a WhatsApp link (Lagos -> Lagos Sales, Abuja -> Abuja Sales,
+  // unknown -> ask the city). Never an owner number. Skipped for HOT leads (the
+  // HOT handoff already appends the routed Sales Manager link) and for pure
+  // greetings. Bypasses the LLM + wa.me-strip guard so the link survives.
+  if (
+    !handlerIsGreeting(combinedText) &&
+    classification.escalation_type !== 'hot_lead' &&
+    CONTACT_REQUEST_RE.test(safeCombinedText)
+  ) {
+    const region = resolveContactRegion(classification, refreshedContact, safeCombinedText);
+    const contactReply = buildContactReply(region);
+    if (contactReply) {
+      try {
+        const sendRes = await sendMessage(lastMsg.from, contactReply);
+        appendMessage(conversation.id, 'outbound', contactReply, {
+          whatsapp_message_id: sendRes.messageId,
+          intent: 'contact_shared',
+          language: classification.language || 'english'
+        });
+        logger.info('handler.contact_request.shared', {
+          contactId: contact.id,
+          region,
+          has_number: region !== 'unknown'
+        });
+        return;
+      } catch (err) {
+        logger.error('handler.contact_request.send_fail', { contactId: contact.id, message: err.message });
+        // fall through to normal reply on send failure
+      }
+    }
   }
 
   if (escalationsDisabled() && classification.needs_escalation) {
