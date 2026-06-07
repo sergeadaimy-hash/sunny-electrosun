@@ -143,6 +143,19 @@ function resolveContactRegion(classification, contact, text) {
   return 'unknown';
 }
 
+// Region from CURRENT-conversation text only (no stored contact.location). Used
+// to route a deal: we must not pick a sales desk from a stale location the
+// customer set in a previous chat (2026-06-07: a returning test number had
+// location=Abuja, so a Lagos-less deal wrongly routed to Abuja Sales). If the
+// current conversation does not name a city, the region stays unknown and
+// gather-first asks "Abuja or Lagos?".
+function detectRegionInText(text) {
+  const t = String(text || '').toLowerCase();
+  if (/\blagos\b/.test(t)) return 'lagos';
+  if (/\babuja\b/.test(t)) return 'abuja';
+  return null;
+}
+
 // Build the deterministic reply for a contact-number request. Returns null when
 // we have a region but its desk number is not configured (so the caller asks
 // for the city instead of leaking nothing / an owner number).
@@ -1430,10 +1443,13 @@ async function processCustomerBatch(entry) {
   {
     const regionRaw = String(classification.routing_region || '').toLowerCase();
     if (regionRaw !== 'abuja' && regionRaw !== 'lagos') {
+      // CURRENT conversation only (current message + recent customer turns). We
+      // deliberately do NOT use the stored contact.location: routing a deal off a
+      // city the customer mentioned in a past chat picks the wrong sales manager.
       const histBlob = Array.isArray(priorHistory)
         ? priorHistory.filter(m => m && m.role === 'user').slice(-6).map(m => String(m.content || '')).join(' ')
         : '';
-      const detected = resolveContactRegion(classification, refreshedContact, `${safeCombinedText} ${histBlob}`);
+      const detected = detectRegionInText(`${safeCombinedText} ${histBlob}`);
       if (detected === 'abuja' || detected === 'lagos') {
         classification.routing_region = detected;
         logger.info('handler.routing_region_backfilled', { contactId: contact.id, region: detected });
@@ -1538,7 +1554,6 @@ async function processCustomerBatch(entry) {
   const gatherFirst =
     classification.needs_escalation &&
     !customerIsCasualConfirm &&
-    !isBulkOrder &&
     !escalationsDisabled() &&
     !ownerRouting.routingInfoSufficient(classification);
 
