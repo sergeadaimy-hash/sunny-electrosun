@@ -512,6 +512,46 @@ async function handleCallEvent(call) {
   }
 }
 
+// Meta delivery-status callbacks (sent / delivered / read / failed). These
+// arrive on the same webhook as inbound messages but were previously dropped,
+// so a `whatsapp.send.ok` (Meta ACCEPTED the call) gave false confidence about
+// whether an alert actually reached the recipient's phone. Logging them surfaces
+// the truth, especially the 24h-window silent drop, which shows up as a `failed`
+// status with error code 131047 / 131026 ("re-engagement"/"message undeliverable").
+function extractStatuses(payload) {
+  const out = [];
+  const entries = payload?.entry || [];
+  for (const entry of entries) {
+    for (const change of entry.changes || []) {
+      const value = change.value || {};
+      for (const s of value.statuses || []) {
+        out.push({ id: s.id, status: s.status, recipient: s.recipient_id, errors: s.errors || [] });
+      }
+    }
+  }
+  return out;
+}
+
+function logDeliveryStatuses(payload) {
+  let statuses = [];
+  try { statuses = extractStatuses(payload); }
+  catch (err) { logger.warn('handler.status.extract_fail', { message: err.message }); return; }
+  for (const s of statuses) {
+    const base = { messageId: s.id, status: s.status, to_tail: String(s.recipient || '').slice(-4) };
+    if (s.status === 'failed' || (s.errors && s.errors.length)) {
+      const e = (s.errors && s.errors[0]) || {};
+      logger.warn('whatsapp.delivery.failed', {
+        ...base,
+        error_code: e.code,
+        error_title: e.title,
+        error_message: e.message || (e.error_data && e.error_data.details) || null
+      });
+    } else {
+      logger.info('whatsapp.delivery.status', base);
+    }
+  }
+}
+
 function extractMessages(payload) {
   const out = [];
   const entries = payload?.entry || [];
@@ -1928,6 +1968,11 @@ async function processCustomerBatch(entry) {
 }
 
 async function handleInbound(payload) {
+  // Delivery-status callbacks (delivered / read / failed) ride the same webhook.
+  // Log them so we can see whether an alert actually reached the phone, not just
+  // that Meta accepted it. Status-only payloads carry no messages and return below.
+  logDeliveryStatuses(payload);
+
   try {
     const calls = extractCallEvents(payload);
     for (const call of calls) {
