@@ -6,6 +6,7 @@ const assert = require('node:assert');
 
 const {
   decideRecipient,
+  isSeriousOrHot,
   routingInfoSufficient,
   hasRoutingInfo,
   numberForLabel,
@@ -69,10 +70,27 @@ test('non serious/hot lead is not routed (general owner)', () => {
   assert.equal(d.reason, 'not_serious_or_hot');
 });
 
-test('unknown category falls back to general owner', () => {
+test('unknown category with no region falls back to general owner', () => {
   const d = decideRecipient({ category: 'HOT', routing_category: 'unknown' });
   assert.equal(d.label, 'owner');
-  assert.equal(d.reason, 'category_unknown');
+  assert.equal(d.reason, 'region_unknown');
+});
+
+test('unknown category WITH a region routes to that desk (treated like daily)', () => {
+  assert.equal(decideRecipient({ category: 'HOT', routing_category: 'unknown', routing_region: 'lagos' }).label, 'lagos');
+  assert.equal(decideRecipient({ category: 'SERIOUS', routing_category: 'unknown', routing_region: 'abuja' }).label, 'abuja');
+});
+
+test('force-promoted HOT (category COLD, temp HOT, escalation hot_lead) is routed, not dumped to owner', () => {
+  // Regression for 2026-06-07 (Adeyato): commitment-phrase promotion left
+  // category COLD, so the old category-only gate sent it to the general owner.
+  const lead = { category: 'COLD', lead_temperature: 'HOT', escalation_type: 'hot_lead', routing_category: 'daily_sales', routing_region: 'lagos' };
+  assert.equal(isSeriousOrHot(lead), true, 'signal-based: HOT temp / hot_lead escalation counts');
+  assert.equal(decideRecipient(lead).label, 'lagos', 'routes to the Lagos desk, not the owner');
+});
+
+test('bulk_order escalation counts as serious for routing', () => {
+  assert.equal(isSeriousOrHot({ category: 'COLD', escalation_type: 'bulk_order' }), true);
 });
 
 // --- routingInfoSufficient (gather-first gate) -----------------------------
@@ -110,8 +128,9 @@ test('hasRoutingInfo: works even when current category is COLD (demoted follow-u
   assert.equal(hasRoutingInfo({ category: 'COLD', routing_category: 'daily_sales', routing_region: 'lagos' }), true);
 });
 
-test('hasRoutingInfo: unknown category is not enough', () => {
+test('hasRoutingInfo: unknown category needs a region (none -> false, region -> true)', () => {
   assert.equal(hasRoutingInfo({ routing_category: 'unknown' }), false);
+  assert.equal(hasRoutingInfo({ routing_category: 'unknown', routing_region: 'lagos' }), true);
 });
 
 // --- numberForLabel + tier checks (env-driven) -----------------------------

@@ -327,7 +327,10 @@ function buildGatherFirstContext(classification) {
     '# Routing context (treat as authoritative)',
     'This customer looks serious, but before the team is brought in you need ONE more detail. Acknowledge briefly, then ask ONE short, natural question this turn. Do NOT hand off yet, do NOT mention the team, the Sales Manager, or a specialist, and do NOT include any URL or phone number.'
   ];
-  if (cat === 'daily_sales' && region !== 'abuja' && region !== 'lagos') {
+  if (region !== 'abuja' && region !== 'lagos') {
+    // Region is the detail we need most often (it decides which regional sales
+    // desk gets the alert, and pickup vs delivery). Ask it whenever it is
+    // unknown, regardless of whether the classifier pinned routing_category.
     lines.push('Missing detail: their location. Ask whether they are in Abuja or Lagos (this also tells us pickup vs delivery). Just that one question.');
   } else {
     lines.push('Missing detail: what they actually need. Ask briefly about the product or the system size they have in mind (for example the kW size, or whether it is a small home setup or a larger project). Just that one question.');

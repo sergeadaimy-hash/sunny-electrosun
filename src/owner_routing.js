@@ -109,9 +109,21 @@ function isAlertOnly(from) {
 
 // --- Category helpers ------------------------------------------------------
 
+// A lead worth topic-routing. Keys on the ACTUAL escalation signals, not just
+// `category`: a commitment-phrase force-promotion (classifier.js) sets
+// lead_temperature=HOT + escalation_type=hot_lead but leaves category=COLD, and
+// that was sending every force-promoted HOT lead to the general owner with
+// reason "not_serious_or_hot" instead of the regional desk (bug seen 2026-06-07,
+// Adeyato). So also treat HOT/WARM temperature and any routing-worthy escalation
+// type as serious.
+const ROUTING_WORTHY_ESCALATIONS = ['hot_lead', 'bulk_order', 'negotiation', 'big_project', 'repeat_complex'];
 function isSeriousOrHot(classification) {
   const cat = String((classification && classification.category) || '').toUpperCase();
-  return cat === 'HOT' || cat === 'SERIOUS';
+  if (cat === 'HOT' || cat === 'SERIOUS') return true;
+  const temp = String((classification && classification.lead_temperature) || '').toUpperCase();
+  if (temp === 'HOT' || temp === 'WARM') return true;
+  const esc = String((classification && classification.escalation_type) || '').toLowerCase();
+  return ROUTING_WORTHY_ESCALATIONS.includes(esc);
 }
 
 function normalizeRoutingCategory(classification) {
@@ -143,8 +155,12 @@ function routingInfoSufficient(classification) {
 function hasRoutingInfo(classification) {
   const cat = normalizeRoutingCategory(classification);
   if (cat === 'big_project') return true;
-  if (cat === 'daily_sales') return normalizeRegion(classification) !== 'unknown';
-  return false;
+  // daily_sales OR unknown category: a known region is enough to route. Treating
+  // unknown like daily keeps the classifier's flaky routing_category from
+  // stranding a clearly-regional lead (it would otherwise sit unrouted and the
+  // deferred-handoff resume would never fire). Big projects carry their own
+  // signal and are caught above.
+  return normalizeRegion(classification) !== 'unknown';
 }
 
 // --- Pure decision core ----------------------------------------------------
@@ -162,6 +178,8 @@ function hasRoutingInfo(classification) {
 function decideRecipient(input) {
   const classification = {
     category: input && input.category,
+    lead_temperature: input && input.lead_temperature,
+    escalation_type: input && input.escalation_type,
     routing_category: input && input.routing_category,
     routing_region: input && input.routing_region,
   };
@@ -182,14 +200,15 @@ function decideRecipient(input) {
     return { label: next, flipTo: next, stickySet: next, reason: 'round_robin' };
   }
 
-  if (cat === 'daily_sales') {
-    const region = normalizeRegion(classification);
-    if (region === 'abuja') return { label: 'abuja', flipTo: null, stickySet: null, reason: 'daily_abuja' };
-    if (region === 'lagos') return { label: 'lagos', flipTo: null, stickySet: null, reason: 'daily_lagos' };
-    return { label: 'owner', flipTo: null, stickySet: null, reason: 'daily_region_unknown' };
-  }
-
-  return { label: 'owner', flipTo: null, stickySet: null, reason: 'category_unknown' };
+  // daily_sales OR unknown category: route by region. Unknown is treated like
+  // daily because the classifier often leaves routing_category null on a clearly
+  // regional sale; big projects are handled above. Region-unknown falls back to
+  // the general owner (gather-first should have asked the city first).
+  const region = normalizeRegion(classification);
+  const known = cat === 'daily_sales' ? 'daily' : 'region';
+  if (region === 'abuja') return { label: 'abuja', flipTo: null, stickySet: null, reason: `${known}_abuja` };
+  if (region === 'lagos') return { label: 'lagos', flipTo: null, stickySet: null, reason: `${known}_lagos` };
+  return { label: 'owner', flipTo: null, stickySet: null, reason: cat === 'daily_sales' ? 'daily_region_unknown' : 'region_unknown' };
 }
 
 // --- DB-backed state -------------------------------------------------------
@@ -229,6 +248,8 @@ function resolveRecipient(contact, classification) {
 
   const decision = decideRecipient({
     category: classification && classification.category,
+    lead_temperature: classification && classification.lead_temperature,
+    escalation_type: classification && classification.escalation_type,
     routing_category: classification && classification.routing_category,
     routing_region: classification && classification.routing_region,
     stickyOwner,
