@@ -56,24 +56,31 @@ test('daily sale routes to Lagos desk', () => {
   assert.equal(d.label, 'lagos');
 });
 
-test('daily sale with unknown region falls back to general owner', () => {
+test('daily sale with unknown region is a last-resort owner fallback', () => {
   const d = decideRecipient({ category: 'HOT', routing_category: 'daily_sales', routing_region: 'unknown' });
   assert.equal(d.label, 'owner');
-  assert.equal(d.reason, 'daily_region_unknown');
+  assert.equal(d.reason, 'region_unknown_fallback');
 });
 
 // --- Fallbacks -------------------------------------------------------------
 
-test('non serious/hot lead is not routed (general owner)', () => {
-  const d = decideRecipient({ category: 'COLD', routing_category: 'big_project' });
-  assert.equal(d.label, 'owner');
-  assert.equal(d.reason, 'not_serious_or_hot');
+test('a COLD big project still goes to the owners (big = owner regardless of temp)', () => {
+  // Owner directive 2026-06-07: owners handle big projects only, but ANY big
+  // project reaches them, even a COLD-toned one.
+  const d = decideRecipient({ category: 'COLD', routing_category: 'big_project', lastAssignee: null });
+  assert.equal(d.label, 'charbel');
 });
 
-test('unknown category with no region falls back to general owner', () => {
+test('a COLD daily lead with a region routes to the desk, NOT the owner', () => {
+  // The core fix: small / non-HOT leads must reach the regional desk, never the owner.
+  assert.equal(decideRecipient({ category: 'COLD', escalation_type: 'silent_query', routing_category: 'daily_sales', routing_region: 'lagos' }).label, 'lagos');
+  assert.equal(decideRecipient({ category: 'COLD', escalation_type: 'silent_query', routing_region: 'abuja' }).label, 'abuja');
+});
+
+test('region unknown (non-big) is a last-resort owner fallback (gather-first should prevent it)', () => {
   const d = decideRecipient({ category: 'HOT', routing_category: 'unknown' });
   assert.equal(d.label, 'owner');
-  assert.equal(d.reason, 'region_unknown');
+  assert.equal(d.reason, 'region_unknown_fallback');
 });
 
 test('unknown category WITH a region routes to that desk (treated like daily)', () => {
@@ -107,8 +114,11 @@ test('insufficient: daily sale with unknown region', () => {
   assert.equal(routingInfoSufficient({ category: 'SERIOUS', routing_category: 'daily_sales', routing_region: 'unknown' }), false);
 });
 
-test('sufficient: cold lead never blocks (not routed)', () => {
-  assert.equal(routingInfoSufficient({ category: 'COLD', routing_category: 'unknown' }), true);
+test('insufficient: any escalation lacking region+category must gather the city', () => {
+  // New model: a COLD/silent_query lead with no region is NOT sufficient; it must
+  // ask the city so it can reach a desk (never the owner).
+  assert.equal(routingInfoSufficient({ category: 'COLD', routing_category: 'unknown' }), false);
+  assert.equal(routingInfoSufficient({ category: 'COLD', routing_region: 'lagos' }), true);
 });
 
 // --- hasRoutingInfo (deferred-handoff resume gate, category-independent) ----

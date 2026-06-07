@@ -144,7 +144,9 @@ function normalizeRegion(classification) {
 // escalate: category must be known, and a daily sale must know its region.
 // Used by the gather-first guard (ask the customer before alerting).
 function routingInfoSufficient(classification) {
-  if (!isSeriousOrHot(classification)) return true; // not routed; general owner
+  // Every escalation is now routed (big project -> owners; everything else ->
+  // regional desk). So routing is "sufficient" only when we can actually decide:
+  // a big project, or a known region. Otherwise gather-first must ask the city.
   return hasRoutingInfo(classification);
 }
 
@@ -184,10 +186,13 @@ function decideRecipient(input) {
     routing_region: input && input.routing_region,
   };
 
-  if (!isSeriousOrHot(classification)) {
-    return { label: 'owner', flipTo: null, stickySet: null, reason: 'not_serious_or_hot' };
-  }
-
+  // Owner directive (2026-06-07): the owners (Patrick/Charbel) handle ONLY big
+  // projects. Every other escalation, regardless of HOT/SERIOUS/COLD or
+  // escalation type (daily sale, pricing question, silent_query, inquiry),
+  // routes to the regional sales desk by the customer's location. There is no
+  // "not serious enough, send to the owner" path anymore. Region-unknown is
+  // handled by gather-first (ask Abuja or Lagos before alerting); the owner
+  // fallback below is a last resort that should almost never be hit.
   const cat = normalizeRoutingCategory(classification);
 
   if (cat === 'big_project') {
@@ -208,7 +213,9 @@ function decideRecipient(input) {
   const known = cat === 'daily_sales' ? 'daily' : 'region';
   if (region === 'abuja') return { label: 'abuja', flipTo: null, stickySet: null, reason: `${known}_abuja` };
   if (region === 'lagos') return { label: 'lagos', flipTo: null, stickySet: null, reason: `${known}_lagos` };
-  return { label: 'owner', flipTo: null, stickySet: null, reason: cat === 'daily_sales' ? 'daily_region_unknown' : 'region_unknown' };
+  // Region unknown and not a big project: gather-first should have asked the
+  // city before we got here, so this is a last-resort fallback only. Log-worthy.
+  return { label: 'owner', flipTo: null, stickySet: null, reason: 'region_unknown_fallback' };
 }
 
 // --- DB-backed state -------------------------------------------------------

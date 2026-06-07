@@ -1511,12 +1511,15 @@ async function processCustomerBatch(entry) {
   // city). Defer the alert this turn, remember it on the contact, and let the
   // reply ask the one missing detail. The deferred-handoff resume above fires
   // the owed alert once the customer supplies it.
+  // Gather-first now applies to EVERY routed escalation (owner directive
+  // 2026-06-07: only big projects go to the owners; all else goes to a regional
+  // desk). So whenever an escalation lacks the region needed to pick a desk, ask
+  // the city first instead of letting it fall back to the owner.
   const gatherFirst =
     classification.needs_escalation &&
     !customerIsCasualConfirm &&
     !isBulkOrder &&
     !escalationsDisabled() &&
-    ownerRouting.isSeriousOrHot(classification) &&
     !ownerRouting.routingInfoSufficient(classification);
 
   let escResult = null;
