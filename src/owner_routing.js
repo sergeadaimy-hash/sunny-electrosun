@@ -72,6 +72,27 @@ function alertOnlyDigits() {
     .map(digits);
 }
 
+// All team numbers (full owners + alert-only sales desks). These are NOT
+// customers and must be excluded from lead / hot-lead / recent-contact stats
+// and from the Owner Q&A snapshot. A team member who messaged Sunny before
+// being configured here may still carry a stale HOT/SERIOUS contact row; this
+// list filters them out at query time so the owner never sees himself or a
+// colleague listed as a hot lead.
+function teamPhoneDigits() {
+  const out = [];
+  const seen = new Set();
+  for (const p of [
+    process.env.OWNER_WHATSAPP,
+    process.env.OWNER_CHARBEL_WHATSAPP,
+    process.env.SALES_ABUJA_WHATSAPP,
+    process.env.SALES_LAGOS_WHATSAPP
+  ]) {
+    const d = digits(p);
+    if (d && !seen.has(d)) { seen.add(d); out.push(d); }
+  }
+  return out;
+}
+
 function isFullOwner(from) {
   const d = digits(from);
   return !!d && fullOwnerDigits().includes(d);
@@ -240,6 +261,7 @@ function resolveRecipient(contact, classification) {
 module.exports = {
   numberForLabel,
   configuredRecipients,
+  teamPhoneDigits,
   isFullOwner,
   isAlertOnly,
   isSeriousOrHot,

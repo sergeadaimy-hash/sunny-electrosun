@@ -4,6 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { getDb } = require('../db/init');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
+const ownerRouting = require('./owner_routing');
 
 const MODEL = process.env.MODEL_OWNER_QA || 'claude-opus-4-7';
 const promptStore = require('./prompt_store');
@@ -34,6 +35,20 @@ function buildOwnerSnapshot(ownerContactId) {
   const nowIso = new Date().toISOString();
   const dayAgo = isoMinus(24 * 60 * 60 * 1000);
 
+  // Team numbers (owners + sales desks) are NOT customers. Exclude them from
+  // every lead / hot-lead / recent-contact figure so the owner never sees
+  // himself or a colleague reported as a hot lead (bug seen 2026-06-07:
+  // Charbel, an owner, was listed as a SERIOUS+HOT lead in Abuja). Built as
+  // reusable SQL fragments so each query below can opt in.
+  const teamDigits = ownerRouting.teamPhoneDigits();
+  const teamPh = teamDigits.length ? teamDigits.map(() => '?').join(',') : null;
+  // For queries on the contacts table directly (alias-free or `phone` column).
+  const notTeamContact = teamPh ? ` AND phone NOT IN (${teamPh})` : '';
+  // For queries that LEFT JOIN contacts AS c.
+  const notTeamJoined = teamPh ? ` AND (c.phone IS NULL OR c.phone NOT IN (${teamPh}))` : '';
+  // For event counts with no join: filter by contact_id via subquery.
+  const notTeamEvent = teamPh ? ` AND (contact_id IS NULL OR contact_id NOT IN (SELECT id FROM contacts WHERE phone IN (${teamPh})))` : '';
+
   const inboundToday = db.prepare(
     `SELECT COUNT(*) AS n FROM messages WHERE direction = 'inbound' AND timestamp >= ? AND timestamp < ?`
   ).get(todayStart, nowIso).n;
@@ -44,11 +59,11 @@ function buildOwnerSnapshot(ownerContactId) {
     `SELECT COUNT(*) AS n FROM contacts WHERE first_seen >= ?`
   ).get(todayStart).n;
   const hotLeadsToday = db.prepare(
-    `SELECT COUNT(*) AS n FROM events WHERE type = 'escalated' AND timestamp >= ? AND payload LIKE '%hot_lead%'`
-  ).get(todayStart).n;
+    `SELECT COUNT(*) AS n FROM events WHERE type = 'escalated' AND timestamp >= ? AND payload LIKE '%hot_lead%'${notTeamEvent}`
+  ).get(todayStart, ...teamDigits).n;
   const warmContacts = db.prepare(
-    `SELECT COUNT(*) AS n FROM contacts WHERE lead_temperature = 'WARM' AND last_active >= ?`
-  ).get(todayStart).n;
+    `SELECT COUNT(*) AS n FROM contacts WHERE lead_temperature = 'WARM' AND last_active >= ?${notTeamContact}`
+  ).get(todayStart, ...teamDigits).n;
   const pendingCount = db.prepare(
     `SELECT COUNT(*) AS n FROM pending_queries WHERE status = 'pending'`
   ).get().n;
@@ -60,10 +75,10 @@ function buildOwnerSnapshot(ownerContactId) {
     SELECT e.timestamp, e.payload, c.phone, c.name, c.location
     FROM events e
     LEFT JOIN contacts c ON c.id = e.contact_id
-    WHERE e.type = 'escalated' AND e.payload LIKE '%hot_lead%' AND e.timestamp >= ?
+    WHERE e.type = 'escalated' AND e.payload LIKE '%hot_lead%' AND e.timestamp >= ?${notTeamJoined}
     ORDER BY e.timestamp DESC
     LIMIT 10
-  `).all(dayAgo).map(r => ({
+  `).all(dayAgo, ...teamDigits).map(r => ({
     time: r.timestamp,
     name: r.name || 'unknown',
     phone: r.phone,
@@ -90,19 +105,19 @@ function buildOwnerSnapshot(ownerContactId) {
   const recentContactsRows = db.prepare(`
     SELECT phone, name, category, lead_temperature, client_type, location, last_active
     FROM contacts
-    WHERE last_active >= ?
+    WHERE last_active >= ?${notTeamContact}
     ORDER BY last_active DESC
     LIMIT 20
-  `).all(dayAgo);
+  `).all(dayAgo, ...teamDigits);
 
   const recentEscalationsRows = db.prepare(`
     SELECT e.timestamp, e.payload, c.phone, c.name
     FROM events e
     LEFT JOIN contacts c ON c.id = e.contact_id
-    WHERE e.type = 'escalated' AND e.timestamp >= ?
+    WHERE e.type = 'escalated' AND e.timestamp >= ?${notTeamJoined}
     ORDER BY e.timestamp DESC
     LIMIT 15
-  `).all(dayAgo).map(r => ({
+  `).all(dayAgo, ...teamDigits).map(r => ({
     time: r.timestamp,
     name: r.name || 'unknown',
     phone: r.phone,

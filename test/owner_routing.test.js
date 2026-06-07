@@ -10,6 +10,7 @@ const {
   hasRoutingInfo,
   numberForLabel,
   configuredRecipients,
+  teamPhoneDigits,
   isFullOwner,
   isAlertOnly,
 } = require('../src/owner_routing');
@@ -163,6 +164,17 @@ test('configuredRecipients: a desk equal to Patrick is deduped out', () => {
   delete process.env.SALES_LAGOS_WHATSAPP;
   const recs = configuredRecipients();
   assert.deepEqual(recs.map(r => r.label), ['patrick'], 'dup number not shown twice');
+  process.env = saved;
+});
+
+test('teamPhoneDigits: all team numbers, deduped, digits-only', () => {
+  const saved = { ...process.env };
+  process.env.OWNER_WHATSAPP = '+234 704 132 8055';
+  process.env.OWNER_CHARBEL_WHATSAPP = '2349068859213';
+  process.env.SALES_ABUJA_WHATSAPP = '2349169493087';
+  process.env.SALES_LAGOS_WHATSAPP = '2349068859213'; // dup of Charbel
+  const t = teamPhoneDigits();
+  assert.deepEqual(t, ['2347041328055', '2349068859213', '2349169493087'], 'normalized + deduped');
   process.env = saved;
 });
 

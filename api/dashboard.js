@@ -305,9 +305,15 @@ function buildStats(from, to) {
   // contact as hot when either the classifier category or the lead_temperature
   // is HOT and they have been active within the window. Replaces the old
   // all-time "pending queries" header figure, which grew stale and unrealistic.
+  // Team numbers (owners + sales desks) are excluded: they are not leads, and a
+  // colleague who messaged Sunny before being configured may carry a stale HOT
+  // row.
+  const team = ownerRouting.teamPhoneDigits();
+  const teamPlaceholders = team.length ? team.map(() => '?').join(',') : null;
   const hot = db.prepare(
     "SELECT COUNT(*) AS n FROM contacts WHERE (UPPER(COALESCE(lead_temperature,'')) = 'HOT' OR UPPER(COALESCE(category,'')) = 'HOT') AND last_active >= ? AND last_active < ?"
-  ).get(from, to).n;
+    + (teamPlaceholders ? ` AND phone NOT IN (${teamPlaceholders})` : '')
+  ).get(from, to, ...team).n;
 
   return { from, to, inbound, outbound, new_contacts: newContacts, escalations, hot, by_category: byCategory };
 }
