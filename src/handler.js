@@ -399,6 +399,55 @@ const CALL_AUTOREPLY = "Hello, this number isn't monitored for voice calls. Plea
 const CALL_AUTOREPLY_MIN_INTERVAL_MS = 60 * 60 * 1000;
 const CALL_AUTOREPLY_RECENT = new Map();
 
+// Alert-only sales desks (Abuja / Lagos): Sunny notifies them of leads but does
+// NOT converse with them (no relay, no Owner Q&A, per owner directive). Their
+// inbound used to be dropped silently, so the team saw nothing in the admin and
+// got no reply. Now: persist the message (so it shows under the desk's Owner
+// Chat thread) and send a generic, throttled acknowledgement that takes no
+// instruction. Throttle stops a chatty desk from getting the same ack repeatedly.
+const ALERT_DESK_ACK = "Thanks. This line delivers Electro-Sun lead alerts and isn't monitored for replies. To act on a customer, please use the admin dashboard or contact the customer directly.";
+const ALERT_DESK_ACK_MIN_INTERVAL_MS = 60 * 60 * 1000;
+const ALERT_DESK_ACK_RECENT = new Map();
+
+async function handleAlertOnlyMessage(msg) {
+  // Persist the inbound so it is visible in the admin (Owner Chat -> the desk's
+  // tab), even though Sunny will not act on it.
+  let contact = null;
+  let conversation = null;
+  try {
+    contact = getOrCreateContact(msg.from, msg.profileName);
+    conversation = getActiveConversation(contact.id);
+    appendMessage(conversation.id, 'inbound', msg.body || `[${msg.kind || 'message'}]`, {
+      whatsapp_message_id: msg.id,
+      intent: 'alert_desk_inbound'
+    });
+  } catch (err) {
+    logger.warn('handler.alert_desk.persist_inbound_fail', { message: err.message, from_tail: String(msg.from || '').slice(-4) });
+  }
+
+  // Generic ack, throttled per desk so a back-and-forth doesn't spam the line.
+  const lastAck = ALERT_DESK_ACK_RECENT.get(msg.from) || 0;
+  const now = Date.now();
+  if (now - lastAck < ALERT_DESK_ACK_MIN_INTERVAL_MS) {
+    logger.info('handler.alert_desk.ack_throttled', { from_tail: String(msg.from || '').slice(-4) });
+    return;
+  }
+  ALERT_DESK_ACK_RECENT.set(msg.from, now);
+  try {
+    const sendRes = await sendMessage(msg.from, ALERT_DESK_ACK);
+    if (conversation) {
+      appendMessage(conversation.id, 'outbound', ALERT_DESK_ACK, {
+        whatsapp_message_id: sendRes && sendRes.messageId,
+        intent: 'alert_desk_ack',
+        language: 'english'
+      });
+    }
+    logger.info('handler.alert_desk.ack_sent', { from_tail: String(msg.from || '').slice(-4) });
+  } catch (err) {
+    logger.warn('handler.alert_desk.ack_fail', { message: err.message, from_tail: String(msg.from || '').slice(-4) });
+  }
+}
+
 async function handleCallEvent(call) {
   if (!call.from) return;
   const lastSent = CALL_AUTOREPLY_RECENT.get(call.from) || 0;
@@ -1833,12 +1882,11 @@ async function handleInbound(payload) {
       }
 
       // Alert-only recipients (Abuja / Lagos sales desks): Sunny sends them
-      // alerts but never converses with them. Drop any inbound silently so
-      // they don't get treated as a customer.
+      // lead alerts but does NOT converse with them. Persist their message for
+      // admin visibility and send a generic, throttled ack (no relay, no Owner
+      // Q&A, no classification) so the line is not a black hole.
       if (ownerRouting.isAlertOnly(msg.from)) {
-        logger.info('handler.inbound.alert_only_ignored', {
-          from_tail: String(msg.from || '').slice(-4)
-        });
+        await handleAlertOnlyMessage(msg);
         continue;
       }
 
