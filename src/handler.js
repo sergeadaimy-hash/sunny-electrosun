@@ -299,6 +299,39 @@ function buildGatherFirstContext(classification) {
   return lines.join('\n');
 }
 
+// Bulk-order detection: an explicit countable quantity of 2 or more units of a
+// product. "I need up to 34 units", "buy 10 panels", "20 pcs". Excludes power
+// figures (650W, 12kW, 16kWh) because those are not unit counts. Used to drive
+// the bulk-quote-plus-Sales-Manager flow (owner directive 2026-06-07).
+const BULK_ORDER_RE = /\b(?:up\s+to\s+)?(\d{1,5})\s*(?:units?|pcs|pieces?|panels?|nos?|sets?|modules?|inverters?|batteries|battery|kits?|qty)\b/i;
+function detectBulkQuantity(text) {
+  const m = BULK_ORDER_RE.exec(String(text || ''));
+  if (!m) return 0;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n >= 2 ? n : 0;
+}
+
+// Bulk-order context: the customer named a product and a multi-unit quantity.
+// Sunny quotes the per-unit price from warehouse stock, then offers the Sales
+// Manager for the bulk price. The system appends the Sales Manager wa.me link
+// (do not emit it here).
+function buildBulkOrderContext(quantity) {
+  const qty = quantity && quantity > 1 ? String(quantity) : 'that quantity';
+  return [
+    '# Bulk order context (treat as authoritative)',
+    `The customer wants ${qty} units of a product they have named. They want pricing for a bulk purchase.`,
+    '',
+    'Voice rules in this state:',
+    '- If the product is clear from the conversation, state its PER-UNIT price from the warehouse stock block (exact figure, Naira). Do NOT invent a price; if the exact product or variant is not in the warehouse block, do NOT quote, just say the Sales Manager will confirm.',
+    `- Then add, in one short clause, that for ${qty} units the Sales Manager will confirm the best bulk price.`,
+    '- Do NOT compute or quote a total for the full quantity yourself, and do NOT promise any discount or percentage. Bulk pricing is the Sales Manager\'s call.',
+    '- If the product is NOT clear, ask which exact model they want, and mention the Sales Manager will handle the bulk quote. Just that.',
+    '- Use third person for the handoff ("the Sales Manager"). No first-person stalls ("I will get back").',
+    '- Do NOT include any URL or phone number; the system appends the Sales Manager contact link automatically.',
+    '- Two short sentences max.'
+  ].join('\n');
+}
+
 function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
   if (isHot) {
     return [
@@ -453,6 +486,7 @@ const ESCALATION_HEADERS = {
   negotiation: 'NEGOTIATION, customer is asking for a discount or counter-offer.',
   repeat_complex: 'REPEAT CLIENT, returning customer with a complex ask.',
   big_project: 'BIG PROJECT, 30kW+ install / EPC enquiry.',
+  bulk_order: 'BULK ORDER, customer wants a multi-unit quantity, confirm bulk price.',
   silent_query: 'FOLLOW-UP NEEDED, customer is waiting on a team answer.'
 };
 
@@ -1260,6 +1294,27 @@ async function processCustomerBatch(entry) {
   // it is a commitment. Suppressing it here was eating every natural payment phrase.
   const customerIsCasualConfirm = !isHotEscalation && isCasualConfirmation(safeCombinedText);
 
+  // Bulk-order detection (owner directive 2026-06-07): a customer naming a
+  // product and a multi-unit quantity ("I need up to 34 units") wants a bulk
+  // quote. Sunny quotes the per-unit price and offers the Sales Manager for the
+  // bulk price, the owner is alerted, and the customer gets the routed Sales
+  // Manager direct line. This is NOT casual and NOT a plain HOT commitment;
+  // when it is not already a HOT lead, force a bulk_order escalation so the flow
+  // routes and hands off instead of looping on a generic stall. Skip when
+  // escalations are disabled.
+  const bulkQuantity = detectBulkQuantity(safeCombinedText);
+  const isBulkOrder = bulkQuantity >= 2 && !isHotEscalation && !customerIsCasualConfirm && !escalationsDisabled();
+  if (isBulkOrder) {
+    classification.needs_escalation = true;
+    classification.escalation_type = 'bulk_order';
+    logger.info('handler.bulk_order_detected', {
+      contactId: contact.id,
+      quantity: bulkQuantity,
+      routing_category: classification.routing_category,
+      message_preview: safeCombinedText.slice(0, 80)
+    });
+  }
+
   // Silent-skip rule: if the customer just sent a pure casual confirm AND
   // Sunny's most recent reply was ALREADY a warm-close phrase ("take your
   // time", "anytime", "I'll be here", "no rush"...), do not reply. The
@@ -1296,6 +1351,7 @@ async function processCustomerBatch(entry) {
   const gatherFirst =
     classification.needs_escalation &&
     !customerIsCasualConfirm &&
+    !isBulkOrder &&
     !escalationsDisabled() &&
     ownerRouting.isSeriousOrHot(classification) &&
     !ownerRouting.routingInfoSufficient(classification);
@@ -1376,6 +1432,8 @@ async function processCustomerBatch(entry) {
     classification.escalation_type === 'dealer_pricing'
   ) {
     expertContext = buildDealerPricingContext();
+  } else if (isBulkOrder) {
+    expertContext = buildBulkOrderContext(bulkQuantity);
   } else if (customerIsGratitude) {
     expertContext = [
       '# Gratitude context (treat as authoritative)',
@@ -1691,7 +1749,15 @@ async function processCustomerBatch(entry) {
     classification.escalation_type === 'hot_lead' &&
     !gatherFirst
   );
-  if (isHotHandoffThisTurn && !linkAlreadyInText) {
+  // Bulk orders also get the Sales Manager direct line (owner directive
+  // 2026-06-07): the customer is offered the bulk quote, so the link is useful,
+  // not spammy.
+  const isBulkHandoffThisTurn = !!(
+    classification.needs_escalation &&
+    classification.escalation_type === 'bulk_order' &&
+    !gatherFirst
+  );
+  if ((isHotHandoffThisTurn || isBulkHandoffThisTurn) && !linkAlreadyInText) {
     // Point the customer at the SAME person the owner alert was routed to
     // (Abuja / Lagos sales, Charbel, or Patrick). Falls back to
     // SPECIALIST_DIRECT_LINK when no recipient was resolved this turn.

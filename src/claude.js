@@ -697,7 +697,12 @@ async function generateReply(history, message, contact, attachments = [], option
       }
     }
 
-    const PRICE_ASK_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|totals?|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoices?|proformas?|how\s+many\s+naira|configure|configuration|sizing|recommend(ation)?|complete\s+system|full\s+system|required|bundle|kit|boq|bom|estimate|estimation|spec(s|ification)?s?)\b/i;
+    // A quantity / buying-intent statement counts as a price ask too (owner
+    // directive 2026-06-07): when a customer names a product and a quantity
+    // ("I need up to 34 units", "buy 10 panels"), they want the price. Without
+    // this, the strip below nuked the quote and Sunny looped on a generic
+    // "could you share more about your project" (Lanre Ajeigbe screenshot).
+    const PRICE_ASK_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|totals?|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoices?|proformas?|how\s+many\s+naira|configure|configuration|sizing|recommend(ation)?|complete\s+system|full\s+system|required|bundle|kit|boq|bom|estimate|estimation|spec(s|ification)?s?|buy|purchase|order|\d+\s*(?:units?|pcs|pieces?|panels?|nos?|sets?|modules?|inverters?|batteries|kits?|qty)|up\s+to\s+\d+)\b/i;
     const currentAsked = PRICE_ASK_RE.test(String(message || ''));
     let priorAsked = false;
     if (Array.isArray(history)) {
