@@ -49,24 +49,26 @@ function buildOwnerSnapshot(ownerContactId) {
   // For event counts with no join: filter by contact_id via subquery.
   const notTeamEvent = teamPh ? ` AND (contact_id IS NULL OR contact_id NOT IN (SELECT id FROM contacts WHERE phone IN (${teamPh})))` : '';
 
-  const inboundToday = db.prepare(
-    `SELECT COUNT(*) AS n FROM messages WHERE direction = 'inbound' AND timestamp >= ? AND timestamp < ?`
-  ).get(todayStart, nowIso).n;
-  const outboundToday = db.prepare(
-    `SELECT COUNT(*) AS n FROM messages WHERE direction = 'outbound' AND timestamp >= ? AND timestamp < ?`
-  ).get(todayStart, nowIso).n;
   const newContactsToday = db.prepare(
     `SELECT COUNT(*) AS n FROM contacts WHERE first_seen >= ?`
   ).get(todayStart).n;
+  // Distinct customers who actually messaged today (the metric the owner cares
+  // about for a status update, not raw message counts). Excludes team numbers.
+  const customersToday = db.prepare(
+    `SELECT COUNT(*) AS n FROM (
+       SELECT DISTINCT c.contact_id
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       JOIN contacts ct ON ct.id = c.contact_id
+       WHERE m.direction = 'inbound' AND m.timestamp >= ? AND m.timestamp < ?${teamPh ? ` AND ct.phone NOT IN (${teamPh})` : ''}
+     )`
+  ).get(todayStart, nowIso, ...teamDigits).n;
   const hotLeadsToday = db.prepare(
     `SELECT COUNT(*) AS n FROM events WHERE type = 'escalated' AND timestamp >= ? AND payload LIKE '%hot_lead%'${notTeamEvent}`
   ).get(todayStart, ...teamDigits).n;
   const warmContacts = db.prepare(
     `SELECT COUNT(*) AS n FROM contacts WHERE lead_temperature = 'WARM' AND last_active >= ?${notTeamContact}`
   ).get(todayStart, ...teamDigits).n;
-  const pendingCount = db.prepare(
-    `SELECT COUNT(*) AS n FROM pending_queries WHERE status = 'pending'`
-  ).get().n;
   const activeFactsCount = db.prepare(
     `SELECT COUNT(*) AS n FROM knowledge_entries WHERE status = 'active'`
   ).get().n;
@@ -145,13 +147,15 @@ function buildOwnerSnapshot(ownerContactId) {
   return {
     today: {
       date: todayStart.slice(0, 10),
-      inbound: inboundToday,
-      outbound: outboundToday,
+      customers_reached_out: customersToday,
       new_contacts: newContactsToday,
-      hot_leads: hotLeadsToday,
-      warm_contacts_active: warmContacts,
-      pending_queries: pendingCount,
+      hot_leads_today: hotLeadsToday,
+      warm_contacts_active_today: warmContacts,
       active_facts_in_memory: activeFactsCount
+      // Deliberately NOT exposed for status updates: raw inbound/outbound message
+      // counts and the all-time open-pending backlog (the stale "242 since May").
+      // The owner wants today's customer + hot picture, not message volume or an
+      // old backlog. Raw counts/pending remain queryable from the admin.
     },
     hot_leads: hotLeadsRows,
     pending_queries: pendingRows,
