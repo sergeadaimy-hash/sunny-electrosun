@@ -1421,6 +1421,26 @@ async function processCustomerBatch(entry) {
     classification.escalation_type = null;
   }
 
+  // Region backfill (the classifier is unreliable at extracting routing_region).
+  // If the customer's message or recent history clearly names a city, set it in
+  // code so routing reaches the right desk instead of deferring to a city-ask or
+  // falling back to the owner. 2026-06-07: "I want to pay for 6kw inverter and
+  // pick from abuja" came back with routing_region:null, so a HOT lead deferred
+  // (gather-first) instead of routing to Abuja Sales and got no direct line.
+  {
+    const regionRaw = String(classification.routing_region || '').toLowerCase();
+    if (regionRaw !== 'abuja' && regionRaw !== 'lagos') {
+      const histBlob = Array.isArray(priorHistory)
+        ? priorHistory.filter(m => m && m.role === 'user').slice(-6).map(m => String(m.content || '')).join(' ')
+        : '';
+      const detected = resolveContactRegion(classification, refreshedContact, `${safeCombinedText} ${histBlob}`);
+      if (detected === 'abuja' || detected === 'lagos') {
+        classification.routing_region = detected;
+        logger.info('handler.routing_region_backfilled', { contactId: contact.id, region: detected });
+      }
+    }
+  }
+
   // Deferred-handoff resume (gather-first). A prior turn deferred this lead's
   // alert to first ask for a routing detail (product/scale, or Abuja vs Lagos).
   // If that detail has now arrived, fire the owed escalation even though THIS
