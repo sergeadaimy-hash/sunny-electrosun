@@ -9,6 +9,7 @@ const {
   routingInfoSufficient,
   hasRoutingInfo,
   numberForLabel,
+  configuredRecipients,
   isFullOwner,
   isAlertOnly,
 } = require('../src/owner_routing');
@@ -127,6 +128,41 @@ test('numberForLabel maps labels to env, with OWNER_WHATSAPP fallback', () => {
   assert.equal(numberForLabel('owner'), '2347041328055');
   delete process.env.OWNER_CHARBEL_WHATSAPP;
   assert.equal(numberForLabel('charbel'), '2347041328055', 'unset charbel falls back to owner');
+  process.env = saved;
+});
+
+test('configuredRecipients: all four when distinct numbers are set', () => {
+  const saved = { ...process.env };
+  process.env.OWNER_WHATSAPP = '2347041328055';
+  process.env.OWNER_CHARBEL_WHATSAPP = '2349068859213';
+  process.env.SALES_ABUJA_WHATSAPP = '2349169493087';
+  process.env.SALES_LAGOS_WHATSAPP = '2349111880000';
+  const recs = configuredRecipients();
+  assert.deepEqual(recs.map(r => r.label), ['patrick', 'charbel', 'abuja', 'lagos']);
+  assert.deepEqual(recs.map(r => r.name), ['Patrick', 'Charbel', 'Abuja Sales', 'Lagos Sales']);
+  assert.equal(recs[2].phone, '2349169493087');
+  process.env = saved;
+});
+
+test('configuredRecipients: unset desk is omitted (would duplicate Patrick)', () => {
+  const saved = { ...process.env };
+  process.env.OWNER_WHATSAPP = '2347041328055';
+  delete process.env.OWNER_CHARBEL_WHATSAPP;
+  delete process.env.SALES_ABUJA_WHATSAPP;
+  delete process.env.SALES_LAGOS_WHATSAPP;
+  const recs = configuredRecipients();
+  assert.deepEqual(recs.map(r => r.label), ['patrick'], 'only Patrick when others unset');
+  process.env = saved;
+});
+
+test('configuredRecipients: a desk equal to Patrick is deduped out', () => {
+  const saved = { ...process.env };
+  process.env.OWNER_WHATSAPP = '2347041328055';
+  process.env.SALES_ABUJA_WHATSAPP = '2347041328055';
+  delete process.env.OWNER_CHARBEL_WHATSAPP;
+  delete process.env.SALES_LAGOS_WHATSAPP;
+  const recs = configuredRecipients();
+  assert.deepEqual(recs.map(r => r.label), ['patrick'], 'dup number not shown twice');
   process.env = saved;
 });
 

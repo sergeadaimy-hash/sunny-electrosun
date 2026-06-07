@@ -734,12 +734,32 @@ async function generateReply(history, message, contact, attachments = [], option
         // the colon. If everything between the colon and end-of-line is
         // non-letter punctuation/digits, that's a dangling math fragment.
         const hasDanglingMathFragment = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*[^a-zA-Z\n]{1,30}(?:$|\n|\*)/im.test(stripped);
-        const hasDanglingLabel = hasDanglingColon || hasDanglingPrep || hasDanglingLabelEol || hasDanglingOrphanDigit || hasDanglingMathFragment;
+        // NEW: orphaned per-unit phrase left when the price between a copula/
+        // preposition and "per <unit>" was stripped. Example (2026-06-07):
+        // "...monofacial is 165,000 NGN per panel" -> "...monofacial is per
+        // panel". The earlier detectors miss this because there is no colon and
+        // the word before "is" is the product, not a price word. This branch
+        // only runs after a price was actually stripped, so false positives on
+        // legitimate replies are not a concern. Covers "is/at/of/for per ..."
+        // and a clause that now begins with "per <unit>".
+        const hasDanglingPerUnit =
+          /\b(?:is|are|was|were|at|of|for|costs?|priced?|sells?|goes?\s+for|starts?\s+(?:at|from))\s+per\s+\w+/i.test(stripped) ||
+          /(?:^|[.;:!?]\s+)per\s+\w+/i.test(stripped);
+        // NEW: a bare copula/cost verb left immediately before punctuation when
+        // the price right after it was stripped. Example: "The Deye SE-F16 is
+        // 2,600,000 NGN, available" -> "The Deye SE-F16 is, available". The
+        // \s* before the punctuation is intentional: a valid strip that leaves
+        // content ("...is 7.68kWh, available") puts that content between the
+        // verb and the comma, so this does NOT misfire on it.
+        const hasDanglingCopula = /\b(?:is|are|was|were|costs?|priced?|sells?)\s*(?:[,.;:!?]|$)/i.test(stripped);
+        const hasDanglingLabel = hasDanglingColon || hasDanglingPrep || hasDanglingLabelEol || hasDanglingOrphanDigit || hasDanglingMathFragment || hasDanglingPerUnit || hasDanglingCopula;
         const danglingKind = hasDanglingColon ? 'colon'
           : hasDanglingPrep ? 'preposition'
           : hasDanglingLabelEol ? 'label_eol'
           : hasDanglingOrphanDigit ? 'orphan_digit'
           : hasDanglingMathFragment ? 'math_fragment'
+          : hasDanglingPerUnit ? 'per_unit'
+          : hasDanglingCopula ? 'copula'
           : null;
         logger.warn('claude.reply.prices_stripped', {
           contactId: contact?.id,

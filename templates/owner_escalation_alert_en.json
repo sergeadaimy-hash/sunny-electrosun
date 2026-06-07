@@ -1,0 +1,48 @@
+{
+  "name": "owner_escalation_alert_en",
+  "language": "en",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Electro-Sun lead alert.\n{{1}}\nCustomer: {{2}}\nProduct: {{3}}\n\n{{4}}",
+      "example": {
+        "body_text": [[
+          "FOLLOW-UP NEEDED, customer is waiting on a team answer.",
+          "2348034455038",
+          "Deye 6KW Off-Grid Inverter",
+          "Customer wants details on the Deye 6KW off-grid inverter. No price or stock confirmed yet, needs a team reply."
+        ]]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Follow up on WhatsApp",
+          "url": "https://wa.me/{{1}}",
+          "example": ["2348034455038?text=Hello%2C%20this%20is%20ElectroSun%20following%20up%20on%20your%20Deye%206KW%20enquiry.%20How%20can%20we%20help%20you%20move%20forward%3F"]
+        }
+      ]
+    }
+  ],
+  "_notes": {
+    "purpose": "Permanent-delivery version of the owner escalation alert. Lets Sunny reach an owner / sales desk even when that number has been silent for more than 24h (free-form sends are blocked outside the 24h customer-service window; approved templates are not). Mirrors the concise free-form alert built by src/owner_alert.js > buildOwnerAlertText.",
+    "category_reason": "UTILITY: it is an operational notification tied to a live lead, not marketing.",
+    "variables": {
+      "{{1}} (BODY)": "typed header line from ESCALATION_HEADERS (HOT LEAD / FOLLOW-UP NEEDED / NEGOTIATION / BIG PROJECT / etc.)",
+      "{{2}} (BODY)": "customer phone number (digits)",
+      "{{3}} (BODY)": "product discussed; pass 'Not specified' when none (template variables cannot be blank)",
+      "{{4}} (BODY)": "the 2-line situation summary (owner_brief), or the fallback one-liner",
+      "{{1}} (BUTTON URL suffix)": "the customer's digits plus URL-encoded follow-up draft, e.g. '2348034455038?text=Hello...'. Appended to the fixed base https://wa.me/"
+    },
+    "open_questions_for_review": [
+      "Meta sometimes rejects a BODY that starts with a variable; we prefix a fixed 'Electro-Sun lead alert.' line to avoid that. Verify on submission.",
+      "Body variables cannot contain newlines on some validations; the 2-line summary {{4}} uses a space-joined single line if Meta rejects the embedded newline. Confirm at submit time.",
+      "Decide whether to send the template ALWAYS, or only when the recipient's 24h window is closed (free-form keeps richer formatting inside the window).",
+      "Confirm the dynamic URL-button suffix is accepted; if not, fall back to putting the wa.me link as a plain text body variable (Meta is pickier about links in body text)."
+    ],
+    "how_to_submit": "Ensure META_WABA_ID is the live WABA (986225450549617) in .env, add 'templates/owner_escalation_alert_en.json' to TEMPLATE_FILES in scripts/submit_templates.js, then run: node scripts/submit_templates.js. Check status with: node scripts/check_templates.js. DO NOT submit until we decide (kept offline 2026-06-06)."
+  }
+}

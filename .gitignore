@@ -11,3 +11,6 @@ logs/
 *.swp
 .idea/
 .vscode/
+
+# Local access credentials (never commit)
+ElectroSun-Access-Credentials.md

@@ -229,8 +229,15 @@ function getOrAutoResolveStalePending(contactId) {
   }
 }
 
-function buildSpecialistLink(customerMessage) {
-  const num = (process.env.SPECIALIST_DIRECT_LINK || '').replace(/\D/g, '');
+// overrideNumber: when set (the recipient an alert was actually routed to:
+// Abuja / Lagos sales desk, Charbel, or Patrick), the customer's direct line
+// points at THAT person instead of the static SPECIALIST_DIRECT_LINK. Falls
+// back to SPECIALIST_DIRECT_LINK when no recipient was resolved this turn.
+function buildSpecialistLink(customerMessage, overrideNumber) {
+  const source = (overrideNumber != null && String(overrideNumber).trim())
+    ? String(overrideNumber)
+    : (process.env.SPECIALIST_DIRECT_LINK || '');
+  const num = source.replace(/\D/g, '');
   if (!num) return null;
   const topic = (customerMessage || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   const prefilled = topic
@@ -510,7 +517,7 @@ async function notifyOwnerEscalation(contact, message, classification, recipient
   // follow-up draft ride on the classifier output (classification.owner_brief
   // / owner_followup_draft); buildOwnerAlertText handles the fallbacks when
   // those are absent (synthetic classifications).
-  const alertText = buildOwnerAlertText(contact, classification, escalationHeader(escalationType));
+  const alertText = buildOwnerAlertText(contact, classification, escalationHeader(escalationType), message);
   const sendRes = await sendMessage(ownerPhone, alertText);
   try {
     const ownerContact = getOrCreateContact(ownerPhone, null);
@@ -724,7 +731,8 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
         const followText = buildOwnerAlertText(
           contact,
           classification,
-          'FOLLOW-UP, same customer is still asking on the pending query.'
+          'FOLLOW-UP, same customer is still asking on the pending query.',
+          safeCombinedText
         );
         followSendRes = await sendMessage(ownerPhone, followText);
         try {
@@ -743,7 +751,9 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
         openPending: existingOpen,
         freshPendingId: null,
         ownerNotified: !!(followSendRes && followSendRes.ok),
-        escalationType
+        escalationType,
+        recipientNumber: ownerPhone,
+        recipientLabel: followRouted.label
       };
     }
   }
@@ -831,7 +841,9 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
     openPending: null,
     freshPendingId,
     ownerNotified,
-    escalationType
+    escalationType,
+    recipientNumber: recipientPhone,
+    recipientLabel: routed.label
   };
 }
 
@@ -1650,10 +1662,12 @@ async function processCustomerBatch(entry) {
           source: 'handoff_in_reply'
         });
         // Make sure the escalatedThisTurn flag downstream sees this so the
-        // customer reply gets the wa.me specialist link appended.
+        // customer reply gets the wa.me specialist link appended. Also surface
+        // the resolved recipient so the link points at whoever was routed.
         if (handoffEsc && handoffEsc.ownerNotified) {
           classification.needs_escalation = true;
           if (!classification.escalation_type) classification.escalation_type = isHot ? 'hot_lead' : 'silent_query';
+          if (!escResult || !escResult.ownerNotified) escResult = handoffEsc;
         }
       } catch (err) {
         logger.warn('handler.handoff_in_reply_alert_fail', {
@@ -1678,7 +1692,11 @@ async function processCustomerBatch(entry) {
     !gatherFirst
   );
   if (isHotHandoffThisTurn && !linkAlreadyInText) {
-    const link = buildSpecialistLink(safeCombinedText);
+    // Point the customer at the SAME person the owner alert was routed to
+    // (Abuja / Lagos sales, Charbel, or Patrick). Falls back to
+    // SPECIALIST_DIRECT_LINK when no recipient was resolved this turn.
+    const routedRecipientNumber = (escResult && escResult.recipientNumber) || null;
+    const link = buildSpecialistLink(safeCombinedText, routedRecipientNumber);
     if (link) {
       outboundText = `${outboundText}\n\nDirect line to the Sales Manager: ${link}`;
     }

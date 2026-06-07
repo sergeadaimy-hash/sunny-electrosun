@@ -278,6 +278,12 @@
     .owner-header .who .name { font-weight: 600; font-size: 15px; }
     .owner-header .who .phone { font-size: 13px; color: var(--ink-soft); margin-top: 2px; }
     .owner-header .owner-stats { font-size: 13px; color: var(--ink-soft); }
+    .owner-tabs { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 24px; background: #fff; border-bottom: 1px solid var(--line); }
+    .owner-tabs:empty { display: none; }
+    .owner-tab { cursor: pointer; border: 1px solid var(--line); background: var(--cream-soft); color: var(--ink); border-radius: 999px; padding: 5px 14px; font-size: 13px; line-height: 1.2; transition: background .15s, border-color .15s; }
+    .owner-tab:hover { background: #fff; }
+    .owner-tab.active { background: var(--brand, #25D366); border-color: var(--brand, #25D366); color: #fff; font-weight: 600; }
+    .owner-tab .tab-phone { display: block; font-size: 11px; opacity: .75; margin-top: 1px; }
     .owner-messages { padding: 16px 24px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
     @media (max-width: 800px) {
       #view-inbox.active { grid-template-columns: 1fr; }
@@ -1843,11 +1849,12 @@
       <div class="owner-pane">
         <div class="owner-header">
           <div class="who">
-            <span class="name">Owner / Patrick</span>
+            <span class="name" id="owner-name-display">Owner</span>
             <span class="phone" id="owner-phone-display">…</span>
           </div>
           <div class="owner-stats" id="owner-stats"></div>
         </div>
+        <div class="owner-tabs" id="owner-tabs"></div>
         <div class="messages owner-messages" id="owner-msg-list">
           <div class="empty-list">Loading.</div>
         </div>
@@ -2134,35 +2141,78 @@ function switchView(viewId) {
   }
 }
 
+// Which routed recipient's thread is shown (Patrick / Charbel / Abuja / Lagos).
+// Null until the first load resolves the default from the server.
+let currentOwnerLabel = null;
+
 async function loadOwnerChat() {
   const list = document.getElementById('owner-msg-list');
   if (list && (!list.children.length || list.querySelector('.empty-list'))) {
     list.innerHTML = '<div class="empty-list">Loading.</div>';
   }
   try {
-    const data = await apiFetch('/owner-chat?limit=200');
+    const q = currentOwnerLabel ? ('&label=' + encodeURIComponent(currentOwnerLabel)) : '';
+    const data = await apiFetch('/owner-chat?limit=200' + q);
     renderOwnerChat(data);
   } catch (err) {
     if (list) list.innerHTML = '<div class="empty-list">Error: ' + escapeHtml(err.message) + '</div>';
   }
 }
 
+function selectOwnerRecipient(label) {
+  if (label === currentOwnerLabel) return;
+  currentOwnerLabel = label;
+  const list = document.getElementById('owner-msg-list');
+  if (list) list.innerHTML = '<div class="empty-list">Loading.</div>';
+  loadOwnerChat();
+}
+
+function renderOwnerTabs(recipients, activeLabel) {
+  const tabsEl = document.getElementById('owner-tabs');
+  if (!tabsEl) return;
+  const list = recipients || [];
+  // Only render the bar when there is more than one recipient to switch between.
+  if (list.length < 2) { tabsEl.innerHTML = ''; return; }
+  tabsEl.innerHTML = list.map(r => {
+    const active = r.label === activeLabel ? ' active' : '';
+    return '<button type="button" class="owner-tab' + active + '" data-label="' + escapeHtml(r.label) + '">'
+      + escapeHtml(r.name)
+      + '<span class="tab-phone">' + escapeHtml(r.phone || '') + '</span>'
+      + '</button>';
+  }).join('');
+  tabsEl.querySelectorAll('.owner-tab').forEach(btn => {
+    btn.addEventListener('click', () => selectOwnerRecipient(btn.getAttribute('data-label')));
+  });
+}
+
 function renderOwnerChat(data) {
+  const nameEl = document.getElementById('owner-name-display');
   const phoneEl = document.getElementById('owner-phone-display');
   const statsEl = document.getElementById('owner-stats');
   const list = document.getElementById('owner-msg-list');
   if (!list) return;
 
+  // Keep the active label in sync with whatever the server resolved (handles
+  // the very first load where currentOwnerLabel was still null).
+  if (data.active_label) currentOwnerLabel = data.active_label;
+  const recipients = data.recipients || [];
+  renderOwnerTabs(recipients, currentOwnerLabel);
+
+  const activeRecipient = recipients.find(r => r.label === currentOwnerLabel);
+  if (nameEl) nameEl.textContent = activeRecipient ? activeRecipient.name : 'Owner';
+
   // Preserve scroll: stay pinned to bottom if already near it
   const wasNearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
 
-  const phone = data.contact && data.contact.phone ? data.contact.phone : '(no owner contact yet)';
+  const phone = data.contact && data.contact.phone
+    ? data.contact.phone
+    : (activeRecipient ? activeRecipient.phone : '(no recipient configured yet)');
   if (phoneEl) phoneEl.textContent = phone;
   const msgs = data.messages || [];
   if (statsEl) statsEl.textContent = msgs.length + ' messages';
 
   if (!msgs.length) {
-    list.innerHTML = '<div class="empty-list">No messages between Sunny and the owner yet. They will appear here as soon as Sunny pings the owner about a hot lead, silent query, follow-up, or daily report, or when the owner replies on WhatsApp.</div>';
+    list.innerHTML = '<div class="empty-list">No messages between Sunny and this recipient yet. They will appear here as soon as Sunny pings them about a hot lead, silent query, follow-up, or daily report, or when they reply on WhatsApp.</div>';
     return;
   }
   list.innerHTML = msgs.map(m => msgHtml(m)).join('');

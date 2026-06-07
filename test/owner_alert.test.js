@@ -63,6 +63,34 @@ test('fallback: intent "other" yields neutral topic', () => {
   assert.ok(/Customer needs a team answer on: their enquiry\./.test(out), 'neutral topic');
 });
 
+test('fallback-with-message: no owner_brief builds a 2-phrase summary from the customer message', () => {
+  // Force-promoted HOT (commitment phrase) leaves owner_brief null; the brief
+  // must still summarize the real ask, not show "their enquiry".
+  const promoted = { intent: 'other', escalation_type: 'hot_lead' };
+  const out = buildOwnerAlertText(
+    { id: 5, phone: '966502392650' },
+    promoted,
+    'HOT LEAD, customer is ready to pay.',
+    'Ok i want 30 batteries can i pick'
+  );
+  assert.ok(out.includes('Customer asked: "Ok i want 30 batteries can i pick".'), 'quotes the real message');
+  assert.ok(out.includes('Needs a team answer.'), 'second phrase present');
+  assert.ok(!/their enquiry/i.test(out), 'no generic placeholder');
+});
+
+test('fallback-with-message: keeps the classifier owner_brief when present', () => {
+  const out = buildOwnerAlertText(FULL_CONTACT, FULL_CLASSIFICATION, HEADER, 'some raw message');
+  assert.ok(out.includes('Customer wants details on the Deye 6KW off-grid inverter.'), 'prefers owner_brief over message');
+  assert.ok(!/Customer asked:/i.test(out), 'does not use the message fallback when brief exists');
+});
+
+test('fallback-with-message: long message is truncated in the brief', () => {
+  const long = 'I '.repeat(150) + 'need a quote';
+  const out = buildOwnerAlertText({ phone: '2347000000000' }, { intent: 'pricing_question' }, HEADER, long);
+  assert.ok(out.includes('...'), 'truncates long message');
+  assert.ok(out.includes('Needs a team answer on pricing question.'), 'uses intent topic when known');
+});
+
 test('stripDashesForAlert removes em/en/double dashes', () => {
   assert.equal(stripDashesForAlert('a — b'), 'a, b');
   assert.equal(stripDashesForAlert('13–14kW'), '13-14kW');

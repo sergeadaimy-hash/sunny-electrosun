@@ -38,6 +38,7 @@ const {
 } = require('../src/catalog');
 const warehouseModule = require('../src/warehouse');
 const promptStore = require('../src/prompt_store');
+const ownerRouting = require('../src/owner_routing');
 const {
   listItems: listWarehouseItems,
   addItem: addWarehouseItem,
@@ -388,12 +389,21 @@ router.get('/queries/pending', (req, res) => {
 });
 
 router.get('/owner-chat', (req, res) => {
-  const ownerPhone = process.env.OWNER_WHATSAPP;
-  if (!ownerPhone) return res.json({ contact: null, messages: [] });
+  // The team numbers Sunny routes alerts to (Patrick, Charbel, Abuja Sales,
+  // Lagos Sales). The UI renders one tab per recipient; ?label= selects which
+  // thread to show. Defaults to the first configured recipient (Patrick).
+  const recipients = ownerRouting.configuredRecipients();
+  if (!recipients.length) return res.json({ contact: null, messages: [], recipients: [], active_label: null });
+
+  const requested = String(req.query.label || '').toLowerCase();
+  const active = recipients.find(r => r.label === requested) || recipients[0];
+
   const limit = parseInt32(req.query.limit, 200);
   const db = getDb();
-  const contact = db.prepare('SELECT * FROM contacts WHERE phone = ? LIMIT 1').get(ownerPhone);
-  if (!contact) return res.json({ contact: null, messages: [] });
+  const contact = db.prepare('SELECT * FROM contacts WHERE phone = ? LIMIT 1').get(active.phone);
+  if (!contact) {
+    return res.json({ contact: null, messages: [], recipients, active_label: active.label });
+  }
   const rawMessages = db.prepare(`
     SELECT m.id, m.conversation_id, m.direction, m.body, m.intent, m.language,
            m.timestamp, m.media_path, m.media_mime
@@ -404,7 +414,7 @@ router.get('/owner-chat', (req, res) => {
     LIMIT ?
   `).all(contact.id, limit);
   rawMessages.reverse();
-  res.json({ contact, messages: rawMessages });
+  res.json({ contact, messages: rawMessages, recipients, active_label: active.label });
 });
 
 router.get('/budget/today', (req, res) => {

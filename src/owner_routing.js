@@ -34,6 +34,28 @@ function digits(phone) {
   return String(phone || '').replace(/\D+/g, '');
 }
 
+// The team numbers Sunny actually routes alerts to, for the admin Owner Chat
+// tab. Patrick is always present (OWNER_WHATSAPP). Each other desk is included
+// only when its env var is set to a number distinct from Patrick's, so an
+// unconfigured desk (which falls back to Patrick) does not show a duplicate
+// thread. Order is stable: Patrick, Charbel, Abuja Sales, Lagos Sales.
+function configuredRecipients() {
+  const owner = process.env.OWNER_WHATSAPP || null;
+  const out = [];
+  const seen = new Set();
+  const add = (label, name, phone) => {
+    const d = digits(phone);
+    if (!d || seen.has(d)) return;
+    seen.add(d);
+    out.push({ label, name, phone });
+  };
+  add('patrick', 'Patrick', owner);
+  add('charbel', 'Charbel', process.env.OWNER_CHARBEL_WHATSAPP);
+  add('abuja', 'Abuja Sales', process.env.SALES_ABUJA_WHATSAPP);
+  add('lagos', 'Lagos Sales', process.env.SALES_LAGOS_WHATSAPP);
+  return out;
+}
+
 // --- Three-tier inbound recognition ---------------------------------------
 
 // Full owners (Patrick + Charbel): can reply-relay to a QID and use Owner Q&A.
@@ -217,6 +239,7 @@ function resolveRecipient(contact, classification) {
 
 module.exports = {
   numberForLabel,
+  configuredRecipients,
   isFullOwner,
   isAlertOnly,
   isSeriousOrHot,

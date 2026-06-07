@@ -53,17 +53,26 @@ function productFromClassification(classification) {
   return s || null;
 }
 
-// The 2-line summary Sunny writes. When absent (synthetic classifications on
-// the stall-guard / photo-no-match paths never run the classifier), fall back
-// to a single neutral line derived from the intent.
-function ownerBriefLine(classification) {
+// The 2-line summary Sunny writes. When the classifier owner_brief is absent
+// (force-promoted HOT via a commitment phrase, or synthetic classifications on
+// the stall-guard / photo-no-match paths that never run the classifier), build
+// a real 2-phrase summary from the customer's actual message + product/topic
+// instead of the bare generic "their enquiry" line. customerMessage is the
+// combined inbound text the caller already has on hand.
+function ownerBriefLine(classification, customerMessage) {
   const brief = classification && classification.owner_brief;
   if (brief && String(brief).trim()) {
     return stripDashesForAlert(String(brief).trim());
   }
   const intent = classification && classification.intent;
-  const topic = intent && intent !== 'other' ? String(intent).replace(/_/g, ' ') : 'their enquiry';
-  return `Customer needs a team answer on: ${topic}.`;
+  const topic = intent && intent !== 'other' ? String(intent).replace(/_/g, ' ') : null;
+  const msg = customerMessage ? String(customerMessage).replace(/\s+/g, ' ').trim() : '';
+  if (msg) {
+    const quoted = msg.length > 180 ? `${msg.slice(0, 177)}...` : msg;
+    const second = topic ? `Needs a team answer on ${topic}.` : 'Needs a team answer.';
+    return stripDashesForAlert(`Customer asked: "${quoted}". ${second}`);
+  }
+  return `Customer needs a team answer on: ${topic || 'their enquiry'}.`;
 }
 
 // wa.me deep link with the client-facing follow-up opener pre-filled in the
@@ -81,7 +90,7 @@ function buildOwnerFollowupLink(contact, classification) {
 // Assemble the full alert text. headerText is resolved by the caller from
 // ESCALATION_HEADERS so the typed header (HOT LEAD / FOLLOW-UP NEEDED / etc.)
 // is preserved.
-function buildOwnerAlertText(contact, classification, headerText) {
+function buildOwnerAlertText(contact, classification, headerText, customerMessage) {
   const lines = [];
   lines.push(headerText);
   lines.push((contact && contact.phone) || 'unknown');
@@ -90,7 +99,7 @@ function buildOwnerAlertText(contact, classification, headerText) {
   if (product) lines.push(`Product: ${product}`);
 
   lines.push('');
-  lines.push(ownerBriefLine(classification));
+  lines.push(ownerBriefLine(classification, customerMessage));
 
   const link = buildOwnerFollowupLink(contact, classification);
   if (link) {
