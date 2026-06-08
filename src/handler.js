@@ -2478,6 +2478,82 @@ async function answerPendingForContact(contactId) {
   }
 }
 
+// Ghost sweep (owner directive 2026-06-08): a lead that was asked "Abuja or
+// Lagos?" (deferred_handoff set) but never answered with a city sits unrouted.
+// After thresholdMinutes, route it to the Abuja desk (the configured default
+// via decideRecipient's region-unknown branch) and clear the flag, so a silent
+// non-responder still reaches a sales manager. Routes ONLY, does not message
+// the customer again. Throttling / open-pending follow-up is handled inside
+// notifyOwnerForEscalation. Cleared flag means a contact is swept at most once.
+async function routeStaleDeferredHandoffs(thresholdMinutes = 5) {
+  if (escalationsDisabled()) return { routed: 0, skipped: 'escalations_disabled' };
+  const { getDb } = require('../db/init');
+  const db = getDb();
+  const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
+  // Floor at 24h ago: a lead that has sat unanswered longer than a day is dead,
+  // not worth alerting a desk now (and avoids a first-run flood if a backlog of
+  // old deferred flags exists). Cap the batch per run as a further backstop.
+  const floor = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const rows = db.prepare(`
+    SELECT id, phone, profile_name, name, location, category, lead_temperature,
+           client_type, products_asked_about, deferred_handoff, deferred_handoff_at
+    FROM contacts
+    WHERE deferred_handoff IS NOT NULL
+      AND deferred_handoff_at IS NOT NULL
+      AND deferred_handoff_at < ?
+      AND deferred_handoff_at > ?
+    ORDER BY deferred_handoff_at ASC
+    LIMIT 30
+  `).all(cutoff, floor);
+
+  let routed = 0;
+  for (const c of rows) {
+    try {
+      const lastIn = db.prepare(`
+        SELECT body FROM messages
+        WHERE direction = 'inbound'
+          AND conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
+        ORDER BY id DESC LIMIT 1
+      `).get(c.id);
+      const customerMsg = (lastIn && lastIn.body) || '';
+      const classification = {
+        needs_escalation: true,
+        escalation_type: c.deferred_handoff || 'silent_query',
+        category: c.category || 'SERIOUS',
+        lead_temperature: c.lead_temperature || 'WARM',
+        routing_category: 'unknown',
+        routing_region: 'unknown',
+        products_asked_about: c.products_asked_about || null,
+        owner_brief: null
+      };
+      const contact = {
+        id: c.id, phone: c.phone, profile_name: c.profile_name,
+        name: c.name, location: c.location
+      };
+      await notifyOwnerForEscalation({
+        contact,
+        classification,
+        safeCombinedText: customerMsg,
+        lastMsg: { from: c.phone },
+        batchSize: 1,
+        source: 'stale_deferred_sweep'
+      });
+      updateContactFields(c.id, { deferred_handoff: null, deferred_handoff_at: null });
+      routed++;
+      logger.info('handler.stale_deferred_routed', {
+        contactId: c.id,
+        escalation_type: classification.escalation_type,
+        threshold_min: thresholdMinutes
+      });
+    } catch (err) {
+      logger.warn('handler.stale_deferred_route_fail', { contactId: c.id, message: err.message });
+    }
+  }
+  if (routed) logger.info('handler.stale_deferred_sweep.done', { routed, threshold_min: thresholdMinutes });
+  return { routed };
+}
+
 async function autoReleaseStaleHumanConversations(thresholdMinutes = 15) {
   const { getDb } = require('../db/init');
   const db = getDb();
@@ -2674,6 +2750,7 @@ module.exports = {
   recoverOrphanedInbound,
   answerPendingForContact,
   autoReleaseStaleHumanConversations,
+  routeStaleDeferredHandoffs,
   retryFallbackReplies,
   buildStallFallbackText,
   isPresenceOrImpatienceCheck,

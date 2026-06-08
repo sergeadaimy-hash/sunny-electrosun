@@ -9,7 +9,7 @@ const logger = require('./src/utils/logger');
 const { initDb, DB_PATH } = require('./db/init');
 const webhookRouter = require('./src/webhook');
 const dashboardRouter = require('./api/dashboard');
-const { recoverOrphanedInbound, autoReleaseStaleHumanConversations } = require('./src/handler');
+const { recoverOrphanedInbound, autoReleaseStaleHumanConversations, routeStaleDeferredHandoffs } = require('./src/handler');
 const {
   generateHourlyReport,
   generateDailyReport,
@@ -165,6 +165,7 @@ if (require.main === module) {
   // Customer-pipeline cron: auto-release stale human-handled conversations after 15 min idle.
   // Runs regardless of DISABLE_NOTIFICATIONS because this is core inbox flow, not reporting.
   const autoReleaseMinutes = parseInt(process.env.HUMAN_AUTO_RELEASE_MINUTES || '15', 10);
+  const staleHandoffMinutes = parseInt(process.env.STALE_HANDOFF_MINUTES || '5', 10);
   cron.schedule('*/5 * * * *', async () => {
     try {
       const res = await autoReleaseStaleHumanConversations(autoReleaseMinutes);
@@ -174,8 +175,19 @@ if (require.main === module) {
     } catch (err) {
       logger.error('cron.auto_release.error', { message: err.message });
     }
+    // Ghost sweep: route city-unanswered leads to the Abuja default after the
+    // threshold (owner directive 2026-06-08). Always runs (core lead flow).
+    try {
+      const swept = await routeStaleDeferredHandoffs(staleHandoffMinutes);
+      if (swept.routed > 0) {
+        logger.info('cron.stale_deferred_sweep.done', swept);
+      }
+    } catch (err) {
+      logger.error('cron.stale_deferred_sweep.error', { message: err.message });
+    }
   });
   logger.info('cron.auto_release.registered', { interval: '*/5 * * * *', threshold_minutes: autoReleaseMinutes });
+  logger.info('cron.stale_deferred_sweep.registered', { interval: '*/5 * * * *', threshold_minutes: staleHandoffMinutes });
 
   // Pending-query expiry runs ALWAYS (R2, 2026-06-08), even when
   // DISABLE_NOTIFICATIONS=true. When notifications are disabled it runs in
