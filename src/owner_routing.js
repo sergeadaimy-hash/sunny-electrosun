@@ -116,7 +116,7 @@ function isAlertOnly(from) {
 // reason "not_serious_or_hot" instead of the regional desk (bug seen 2026-06-07,
 // Adeyato). So also treat HOT/WARM temperature and any routing-worthy escalation
 // type as serious.
-const ROUTING_WORTHY_ESCALATIONS = ['hot_lead', 'bulk_order', 'negotiation', 'big_project', 'repeat_complex'];
+const ROUTING_WORTHY_ESCALATIONS = ['hot_lead', 'bulk_order', 'negotiation', 'big_project', 'repeat_complex', 'live_agent'];
 function isSeriousOrHot(classification) {
   const cat = String((classification && classification.category) || '').toUpperCase();
   if (cat === 'HOT' || cat === 'SERIOUS') return true;

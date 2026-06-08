@@ -14,8 +14,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 
-const { detectDanglingFragment } = require('../src/claude');
-const { buildStallFallbackText, isPresenceOrImpatienceCheck, detectBulkQuantity } = require('../src/handler');
+const { detectDanglingFragment, buildKnownCustomerContext } = require('../src/claude');
+const { buildStallFallbackText, isPresenceOrImpatienceCheck, detectBulkQuantity, isLiveAgentRequest } = require('../src/handler');
+const { buildRoutingSummary } = require('../src/owner_qa');
 
 // ---------------------------------------------------------------------------
 // Bug #1: dangling-fragment detection after a price strip
@@ -134,4 +135,67 @@ test('bulk: a single unit and non-bulk phrasings return 0', () => {
   assert.strictEqual(detectBulkQuantity('just one panel'), 0);
   assert.strictEqual(detectBulkQuantity('I have a 30 setup running'), 0);
   assert.strictEqual(detectBulkQuantity(''), 0);
+});
+
+// ---------------------------------------------------------------------------
+// C1b: explicit live-agent / human requests must be detected (then escalated)
+// ---------------------------------------------------------------------------
+
+test('live agent: explicit requests are detected', () => {
+  // conv 2633 (Ajay): "Connect me with a live agent" got no escalation.
+  assert.ok(isLiveAgentRequest('Connect me with a live agent'));
+  assert.ok(isLiveAgentRequest('I want to speak to a human'));
+  assert.ok(isLiveAgentRequest('can I talk to someone'));
+  assert.ok(isLiveAgentRequest('real person please'));
+  assert.ok(isLiveAgentRequest('connect me to your team'));
+});
+
+test('live agent: ordinary product/price messages are NOT live-agent requests', () => {
+  assert.ok(!isLiveAgentRequest('I need Deye 5.3kwh'));
+  assert.ok(!isLiveAgentRequest('How much is the 650w panel?'));
+  assert.ok(!isLiveAgentRequest(''));
+});
+
+// ---------------------------------------------------------------------------
+// O1: Owner Q&A must know routing is configured (not tell the owner to set it up)
+// ---------------------------------------------------------------------------
+
+test('routing summary: with desks configured, states routing is active and lists them', () => {
+  // conv "Electro1" owner chat: Sunny wrongly told the owner the Abuja sales
+  // forwarding "would need to be set up".
+  const txt = buildRoutingSummary([
+    { label: 'patrick', name: 'Patrick', phone: '2347041328055' },
+    { label: 'abuja', name: 'Abuja Sales', phone: '2349169493087' },
+    { label: 'lagos', name: 'Lagos Sales', phone: '2349111880000' }
+  ]);
+  assert.ok(/abuja/i.test(txt), 'mentions Abuja');
+  assert.ok(/lagos/i.test(txt), 'mentions Lagos');
+  assert.ok(/configured|active/i.test(txt), 'states routing is configured/active');
+  assert.ok(!/needs?\s+(?:to\s+be\s+)?set\s+up/i.test(txt), 'does NOT say it needs setting up');
+});
+
+test('routing summary: a missing desk is flagged as not set, not silently dropped', () => {
+  const txt = buildRoutingSummary([
+    { label: 'patrick', name: 'Patrick', phone: '2347041328055' }
+  ]);
+  assert.ok(/abuja/i.test(txt) && /not set|fall back/i.test(txt), 'flags Abuja as not set');
+});
+
+// ---------------------------------------------------------------------------
+// Names: Sunny must NOT receive the customer's name (owner directive: address
+// as "sir", never read the WhatsApp profile name).
+// ---------------------------------------------------------------------------
+
+test('customer context: the name is never injected (normal turn)', () => {
+  const ctx = buildKnownCustomerContext(
+    { name: 'Babajide Samson', location: 'Abuja', use_case: 'home backup' },
+    false
+  );
+  assert.ok(!/Babajide/i.test(ctx), 'must not leak the customer name');
+  assert.ok(/Abuja/i.test(ctx), 'other known context still passes through');
+});
+
+test('customer context: the name is never injected (casual greeting)', () => {
+  const ctx = buildKnownCustomerContext({ name: 'Ajay' }, true);
+  assert.ok(!/Ajay/i.test(ctx), 'must not leak the customer name on a greeting');
 });

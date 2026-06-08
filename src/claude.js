@@ -541,25 +541,7 @@ async function generateReply(history, message, contact, attachments = [], option
   const isCasualGreeting = isGreetingMsg(message);
   const expertContext = typeof options.expertContext === 'string' ? options.expertContext.trim() : '';
 
-  const contextLines = [];
-  if (!isCasualGreeting) {
-    if (contact?.name) contextLines.push(`Customer name: ${contact.name}`);
-    if (contact?.location) contextLines.push(`Known location: ${contact.location}`);
-    if (contact?.use_case) contextLines.push(`Use case: ${contact.use_case}`);
-    if (contact?.client_type) contextLines.push(`Client type: ${contact.client_type}`);
-    if (contact?.load_estimate) contextLines.push(`Load: ${contact.load_estimate}`);
-    if (contact?.timeline) contextLines.push(`Timeline: ${contact.timeline}`);
-    if (contact?.category) contextLines.push(`Current category: ${contact.category}`);
-    if (contact?.lead_temperature) contextLines.push(`Current temperature: ${contact.lead_temperature}`);
-    if (contact?.products_asked_about) contextLines.push(`Products discussed: ${contact.products_asked_about}`);
-    if (contact?.brand_preference) contextLines.push(`Brand preference: ${contact.brand_preference}`);
-    if (contact?.budget_mentioned) contextLines.push(`Budget mentioned: ${contact.budget_mentioned}`);
-  } else if (contact?.name) {
-    contextLines.push(`Customer name: ${contact.name}`);
-  }
-  const contextBlock = contextLines.length
-    ? `\n\n# Known about this customer\n${contextLines.join('\n')}${isCasualGreeting ? '\n(Customer just sent a casual greeting. Reply with a short greeting and a fresh qualifying opener. Do NOT bring up any prior products, prior categories, or prior context unless the customer references them.)' : ''}`
-    : '';
+  const contextBlock = buildKnownCustomerContext(contact, isCasualGreeting);
 
   const systemBlocks = [
     { type: 'text', text: promptStore.get('system'), cache_control: { type: 'ephemeral', ttl: '1h' } }
@@ -1148,4 +1130,31 @@ function detectDanglingFragment(stripped) {
   return null;
 }
 
-module.exports = { classify, generateReply, detectDanglingFragment };
+// Builds the "# Known about this customer" system block injected before each
+// reply. The customer's NAME is deliberately NOT included (owner directive
+// 2026-06-08: never address customers by name, never read the WhatsApp profile
+// name; system.md instructs Sunny to use "sir"). The name is still captured in
+// the DB / admin, just not handed to the reply model.
+function buildKnownCustomerContext(contact, isCasualGreeting) {
+  const contextLines = [];
+  if (!isCasualGreeting) {
+    if (contact?.location) contextLines.push(`Known location: ${contact.location}`);
+    if (contact?.use_case) contextLines.push(`Use case: ${contact.use_case}`);
+    if (contact?.client_type) contextLines.push(`Client type: ${contact.client_type}`);
+    if (contact?.load_estimate) contextLines.push(`Load: ${contact.load_estimate}`);
+    if (contact?.timeline) contextLines.push(`Timeline: ${contact.timeline}`);
+    if (contact?.category) contextLines.push(`Current category: ${contact.category}`);
+    if (contact?.lead_temperature) contextLines.push(`Current temperature: ${contact.lead_temperature}`);
+    if (contact?.products_asked_about) contextLines.push(`Products discussed: ${contact.products_asked_about}`);
+    if (contact?.brand_preference) contextLines.push(`Brand preference: ${contact.brand_preference}`);
+    if (contact?.budget_mentioned) contextLines.push(`Budget mentioned: ${contact.budget_mentioned}`);
+  }
+  if (!contextLines.length && !isCasualGreeting) return '';
+  const greetingNote = isCasualGreeting
+    ? '\n(Customer just sent a casual greeting. Reply with a short greeting and a fresh qualifying opener. Do NOT bring up any prior products, prior categories, or prior context unless the customer references them.)'
+    : '';
+  if (!contextLines.length && !greetingNote) return '';
+  return `\n\n# Known about this customer\n${contextLines.join('\n')}${greetingNote}`;
+}
+
+module.exports = { classify, generateReply, detectDanglingFragment, buildKnownCustomerContext };

@@ -29,6 +29,25 @@ function isoMinus(ms) {
   return new Date(Date.now() - ms).toISOString();
 }
 
+// Owner-facing description of how lead routing is configured (O1, 2026-06-08).
+// Sunny told the owner that forwarding leads to the Abuja sales contact "would
+// need to be set up" when it is already configured and active. This factual
+// block goes into the Owner Q&A snapshot so the model stops guessing.
+function buildRoutingSummary(recipients) {
+  const list = Array.isArray(recipients) ? recipients : [];
+  const deskNames = list.filter(r => r.label === 'abuja' || r.label === 'lagos').map(r => r.name);
+  const hasAbuja = list.some(r => r.label === 'abuja');
+  const hasLagos = list.some(r => r.label === 'lagos');
+  const lines = [];
+  lines.push('Lead routing IS configured and active. Never tell the owner that routing is missing or that he must configure it.');
+  lines.push('How it works: when a lead escalates, Sunny forwards it automatically. Big projects go to the owners (Patrick/Charbel, alternating). Every other escalation goes to the regional sales desk by city: an Abuja lead alerts the Abuja sales line, a Lagos lead alerts the Lagos sales line. The alert reaches that desk on its own WhatsApp number (not only this owner chat).');
+  lines.push('If a lead has not yet given its city, Sunny asks "Abuja or Lagos?" first, so a lead with no city has NOT been forwarded yet, that is expected.');
+  lines.push('Configured sales desks: ' + (deskNames.length ? deskNames.join(', ') : 'none set yet') + '.');
+  if (!hasAbuja) lines.push('NOTE: the Abuja sales number (SALES_ABUJA_WHATSAPP) is NOT set, so Abuja leads currently fall back to the owner until it is added in the admin dashboard.');
+  if (!hasLagos) lines.push('NOTE: the Lagos sales number (SALES_LAGOS_WHATSAPP) is NOT set, so Lagos leads currently fall back to the owner until it is added in the admin dashboard.');
+  return lines.join('\n');
+}
+
 function buildOwnerSnapshot(ownerContactId) {
   const db = getDb();
   const todayStart = startOfTodayIso();
@@ -161,7 +180,8 @@ function buildOwnerSnapshot(ownerContactId) {
     pending_queries: pendingRows,
     recent_contacts: recentContactsRows,
     recent_escalations: recentEscalationsRows,
-    owner_chat: ownerChat
+    owner_chat: ownerChat,
+    lead_routing: buildRoutingSummary(ownerRouting.configuredRecipients())
   };
 }
 
@@ -197,4 +217,4 @@ async function answerOwnerQuestion(ownerContactId, question) {
   }
 }
 
-module.exports = { buildOwnerSnapshot, answerOwnerQuestion };
+module.exports = { buildOwnerSnapshot, answerOwnerQuestion, buildRoutingSummary };

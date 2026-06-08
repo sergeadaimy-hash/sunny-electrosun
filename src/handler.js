@@ -646,6 +646,7 @@ const ESCALATION_HEADERS = {
   repeat_complex: 'REPEAT CLIENT, returning customer with a complex ask.',
   big_project: 'BIG PROJECT, 30kW+ install / EPC enquiry.',
   bulk_order: 'BULK ORDER, customer wants a multi-unit quantity, confirm bulk price.',
+  live_agent: 'LIVE AGENT REQUEST, customer asked to speak with a person.',
   silent_query: 'FOLLOW-UP NEEDED, customer is waiting on a team answer.'
 };
 
@@ -1582,6 +1583,22 @@ async function processCustomerBatch(entry) {
     });
   }
 
+  // Live-agent request (C1b, 2026-06-08, conv 2633 Ajay): an explicit ask to
+  // reach a human ("connect me with a live agent") is a handoff request. Force
+  // a routed escalation so it reaches the regional Sales Manager (gather-first
+  // asks the city when region is unknown) instead of stalling with "let me know
+  // and I'll flag it" and then doing nothing.
+  const wantsLiveAgent = isLiveAgentRequest(safeCombinedText) && !isHotEscalation && !isBulkOrder && !customerIsCasualConfirm && !escalationsDisabled();
+  if (wantsLiveAgent) {
+    classification.needs_escalation = true;
+    classification.escalation_type = 'live_agent';
+    logger.info('handler.live_agent_request_detected', {
+      contactId: contact.id,
+      routing_region: classification.routing_region,
+      message_preview: safeCombinedText.slice(0, 80)
+    });
+  }
+
   // Silent-skip rule: if the customer just sent a pure casual confirm AND
   // Sunny's most recent reply was ALREADY a warm-close phrase ("take your
   // time", "anytime", "I'll be here", "no rush"...), do not reply. The
@@ -2070,7 +2087,14 @@ async function processCustomerBatch(entry) {
     classification.escalation_type === 'bulk_order' &&
     !gatherFirst
   );
-  if ((isHotHandoffThisTurn || isBulkHandoffThisTurn) && !linkAlreadyInText) {
+  // A live-agent request that has a known region (so it routed, not gather-first)
+  // gets the routed Sales Manager direct line, that IS connecting them (C1b).
+  const isLiveAgentHandoffThisTurn = !!(
+    classification.needs_escalation &&
+    classification.escalation_type === 'live_agent' &&
+    !gatherFirst
+  );
+  if ((isHotHandoffThisTurn || isBulkHandoffThisTurn || isLiveAgentHandoffThisTurn) && !linkAlreadyInText) {
     // Point the customer at the SAME person the owner alert was routed to
     // (Abuja / Lagos sales, Charbel, or Patrick). Falls back to
     // SPECIALIST_DIRECT_LINK when no recipient was resolved this turn.
@@ -2598,6 +2622,18 @@ function isPresenceOrImpatienceCheck(text) {
   return false;
 }
 
+// An explicit request to reach a human / live agent (C1b, 2026-06-08, conv
+// 2633 Ajay: "Connect me with a live agent" got no escalation). This is a
+// handoff request and must route to the regional Sales Manager. "call me" /
+// "your number" are deliberately NOT here, the contact-request fast-path
+// already handles those.
+const LIVE_AGENT_RE = /\b(?:live\s+(?:agent|chat|person|rep)|human\s+(?:agent|being|rep|support)?|real\s+(?:person|human|agent|human\s+being)|(?:speak|talk|chat)\s+(?:to|with)\s+(?:a\s+|an\s+|someone|some\s*body)?(?:human|person|agent|rep(?:resentative)?|staff|sales|your\s+team|a\s+person)?|connect\s+(?:me\s+)?(?:to|with)\s+(?:a\s+|an\s+)?(?:human|person|agent|someone|live|rep(?:resentative)?|sales|your\s+team|a\s+real)|customer\s+(?:care|service|support)|agent\s+please)\b/i;
+function isLiveAgentRequest(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  return LIVE_AGENT_RE.test(t);
+}
+
 function buildStallFallbackText(contextText) {
   const PRICE_CTX_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|figure|amount|totals?|invoices?|proformas?|\d+\s*(?:units?|pcs|pieces?|panels?|sets?|modules?))\b/i;
   if (PRICE_CTX_RE.test(String(contextText || ''))) {
@@ -2615,5 +2651,6 @@ module.exports = {
   retryFallbackReplies,
   buildStallFallbackText,
   isPresenceOrImpatienceCheck,
-  detectBulkQuantity
+  detectBulkQuantity,
+  isLiveAgentRequest
 };
