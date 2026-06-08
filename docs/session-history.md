@@ -2,6 +2,20 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-06-08 Beirut — emoji reactions stop the "type your question" nag
+
+Owner sent a screenshot (Babajide Samson Daramola) showing two `UNSUPPORTED_TYPE` inbound rows labelled `[unsupported_reaction]`, each answered by Sunny with the canned `UNSUPPORTED_REPLY` ("This number receives text messages only. Please type your question and the team will respond."). The customer had simply tapped an emoji reaction (WhatsApp long-press 👍/❤️/🙏) on one of Sunny's messages, right after Sunny told him "No problem, take your time." A reaction is a passive acknowledgement, not a question, so nagging him to "type your question" made Sunny look broken and pushy. He reacted twice, so he got nagged twice.
+
+Root cause: `extractMessages` in `src/handler.js` only recognised `text` / `image` / `audio` / `voice`; everything else (including `type: 'reaction'`) fell into the `else` branch and was tagged `kind: 'unsupported'`, which the dispatch loop routed to `handleUnsupported` -> the canned reply.
+
+Shipped (commit `9994adc`, pushed, Railway auto-deploy):
+
+1. **Reactions are recognised and ignored.** `extractMessages` now tags `msg.type === 'reaction'` as `kind: 'reaction'`, capturing the emoji (`msg.reaction.emoji`) and the id of the message it was applied to (`msg.reaction.message_id` -> `reactedToId`). New `handleReaction(msg)` persists the reaction as an inbound row (`[reacted: 👍]`, intent `reaction`, with `reacted_to_wamid`) and logs a `reaction_received` event, then returns WITHOUT replying. The dispatch loop routes `kind: 'reaction'` ahead of the `unsupported` branch, so owners reacting to alerts also stop getting the nag. Genuinely unsupported types (stickers, location pins, documents, contacts) still get the "text only" reply, unchanged.
+
+2. **Admin renders reactions as a bubble badge, not a standalone bubble.** New `messages.reacted_to_wamid` column (idempotent migration in `db/init.js`) links a reaction to its target; `memory.js` `appendMessage` stores it and both message queries select it; the contact-view query uses `m.*` (already covered) and the Owner Chat query (`api/dashboard.js`) was extended to return `whatsapp_message_id` + `reacted_to_wamid`. In `public/admin.html`, a new `renderMessages(msgs)` helper (replacing the two `msgs.map(msgHtml)` call sites: inbox + Owner Chat) folds reactions onto the target bubble as a WhatsApp-style `.reaction-badge` pill (bottom corner, right for outbound / left for inbound). Last reaction wins per target (handles changing the emoji); a removed reaction clears the badge; a reaction whose target is outside the loaded window falls back to a subtle centered `.reaction-note` ("Reacted 👍 to an earlier message") so it isn't lost.
+
+Verification: `node --check` on all four touched JS files, `node db/init.js` applied the migration locally, `npm test` 55/55 green, admin.html inline script parses (vm check), and a standalone simulation of `renderMessages` confirmed the change-emoji / removal / orphan cases.
+
 ## 2026-06-07 Beirut — post-routing audit + four owner-facing fixes
 
 Day after the 4-number owner-alert routing went live (`96a8e0b`). Owner sent screenshots with observations. Audited yesterday's routing work first: all 44 unit tests green, three-tier inbound recognition correctly wired into `handleInbound` (alert-only desks ignored, full owners get reply-relay + Owner Q&A, everyone else is a customer), recipient resolved once after throttles, no stale `OWNER_WHATSAPP ===` comparisons left behind, routing falls back to the general owner everywhere a number is unset. Core pipeline intact; routing is purely additive. Then shipped four fixes (NOT yet committed/pushed; Serge pushes manually):
