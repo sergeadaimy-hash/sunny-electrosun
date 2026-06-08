@@ -729,43 +729,8 @@ async function generateReply(history, message, contact, attachments = [], option
         //   (d) NEW: "Price: <orphan digit>," shape, e.g. "Price: 1," left
         //       behind by an under-matched price regex (defensive backstop
         //       in case the regex misses an edge case)
-        const hasDanglingColon = /:\s*[.,;!?]/.test(stripped);
-        const hasDanglingPrep = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s+(?:of|at|for|is)\s*[.,;!?]/i.test(stripped);
-        const hasDanglingLabelEol = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*(?:$|\n|\*)/im.test(stripped);
-        const hasDanglingOrphanDigit = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*\d{1,4}\s*[,.]\s*(?:$|\n|\*)/im.test(stripped);
-        // Catches "Price: × 2 =" / "Total: =" / "Cost: ," shapes left behind
-        // when the regex stripped one or both numbers from a multiplied total,
-        // leaving the math operator scaffolding as the only content after
-        // the colon. If everything between the colon and end-of-line is
-        // non-letter punctuation/digits, that's a dangling math fragment.
-        const hasDanglingMathFragment = /\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*[^a-zA-Z\n]{1,30}(?:$|\n|\*)/im.test(stripped);
-        // NEW: orphaned per-unit phrase left when the price between a copula/
-        // preposition and "per <unit>" was stripped. Example (2026-06-07):
-        // "...monofacial is 165,000 NGN per panel" -> "...monofacial is per
-        // panel". The earlier detectors miss this because there is no colon and
-        // the word before "is" is the product, not a price word. This branch
-        // only runs after a price was actually stripped, so false positives on
-        // legitimate replies are not a concern. Covers "is/at/of/for per ..."
-        // and a clause that now begins with "per <unit>".
-        const hasDanglingPerUnit =
-          /\b(?:is|are|was|were|at|of|for|costs?|priced?|sells?|goes?\s+for|starts?\s+(?:at|from))\s+per\s+\w+/i.test(stripped) ||
-          /(?:^|[.;:!?]\s+)per\s+\w+/i.test(stripped);
-        // NEW: a bare copula/cost verb left immediately before punctuation when
-        // the price right after it was stripped. Example: "The Deye SE-F16 is
-        // 2,600,000 NGN, available" -> "The Deye SE-F16 is, available". The
-        // \s* before the punctuation is intentional: a valid strip that leaves
-        // content ("...is 7.68kWh, available") puts that content between the
-        // verb and the comma, so this does NOT misfire on it.
-        const hasDanglingCopula = /\b(?:is|are|was|were|costs?|priced?|sells?)\s*(?:[,.;:!?]|$)/i.test(stripped);
-        const hasDanglingLabel = hasDanglingColon || hasDanglingPrep || hasDanglingLabelEol || hasDanglingOrphanDigit || hasDanglingMathFragment || hasDanglingPerUnit || hasDanglingCopula;
-        const danglingKind = hasDanglingColon ? 'colon'
-          : hasDanglingPrep ? 'preposition'
-          : hasDanglingLabelEol ? 'label_eol'
-          : hasDanglingOrphanDigit ? 'orphan_digit'
-          : hasDanglingMathFragment ? 'math_fragment'
-          : hasDanglingPerUnit ? 'per_unit'
-          : hasDanglingCopula ? 'copula'
-          : null;
+        const danglingKind = detectDanglingFragment(stripped);
+        const hasDanglingLabel = !!danglingKind;
         logger.warn('claude.reply.prices_stripped', {
           contactId: contact?.id,
           customer_msg: String(message || '').slice(0, 100),
@@ -1145,4 +1110,42 @@ async function generateReply(history, message, contact, attachments = [], option
   }
 }
 
-module.exports = { classify, generateReply };
+// Detects a dangling/garbled fragment left behind after the price-dump guard
+// strips a price from a reply. Returns the matched kind (string) or null.
+// ONLY meaningful on text that has already had a price stripped: callers run it
+// post-strip, so the false-positive surface is small. Catalogued from the
+// 2026-05-16 + 2026-06-07 + 2026-06-08 inbox audits.
+function detectDanglingFragment(stripped) {
+  if (!stripped) return null;
+  const s = String(stripped);
+  // (a) "label: ." colon + punctuation
+  if (/:\s*[.,;!?]/.test(s)) return 'colon';
+  // (b) "price of/at/for/is ." trailing preposition after a price word
+  if (/\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s+(?:of|at|for|is)\s*[.,;!?]/i.test(s)) return 'preposition';
+  // (c) "Price:" at end-of-line with no content
+  if (/\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*(?:$|\n|\*)/im.test(s)) return 'label_eol';
+  // (d) "Price: 1," orphan digit
+  if (/\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*\d{1,4}\s*[,.]\s*(?:$|\n|\*)/im.test(s)) return 'orphan_digit';
+  // (e) "Total: =" / "Cost: ," math scaffolding
+  if (/\b(?:price|cost|rate|figure|amount|total|sum|quote|charge|fee)\s*:\s*[^a-zA-Z\n]{1,30}(?:$|\n|\*)/im.test(s)) return 'math_fragment';
+  // (f) orphaned "per <unit>" left when the price before it was stripped.
+  //     The clause-start class now includes a COMMA (2026-06-08): "Available,
+  //     per panel." was the most common garble of the day and a comma, not a
+  //     period, preceded "per".
+  if (/\b(?:is|are|was|were|at|of|for|costs?|priced?|sells?|goes?\s+for|starts?\s+(?:at|from))\s+per\s+\w+/i.test(s)) return 'per_unit';
+  if (/(?:^|[.,;:!?]\s+)per\s+\w+/i.test(s)) return 'per_unit';
+  // (g) bare copula/cost verb immediately before punctuation
+  if (/\b(?:is|are|was|were|costs?|priced?|sells?)\s*(?:[,.;:!?]|$)/i.test(s)) return 'copula';
+  // (h) NEW (2026-06-08): orphaned preposition where a price was stripped.
+  //     "available at, which could work" / "is at." / "only for," — a status/
+  //     copula word, then a preposition, then punctuation. "looking at, Saheed"
+  //     is NOT caught because "looking" is not a price-introducing word.
+  if (/\b(?:available|priced?|is|are|was|were|costs?|goes?|sells?|starts?|only|just)\s+(?:at|for|from|of)\s*(?:[,.;:!?]|$)/i.test(s)) return 'prep_orphan';
+  // (i) NEW (2026-06-08): "at would do the job" — a preposition directly
+  //     followed by a modal/verb, which only happens when a price between them
+  //     was stripped. Valid English almost never has "at would/will/...".
+  if (/\b(?:at|for)\s+(?:would|will|could|should|do|does)\b/i.test(s)) return 'prep_orphan';
+  return null;
+}
+
+module.exports = { classify, generateReply, detectDanglingFragment };

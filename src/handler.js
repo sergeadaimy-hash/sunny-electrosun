@@ -1829,7 +1829,12 @@ async function processCustomerBatch(entry) {
             chars: reply2.text.length
           });
         } else {
-          reply.text = 'Noted. Will share the figure once confirmed.';
+          // Context-aware ack: only mention "the figure" when the open query
+          // (or the customer's own message) is actually a price ask. Otherwise
+          // a neutral line, so "Is anyone here to respond?" never gets a reply
+          // about a non-existent figure (conv 2599, 2026-06-08 audit).
+          const stallCtx = (stallOpen && stallOpen.customer_message) || safeCombinedText || lastMsg;
+          reply.text = buildStallFallbackText(stallCtx);
           logger.warn('handler.stall_regen_failed_used_generic_ack', {
             contactId: contact.id,
             pattern: stallHit.pattern
@@ -2499,11 +2504,26 @@ async function retryFallbackReplies({ maxAgeMinutes = 120 } = {}) {
   };
 }
 
+// Last-resort acknowledgement for the stall guard: when the LLM keeps stalling
+// even after the awaiting-expert regeneration, send a short ack. The previous
+// hard-coded "Noted. Will share the figure once confirmed." was nonsensical for
+// non-price conversations (conv 2599: customer asked "Is anyone here to
+// respond?" and got a line about "the figure"). Only keep the figure phrasing
+// when the context is genuinely a price ask; otherwise stay neutral.
+function buildStallFallbackText(contextText) {
+  const PRICE_CTX_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|figure|amount|totals?|invoices?|proformas?|\d+\s*(?:units?|pcs|pieces?|panels?|sets?|modules?))\b/i;
+  if (PRICE_CTX_RE.test(String(contextText || ''))) {
+    return 'Noted. Will share the figure once confirmed.';
+  }
+  return 'Noted, the team will get back to you on this shortly.';
+}
+
 module.exports = {
   handleInbound,
   extractMessages,
   recoverOrphanedInbound,
   answerPendingForContact,
   autoReleaseStaleHumanConversations,
-  retryFallbackReplies
+  retryFallbackReplies,
+  buildStallFallbackText
 };
