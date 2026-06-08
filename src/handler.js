@@ -1636,11 +1636,30 @@ async function processCustomerBatch(entry) {
   // 2026-06-07: only big projects go to the owners; all else goes to a regional
   // desk). So whenever an escalation lacks the region needed to pick a desk, ask
   // the city first instead of letting it fall back to the owner.
+  // Ask the city ONCE. If we already asked on a prior turn (deferred_handoff is
+  // set) and the customer still has not given a city, do NOT keep asking, let
+  // the escalation route now: decideRecipient defaults a city-unknown lead to
+  // the Abuja desk (owner directive 2026-06-08). This stops a serious lead from
+  // looping on "Abuja or Lagos?" forever and never reaching a desk.
+  const alreadyAskedCity = !!(refreshedContact && refreshedContact.deferred_handoff);
   const gatherFirst =
     classification.needs_escalation &&
     !customerIsCasualConfirm &&
     !escalationsDisabled() &&
-    !ownerRouting.routingInfoSufficient(classification);
+    !ownerRouting.routingInfoSufficient(classification) &&
+    !alreadyAskedCity;
+
+  // If we are escalating because we already asked the city once (now defaulting
+  // to Abuja), clear the deferred flag so it does not also re-fire later.
+  if (!gatherFirst && alreadyAskedCity && classification.needs_escalation && !customerIsCasualConfirm && !ownerRouting.routingInfoSufficient(classification)) {
+    try {
+      updateContactFields(contact.id, { deferred_handoff: null, deferred_handoff_at: null });
+    } catch (err) {
+      logger.warn('handler.escalation.deferred_clear_fail', { message: err.message });
+    }
+    refreshedContact.deferred_handoff = null;
+    logger.info('handler.escalation.city_unanswered_defaulting_abuja', { contactId: contact.id });
+  }
 
   let escResult = null;
   if (gatherFirst) {
@@ -2094,11 +2113,18 @@ async function processCustomerBatch(entry) {
     classification.escalation_type === 'live_agent' &&
     !gatherFirst
   );
-  if ((isHotHandoffThisTurn || isBulkHandoffThisTurn || isLiveAgentHandoffThisTurn) && !linkAlreadyInText) {
+  const routedRecipientNumber = (escResult && escResult.recipientNumber) || null;
+  // Owner directive (2026-06-08): whenever Sunny REFERS the customer to the
+  // Sales Manager and an escalation actually routed this turn (so we know which
+  // desk owns it), append that desk's direct line. This generalizes the old
+  // HOT/bulk/live_agent-only behavior to silent_query, negotiation, etc., which
+  // is why Skyline / Donwills-type handoffs were missing the link.
+  const replyRefersToSalesManager = /sales\s+manager|specialist/i.test(outboundText);
+  const isReferralHandoffThisTurn = !!(replyRefersToSalesManager && routedRecipientNumber && !gatherFirst);
+  if ((isHotHandoffThisTurn || isBulkHandoffThisTurn || isLiveAgentHandoffThisTurn || isReferralHandoffThisTurn) && !linkAlreadyInText) {
     // Point the customer at the SAME person the owner alert was routed to
     // (Abuja / Lagos sales, Charbel, or Patrick). Falls back to
     // SPECIALIST_DIRECT_LINK when no recipient was resolved this turn.
-    const routedRecipientNumber = (escResult && escResult.recipientNumber) || null;
     const link = buildSpecialistLink(safeCombinedText, routedRecipientNumber);
     if (link) {
       outboundText = `${outboundText}\n\nDirect line to the Sales Manager: ${link}`;

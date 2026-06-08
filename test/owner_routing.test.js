@@ -83,6 +83,18 @@ test('region unknown (non-big) is a last-resort owner fallback (gather-first sho
   assert.equal(d.reason, 'region_unknown_fallback');
 });
 
+test('region unknown defaults to the Abuja desk when Abuja is configured (owner directive 2026-06-08)', () => {
+  // Owner directive: a city-unknown lead should go to Abuja, not the owner.
+  const d = decideRecipient({ category: 'SERIOUS', escalation_type: 'silent_query', routing_category: 'unknown', abujaConfigured: true });
+  assert.equal(d.label, 'abuja');
+  assert.equal(d.reason, 'region_unknown_default_abuja');
+});
+
+test('region unknown still falls back to owner when Abuja is NOT configured', () => {
+  const d = decideRecipient({ category: 'SERIOUS', routing_category: 'daily_sales', routing_region: 'unknown', abujaConfigured: false });
+  assert.equal(d.label, 'owner');
+});
+
 test('unknown category WITH a region routes to that desk (treated like daily)', () => {
   assert.equal(decideRecipient({ category: 'HOT', routing_category: 'unknown', routing_region: 'lagos' }).label, 'lagos');
   assert.equal(decideRecipient({ category: 'SERIOUS', routing_category: 'unknown', routing_region: 'abuja' }).label, 'abuja');

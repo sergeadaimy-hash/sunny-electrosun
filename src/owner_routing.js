@@ -213,8 +213,13 @@ function decideRecipient(input) {
   const known = cat === 'daily_sales' ? 'daily' : 'region';
   if (region === 'abuja') return { label: 'abuja', flipTo: null, stickySet: null, reason: `${known}_abuja` };
   if (region === 'lagos') return { label: 'lagos', flipTo: null, stickySet: null, reason: `${known}_lagos` };
-  // Region unknown and not a big project: gather-first should have asked the
-  // city before we got here, so this is a last-resort fallback only. Log-worthy.
+  // Region unknown and not a big project. Owner directive (2026-06-08): default
+  // a city-unknown lead to the Abuja desk rather than the owner, so it reaches a
+  // sales manager instead of waiting forever or piling on Patrick. Only fall
+  // back to the owner if the Abuja desk number is not configured.
+  if (input && input.abujaConfigured) {
+    return { label: 'abuja', flipTo: null, stickySet: null, reason: 'region_unknown_default_abuja' };
+  }
   return { label: 'owner', flipTo: null, stickySet: null, reason: 'region_unknown_fallback' };
 }
 
@@ -261,6 +266,7 @@ function resolveRecipient(contact, classification) {
     routing_region: classification && classification.routing_region,
     stickyOwner,
     lastAssignee,
+    abujaConfigured: !!numberForLabel('abuja'),
   });
 
   if (decision.flipTo) setLastAssignee(decision.flipTo);
