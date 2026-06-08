@@ -419,7 +419,7 @@ router.get('/owner-chat', (req, res) => {
   }
   const rawMessages = db.prepare(`
     SELECT m.id, m.conversation_id, m.direction, m.body, m.intent, m.language,
-           m.timestamp, m.media_path, m.media_mime
+           m.timestamp, m.media_path, m.media_mime, m.whatsapp_message_id, m.reacted_to_wamid
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
     WHERE c.contact_id = ?

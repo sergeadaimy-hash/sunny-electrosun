@@ -1257,6 +1257,35 @@
     .msg.out .intent { color: rgba(15, 26, 20, 0.5); }
     .msg.out.human .intent { color: var(--human); }
 
+    /* Emoji reaction badge: hangs off the bottom edge of the bubble it was
+       applied to, WhatsApp-style. Reaction events are not rendered as their
+       own bubbles. */
+    .msg.has-reaction { margin-bottom: 14px; }
+    .msg .reaction-badge {
+      position: absolute;
+      bottom: -12px;
+      right: 8px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 1px 6px 2px;
+      font-size: 12px;
+      line-height: 1.3;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+      white-space: nowrap;
+      z-index: 2;
+    }
+    .msg.in .reaction-badge { right: auto; left: 8px; }
+    .reaction-note {
+      align-self: center;
+      font-size: 11px;
+      color: var(--muted);
+      background: rgba(15,26,20,0.04);
+      border-radius: 10px;
+      padding: 2px 10px;
+      margin: 2px 0;
+    }
+
     /* WhatsApp pill compose area */
     .compose {
       padding: 10px 14px;
@@ -2214,7 +2243,7 @@ function renderOwnerChat(data) {
     list.innerHTML = '<div class="empty-list">No messages between Sunny and this recipient yet. They will appear here as soon as Sunny pings them about a hot lead, silent query, follow-up, or daily report, or when they reply on WhatsApp.</div>';
     return;
   }
-  list.innerHTML = msgs.map(m => msgHtml(m)).join('');
+  list.innerHTML = renderMessages(msgs);
   requestAnimationFrame(() => {
     if (wasNearBottom || msgs.length === 1) {
       list.scrollTop = list.scrollHeight;
@@ -2770,7 +2799,7 @@ function renderConversationView(data, scrollToBottom) {
     ? '<button class="btn" id="release-btn">Return to agent</button>'
     : '<button class="btn" id="handle-btn">Take over</button>';
 
-  const messagesHtml = msgs.map(m => msgHtml(m)).join('');
+  const messagesHtml = renderMessages(msgs);
 
   const headerInitials = escapeHtml(getInitials(contact?.name, contact?.phone));
   root.innerHTML = [
@@ -2829,10 +2858,50 @@ function renderConversationView(data, scrollToBottom) {
   });
 }
 
-function msgHtml(m) {
+// Pulls the emoji out of a stored reaction body like "[reacted: 👍]".
+// Returns '' for a removed reaction ("[reaction removed]") or a non-reaction row.
+function reactionEmoji(m) {
+  if (!m || m.intent !== 'reaction') return '';
+  const match = /^\[reacted:\s*(.+)\]$/.exec(m.body || '');
+  return match ? match[1].trim() : '';
+}
+
+// Renders a message thread, folding emoji reactions onto the bubble they were
+// applied to (as a badge) instead of drawing them as standalone bubbles.
+function renderMessages(msgs) {
+  // Last reaction wins per target (handles the customer changing or removing
+  // their emoji). '' means the active reaction was removed.
+  const currentByTarget = {};
+  for (const m of msgs) {
+    if (m.intent === 'reaction' && m.reacted_to_wamid) {
+      currentByTarget[m.reacted_to_wamid] = reactionEmoji(m);
+    }
+  }
+  const targets = new Set(msgs.map(m => m.whatsapp_message_id).filter(Boolean));
+  const html = [];
+  for (const m of msgs) {
+    if (m.intent === 'reaction') {
+      const emoji = reactionEmoji(m);
+      // Reacted to a message that isn't in this thread (older than the loaded
+      // window): keep it visible as a subtle centered note rather than lose it.
+      if (emoji && (!m.reacted_to_wamid || !targets.has(m.reacted_to_wamid))) {
+        html.push('<div class="reaction-note">Reacted ' + escapeHtml(emoji) + ' to an earlier message</div>');
+      }
+      continue;
+    }
+    const emoji = m.whatsapp_message_id ? (currentByTarget[m.whatsapp_message_id] || '') : '';
+    html.push(msgHtml(m, emoji));
+  }
+  return html.join('');
+}
+
+function msgHtml(m, reactionEmojiStr) {
   const isHuman = m.intent === 'human_manual_reply' || m.intent === 'owner_provided_answer';
-  const cls = m.direction === 'inbound' ? 'msg in' : ('msg out' + (isHuman ? ' human' : ''));
+  const hasReaction = !!reactionEmojiStr;
+  const cls = (m.direction === 'inbound' ? 'msg in' : ('msg out' + (isHuman ? ' human' : '')))
+    + (hasReaction ? ' has-reaction' : '');
   const intentTag = m.intent ? '<div class="intent">' + escapeHtml(m.intent) + '</div>' : '';
+  const badge = hasReaction ? '<span class="reaction-badge">' + escapeHtml(reactionEmojiStr) + '</span>' : '';
   return [
     '<div class="' + cls + '">',
     intentTag,
@@ -2840,6 +2909,7 @@ function msgHtml(m) {
     '  <span class="bubble-text">' + escapeHtml(m.body) + '</span>',
     '  <span class="meta-line">' + shortTime(m.timestamp) + '</span>',
     '</div>',
+    badge,
     '</div>'
   ].join('');
 }

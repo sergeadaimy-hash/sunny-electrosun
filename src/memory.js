@@ -72,7 +72,8 @@ function appendMessage(conversationId, direction, body, meta = {}) {
     language = null,
     whatsapp_message_id = null,
     media_path = null,
-    media_mime = null
+    media_mime = null,
+    reacted_to_wamid = null
   } = meta;
 
   if (whatsapp_message_id) {
@@ -84,8 +85,8 @@ function appendMessage(conversationId, direction, body, meta = {}) {
 
   const ts = nowIso();
   const info = db.prepare(
-    'INSERT INTO messages (conversation_id, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(conversationId, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, ts);
+    'INSERT INTO messages (conversation_id, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, reacted_to_wamid, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(conversationId, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, reacted_to_wamid, ts);
 
   db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').run(ts, conversationId);
 
@@ -264,7 +265,7 @@ function getRecentConversationsForInbox(limit = 50, offset = 0) {
 function getMessagesForConversation(conversationId) {
   const db = getDb();
   return db.prepare(`
-    SELECT id, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, timestamp
+    SELECT id, direction, body, intent, language, whatsapp_message_id, media_path, media_mime, reacted_to_wamid, timestamp
     FROM messages
     WHERE conversation_id = ?
     ORDER BY id ASC

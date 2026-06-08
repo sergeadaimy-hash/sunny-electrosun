@@ -99,7 +99,8 @@ function applyMigrations(db) {
     ],
     messages: [
       { name: 'media_path', type: 'TEXT' },
-      { name: 'media_mime', type: 'TEXT' }
+      { name: 'media_mime', type: 'TEXT' },
+      { name: 'reacted_to_wamid', type: 'TEXT' }
     ],
     warehouse_items: [
       { name: 'datasheet_filename', type: 'TEXT' },

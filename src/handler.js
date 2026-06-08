@@ -610,6 +610,17 @@ function extractMessages(payload) {
               sha256: a.sha256 || null
             }
           });
+        } else if (msg.type === 'reaction') {
+          // Emoji reaction (long-press 👍/❤️/🙏 on one of our messages). A
+          // reaction is a passive acknowledgement, not a question. Persist it
+          // for admin visibility but NEVER reply, otherwise Sunny nags the
+          // customer with the "type your question" line for a thumbs-up.
+          out.push({
+            ...base,
+            kind: 'reaction',
+            body: msg.reaction?.emoji || '',
+            reactedToId: msg.reaction?.message_id || null
+          });
         } else {
           logger.info('webhook.message.unsupported_type', { type: msg.type, id: msg.id });
           out.push({ ...base, kind: 'unsupported' });
@@ -803,6 +814,28 @@ async function handleUnsupported(msg) {
     whatsapp_message_id: sendRes.messageId,
     intent: 'unsupported_reply',
     language
+  });
+}
+
+// Emoji reaction handler: store for admin visibility, never reply. A reaction
+// (👍/❤️/🙏 long-pressed on one of our messages) is a passive acknowledgement,
+// not a question, so it must not trigger the "type your question" nag.
+async function handleReaction(msg) {
+  const contact = getOrCreateContact(msg.from, msg.profileName);
+  const conversation = getActiveConversation(contact.id);
+
+  const emoji = msg.body || '';
+  const body = emoji ? `[reacted: ${emoji}]` : '[reaction removed]';
+  appendMessage(conversation.id, 'inbound', body, {
+    whatsapp_message_id: msg.id,
+    intent: 'reaction',
+    reacted_to_wamid: msg.reactedToId || null
+  });
+
+  logEvent(contact.id, 'reaction_received', {
+    emoji: emoji || null,
+    reactedToId: msg.reactedToId || null,
+    whatsappId: msg.id
   });
 }
 
@@ -2031,6 +2064,11 @@ async function handleInbound(payload) {
           logger.info('handler.idempotent_skip', { whatsappId: msg.id });
           continue;
         }
+      }
+
+      if (msg.kind === 'reaction') {
+        await handleReaction(msg);
+        continue;
       }
 
       if (msg.kind === 'unsupported') {
