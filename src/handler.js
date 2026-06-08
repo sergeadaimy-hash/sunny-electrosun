@@ -847,6 +847,13 @@ async function handleReaction(msg) {
 
 const MESSAGE_DEBOUNCE_MS = parseInt(process.env.MESSAGE_DEBOUNCE_MS || '6000', 10);
 const PENDING_INBOUND = new Map();
+// B-#1 instrumentation (2026-06-08): observe the double/triple-reply pattern.
+// LOGGING ONLY, no behavior change. Each fired batch gets a sequence id and we
+// record the gap since the previous batch for the same contact. If a contact
+// gets two replies we can tell whether two batches fired (debounce window vs
+// burst typing) or one batch produced two sends (a real double-fire bug).
+let BATCH_SEQ = 0;
+const LAST_BATCH_FIRED_AT = new Map();
 
 function enqueueCustomerMessage(contact, conversation, msg, imageAttachment, imageStorage, persistedBody) {
   const key = contact.id;
@@ -865,13 +872,35 @@ function enqueueCustomerMessage(contact, conversation, msg, imageAttachment, ima
   if (entry.timer) clearTimeout(entry.timer);
   entry.timer = setTimeout(() => {
     PENDING_INBOUND.delete(key);
-    processCustomerBatch(entry).catch(err => {
-      logger.error('handler.batch.process_fail', {
-        contactId: key,
-        message: err.message,
-        stack: err.stack
-      });
+    entry.batchId = ++BATCH_SEQ;
+    const firedAt = Date.now();
+    const prevFiredAt = LAST_BATCH_FIRED_AT.get(key);
+    LAST_BATCH_FIRED_AT.set(key, firedAt);
+    logger.info('handler.batch.fired', {
+      contactId: key,
+      batchId: entry.batchId,
+      queue_size: entry.msgs.length,
+      gap_since_last_fire_ms: prevFiredAt ? firedAt - prevFiredAt : null,
+      debounce_ms: MESSAGE_DEBOUNCE_MS,
+      first_msg: String((entry.msgs[0] && entry.msgs[0].body) || '').slice(0, 60),
+      last_msg: String((entry.msgs[entry.msgs.length - 1] && entry.msgs[entry.msgs.length - 1].body) || '').slice(0, 60)
     });
+    processCustomerBatch(entry)
+      .then(() => {
+        logger.info('handler.batch.completed', {
+          contactId: key,
+          batchId: entry.batchId,
+          duration_ms: Date.now() - firedAt
+        });
+      })
+      .catch(err => {
+        logger.error('handler.batch.process_fail', {
+          contactId: key,
+          batchId: entry.batchId,
+          message: err.message,
+          stack: err.stack
+        });
+      });
   }, MESSAGE_DEBOUNCE_MS);
 
   logger.info('handler.batch.enqueued', {
