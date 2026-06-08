@@ -2496,7 +2496,7 @@ async function routeStaleDeferredHandoffs(thresholdMinutes = 5) {
   const floor = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   const rows = db.prepare(`
-    SELECT id, phone, profile_name, name, location, category, lead_temperature,
+    SELECT id, phone, location, category, lead_temperature,
            client_type, products_asked_about, deferred_handoff, deferred_handoff_at
     FROM contacts
     WHERE deferred_handoff IS NOT NULL
@@ -2527,10 +2527,7 @@ async function routeStaleDeferredHandoffs(thresholdMinutes = 5) {
         products_asked_about: c.products_asked_about || null,
         owner_brief: null
       };
-      const contact = {
-        id: c.id, phone: c.phone, profile_name: c.profile_name,
-        name: c.name, location: c.location
-      };
+      const contact = { id: c.id, phone: c.phone, location: c.location };
       await notifyOwnerForEscalation({
         contact,
         classification,
