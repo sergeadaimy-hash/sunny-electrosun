@@ -15,7 +15,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 
 const { detectDanglingFragment } = require('../src/claude');
-const { buildStallFallbackText } = require('../src/handler');
+const { buildStallFallbackText, isPresenceOrImpatienceCheck, detectBulkQuantity } = require('../src/handler');
 
 // ---------------------------------------------------------------------------
 // Bug #1: dangling-fragment detection after a price strip
@@ -80,4 +80,58 @@ test('stall fallback: empty/undefined context is safe and neutral', () => {
   const txt = buildStallFallbackText('');
   assert.ok(!/figure/i.test(txt));
   assert.ok(txt.trim().length > 0);
+});
+
+// ---------------------------------------------------------------------------
+// R3: presence / impatience checks must not be treated as escalatable queries
+// ---------------------------------------------------------------------------
+
+test('presence check: "Is anyone here to respond?" is detected', () => {
+  // conv 2599 (Lanre): escalated to Patrick + got a "will share the figure" reply.
+  assert.ok(isPresenceOrImpatienceCheck('Is anyone here to respond?'));
+});
+
+test('presence check: common variants are detected', () => {
+  assert.ok(isPresenceOrImpatienceCheck('Are you there?'));
+  assert.ok(isPresenceOrImpatienceCheck('you there?'));
+  assert.ok(isPresenceOrImpatienceCheck('anybody there'));
+  assert.ok(isPresenceOrImpatienceCheck('Hello? is this thing on'));
+});
+
+test('presence check: a real product/price question is NOT a presence check', () => {
+  assert.ok(!isPresenceOrImpatienceCheck('How much is the 650w panel?'));
+  assert.ok(!isPresenceOrImpatienceCheck('Do you have deye 10kva'));
+  assert.ok(!isPresenceOrImpatienceCheck('If I am picking 30pcs, what cost?'));
+});
+
+test('presence check: empty input is safe', () => {
+  assert.ok(!isPresenceOrImpatienceCheck(''));
+  assert.ok(!isPresenceOrImpatienceCheck(undefined));
+});
+
+// ---------------------------------------------------------------------------
+// B-#2: bulk-quantity detection must survive the "30pcscof" glue typo
+// ---------------------------------------------------------------------------
+
+test('bulk: "30pcscof" glue typo is still detected as 30', () => {
+  // conv 2592 (ken stone): "If I am picking 30pcscof this PV modules..." was
+  // missed because "pcs" ran straight into "cof", so the bulk path was skipped
+  // and the lead stalled.
+  assert.strictEqual(detectBulkQuantity('If I am picking 30pcscof this PV modules, at what cost'), 30);
+});
+
+test('bulk: clean quantity phrasings still detected', () => {
+  assert.strictEqual(detectBulkQuantity('How much for about 30pcs?'), 30);
+  assert.strictEqual(detectBulkQuantity('I need up to 34 units'), 34);
+  assert.strictEqual(detectBulkQuantity('12pcs'), 12);
+});
+
+test('bulk: the ad opener "650W panels" is NOT misread as a bulk quantity', () => {
+  assert.strictEqual(detectBulkQuantity("Hello Electro-Sun, I'm interested in the LONGi Hi-MO X10 650W panels."), 0);
+});
+
+test('bulk: a single unit and non-bulk phrasings return 0', () => {
+  assert.strictEqual(detectBulkQuantity('just one panel'), 0);
+  assert.strictEqual(detectBulkQuantity('I have a 30 setup running'), 0);
+  assert.strictEqual(detectBulkQuantity(''), 0);
 });

@@ -177,10 +177,27 @@ if (require.main === module) {
   });
   logger.info('cron.auto_release.registered', { interval: '*/5 * * * *', threshold_minutes: autoReleaseMinutes });
 
+  // Pending-query expiry runs ALWAYS (R2, 2026-06-08), even when
+  // DISABLE_NOTIFICATIONS=true. When notifications are disabled it runs in
+  // silent mode: stale queries are marked expired (so they stop suppressing
+  // fresh routed alerts via the follow-up-ping path and stop inflating the
+  // open-query count) but no owner reminders/alerts are sent.
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const res = await runWindowScan({ silent: notificationsDisabled() });
+      if (res.warned || res.expired) {
+        logger.info('cron.window_scan.done', { ...res, silent: notificationsDisabled() });
+      }
+    } catch (err) {
+      logger.error('cron.window_scan.error', { message: err.message });
+    }
+  });
+  logger.info('cron.window_scan.registered', { interval: '*/30 * * * *', silent: notificationsDisabled() });
+
   if (notificationsDisabled()) {
     logger.warn('cron.all_schedules_skipped_at_boot', {
       reason: 'DISABLE_NOTIFICATIONS=true',
-      note: 'Notification cron handlers (reports, window monitor) skipped. Customer-pipeline cron (auto-release) still active.'
+      note: 'Report cron handlers (2h/daily/learning) skipped. Window-scan runs in silent expiry-only mode; auto-release still active.'
     });
   } else {
     cron.schedule('0 */2 * * *', async () => {
@@ -216,17 +233,6 @@ if (require.main === module) {
         logger.error('cron.daily_learning.error', { message: err.message });
       }
     }, { timezone: 'Africa/Lagos' });
-
-    cron.schedule('*/30 * * * *', async () => {
-      try {
-        const res = await runWindowScan();
-        if (res.warned || res.expired) {
-          logger.info('cron.window_scan.done', res);
-        }
-      } catch (err) {
-        logger.error('cron.window_scan.error', { message: err.message });
-      }
-    });
   }
 
   for (const sig of ['SIGINT', 'SIGTERM']) {

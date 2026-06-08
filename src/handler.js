@@ -357,8 +357,14 @@ function buildGatherFirstContext(classification) {
 // figures (650W, 12kW, 16kWh) because those are not unit counts. Used to drive
 // the bulk-quote-plus-Sales-Manager flow (owner directive 2026-06-07).
 const BULK_ORDER_RE = /\b(?:up\s+to\s+)?(\d{1,5})\s*(?:units?|pcs|pieces?|panels?|nos?|sets?|modules?|inverters?|batteries|battery|kits?|qty)\b/i;
+// Glue-typo backstop (2026-06-08, B-#2): "30pcscof" (ken stone) ran "pcs"
+// straight into the next word, so the trailing \b above failed and the bulk
+// path was skipped. Only the low-collision units (no "set"/"no" prefixes) are
+// allowed to be followed by letters, so "30 setup" / "30 nothing" do NOT match.
+const BULK_ORDER_GLUE_RE = /\b(?:up\s+to\s+)?(\d{1,5})\s*(?:pcs|pieces?|units?|panels?|modules?)(?=[a-z])/i;
 function detectBulkQuantity(text) {
-  const m = BULK_ORDER_RE.exec(String(text || ''));
+  const s = String(text || '');
+  const m = BULK_ORDER_RE.exec(s) || BULK_ORDER_GLUE_RE.exec(s);
   if (!m) return 0;
   const n = parseInt(m[1], 10);
   return Number.isFinite(n) && n >= 2 ? n : 0;
@@ -1796,56 +1802,95 @@ async function processCustomerBatch(entry) {
         pattern: stallHit.pattern,
         reply_preview: reply.text.slice(0, 200)
       });
-      const stallClassification = {
-        ...classification,
-        needs_escalation: true,
-        escalation_type: 'silent_query'
-      };
-      const stallEsc = await notifyOwnerForEscalation({
-        contact: refreshedContact,
-        classification: stallClassification,
-        safeCombinedText,
-        lastMsg,
-        batchSize: msgs.length,
-        source: 'stall_guard'
-      });
-      const stallOpen = getOpenPendingQueryForContact(contact.id);
-      const stallContext = (stallOpen || stallEsc.freshPendingId || stallEsc.ownerNotified)
-        ? buildExpertContext({
-            openPending: stallOpen,
-            escalationJustCreated: !!stallEsc.freshPendingId,
-            isHot: false
-          })
-        : null;
-      if (stallContext) {
+      // R3 (2026-06-08): a presence / impatience check ("Is anyone here to
+      // respond?") is not a query. Reassure the customer; never escalate or
+      // stall on it (conv 2599 escalated this to Patrick + replied about a
+      // non-existent figure).
+      if (isPresenceOrImpatienceCheck(safeCombinedText) || isPresenceOrImpatienceCheck(lastMsg)) {
+        reply.text = "Yes, I'm here. How can I help you with your solar needs?";
+        logger.info('handler.stall_presence_check_reassured', { contactId: contact.id });
+      }
+      // R1 (2026-06-08): not enough to route yet (region unknown and not a big
+      // project). Do NOT ping the owner from the stall path; ask the city
+      // first, mirroring the classifier escalation's gather-first guard.
+      // Without this, region-unknown stalls fall straight to the general owner
+      // (Patrick), violating "owners handle big projects only" (conv ken stone,
+      // Lanre routed to Patrick instead of a regional desk).
+      else if (!ownerRouting.routingInfoSufficient(classification)) {
+        try {
+          updateContactFields(contact.id, {
+            deferred_handoff: classification.escalation_type || 'silent_query',
+            deferred_handoff_at: new Date().toISOString()
+          });
+        } catch (err) {
+          logger.warn('handler.stall_gather_first_persist_fail', { message: err.message });
+        }
+        const gatherCtx = buildGatherFirstContext(classification);
         const reply2 = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
-          expertContext: stallContext,
+          expertContext: gatherCtx,
           datasheetRequestedButNotSent
         });
-        if (reply2.ok && reply2.text && !security.detectStallLanguage(reply2.text)) {
-          reply.text = reply2.text;
-          logger.info('handler.stall_regenerated_with_expert_context', {
-            contactId: contact.id,
-            chars: reply2.text.length
+        reply.text = (reply2.ok && reply2.text)
+          ? reply2.text
+          : 'Are you in Abuja or Lagos? That way the team can sort you out quickly.';
+        logger.info('handler.stall_gather_first_deferred', {
+          contactId: contact.id,
+          routing_region: classification.routing_region,
+          routing_category: classification.routing_category
+        });
+      }
+      // Enough to route: escalate to the routed recipient and regenerate.
+      else {
+        const stallClassification = {
+          ...classification,
+          needs_escalation: true,
+          escalation_type: 'silent_query'
+        };
+        const stallEsc = await notifyOwnerForEscalation({
+          contact: refreshedContact,
+          classification: stallClassification,
+          safeCombinedText,
+          lastMsg,
+          batchSize: msgs.length,
+          source: 'stall_guard'
+        });
+        const stallOpen = getOpenPendingQueryForContact(contact.id);
+        const stallContext = (stallOpen || stallEsc.freshPendingId || stallEsc.ownerNotified)
+          ? buildExpertContext({
+              openPending: stallOpen,
+              escalationJustCreated: !!stallEsc.freshPendingId,
+              isHot: false
+            })
+          : null;
+        if (stallContext) {
+          const reply2 = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
+            expertContext: stallContext,
+            datasheetRequestedButNotSent
           });
+          if (reply2.ok && reply2.text && !security.detectStallLanguage(reply2.text)) {
+            reply.text = reply2.text;
+            logger.info('handler.stall_regenerated_with_expert_context', {
+              contactId: contact.id,
+              chars: reply2.text.length
+            });
+          } else {
+            // Context-aware ack: only mention "the figure" when the open query
+            // (or the customer's own message) is actually a price ask. Otherwise
+            // a neutral line (conv 2599, 2026-06-08 audit).
+            const stallCtx = (stallOpen && stallOpen.customer_message) || safeCombinedText || lastMsg;
+            reply.text = buildStallFallbackText(stallCtx);
+            logger.warn('handler.stall_regen_failed_used_generic_ack', {
+              contactId: contact.id,
+              pattern: stallHit.pattern
+            });
+          }
         } else {
-          // Context-aware ack: only mention "the figure" when the open query
-          // (or the customer's own message) is actually a price ask. Otherwise
-          // a neutral line, so "Is anyone here to respond?" never gets a reply
-          // about a non-existent figure (conv 2599, 2026-06-08 audit).
-          const stallCtx = (stallOpen && stallOpen.customer_message) || safeCombinedText || lastMsg;
-          reply.text = buildStallFallbackText(stallCtx);
-          logger.warn('handler.stall_regen_failed_used_generic_ack', {
+          reply.text = 'Noted. The team is on it.';
+          logger.warn('handler.stall_replaced_no_alert', {
             contactId: contact.id,
             pattern: stallHit.pattern
           });
         }
-      } else {
-        reply.text = 'Noted. The team is on it.';
-        logger.warn('handler.stall_replaced_no_alert', {
-          contactId: contact.id,
-          pattern: stallHit.pattern
-        });
       }
     }
   }
@@ -2510,6 +2555,20 @@ async function retryFallbackReplies({ maxAgeMinutes = 120 } = {}) {
 // non-price conversations (conv 2599: customer asked "Is anyone here to
 // respond?" and got a line about "the figure"). Only keep the figure phrasing
 // when the context is genuinely a price ask; otherwise stay neutral.
+// A presence / impatience check ("is anyone here?", "you there?", "hello?")
+// is NOT a query that needs a team answer. The stall guard must not escalate
+// it to the owner nor stall on it; Sunny should just reassure the customer
+// it is here (R3, 2026-06-08 audit, conv 2599).
+const PRESENCE_CHECK_RE = /\b(?:is\s+(?:any\s*one|some\s*one|any\s*body|some\s*body)\s+(?:there|here|around|available|online|to\s+respond)|are\s+you\s+(?:there|here|online|available|around)|any\s*body\s+(?:there|here)|any\s*one\s+(?:there|here|to\s+respond)|you\s+there|is\s+this\s+(?:thing\s+)?(?:on|working|live)|who\s+am\s+i\s+(?:chatting|speaking|talking))\b/i;
+function isPresenceOrImpatienceCheck(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  if (PRESENCE_CHECK_RE.test(t)) return true;
+  // A bare "hello?" / "hellooo??" with a question mark and nothing else.
+  if (/^(?:hi+|hey+|hello+|helo+|yoo+)\s*\?+$/i.test(t)) return true;
+  return false;
+}
+
 function buildStallFallbackText(contextText) {
   const PRICE_CTX_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|figure|amount|totals?|invoices?|proformas?|\d+\s*(?:units?|pcs|pieces?|panels?|sets?|modules?))\b/i;
   if (PRICE_CTX_RE.test(String(contextText || ''))) {
@@ -2525,5 +2584,7 @@ module.exports = {
   answerPendingForContact,
   autoReleaseStaleHumanConversations,
   retryFallbackReplies,
-  buildStallFallbackText
+  buildStallFallbackText,
+  isPresenceOrImpatienceCheck,
+  detectBulkQuantity
 };

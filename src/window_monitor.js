@@ -26,7 +26,13 @@ function ageHours(createdAtIso) {
   return (Date.now() - new Date(createdAtIso).getTime()) / (60 * 60 * 1000);
 }
 
-async function runWindowScan() {
+// opts.silent (2026-06-08, R2): expire stale pending queries WITHOUT sending
+// any owner reminders/alerts. Used when DISABLE_NOTIFICATIONS=true so the
+// expiry hygiene still runs (stale open queries otherwise suppress fresh
+// routed alerts via the follow-up-ping path, and inflate the open-query count
+// indefinitely). Only the owner-facing pings are silenced, not the cleanup.
+async function runWindowScan(opts = {}) {
+  const silent = !!opts.silent;
   const ownerPhone = process.env.OWNER_WHATSAPP;
 
   const expired = findExpiredPendingQueries(isoMinus(EXPIRE_AFTER_HOURS));
@@ -41,7 +47,7 @@ async function runWindowScan() {
       customerPhone: q.customer_phone,
       ageHours: ageHours(q.created_at).toFixed(1)
     });
-    if (ownerPhone) {
+    if (!silent && ownerPhone) {
       const text = [
         `Heads up: query [QID:${q.id}] from ${q.customer_name || 'unknown'} (${q.customer_phone}) is past the 24h Meta free-form window.`,
         `Customer asked: "${(q.customer_message_text || '').slice(0, 200)}"`,
@@ -56,7 +62,10 @@ async function runWindowScan() {
     }
   }
 
-  const needWarning = findPendingQueriesNeedingWarning(isoMinus(WARN_AFTER_HOURS));
+  // The 22h reminder and budget warning are owner-facing notifications only.
+  // In silent mode (DISABLE_NOTIFICATIONS) skip them entirely; the expiry above
+  // is the part that must always run.
+  const needWarning = silent ? [] : findPendingQueriesNeedingWarning(isoMinus(WARN_AFTER_HOURS));
   for (const q of needWarning) {
     const age = ageHours(q.created_at);
     if (age >= EXPIRE_AFTER_HOURS) continue;
@@ -86,7 +95,7 @@ async function runWindowScan() {
   }
 
   let budgetWarningSent = 0;
-  if (shouldSendBudgetWarning()) {
+  if (!silent && shouldSendBudgetWarning()) {
     const spend = getTodaySpendCents();
     const budget = getBudgetCents();
     const stats = getTodayStats();
