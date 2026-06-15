@@ -6,6 +6,7 @@ const assert = require('node:assert');
 const {
   isAuditableContact,
   summarizeSignals,
+  buildAuditTranscript,
   parseAuditFindings,
   buildOwnerAuditPing,
 } = require('../src/audit');
@@ -68,4 +69,20 @@ test('buildOwnerAuditPing includes the deep link and counts', () => {
   const msg = buildOwnerAuditPing({ id: 42 }, { total: 3, skill_lesson: 2, knowledge_fact: 1, engineering_note: 0 });
   assert.match(msg, /3 proposals waiting/);
   assert.match(msg, /#audit=42/);
+});
+
+test('buildAuditTranscript labels speakers, skips empty bodies, and truncates', () => {
+  const t = buildAuditTranscript([
+    { direction: 'inbound', body: 'hello there' },
+    { direction: 'outbound', body: '   ' },
+    { direction: 'outbound', body: 'hi sir' }
+  ]);
+  assert.match(t, /\[Customer\] hello there/);
+  assert.match(t, /\[Sunny\] hi sir/);
+  // the blank outbound body is skipped, so exactly two lines remain
+  assert.equal(t.split('\n').length, 2);
+
+  const long = buildAuditTranscript([{ direction: 'inbound', body: 'x'.repeat(500) }], 100);
+  assert.ok(long.includes('transcript truncated'));
+  assert.ok(long.length <= 140);
 });

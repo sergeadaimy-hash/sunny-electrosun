@@ -778,7 +778,7 @@ router.get('/warehouse/photos/:photoId/file', (req, res) => {
   }
 });
 
-// ---- Nightly self-improvement audit (admin-only) ----
+// Nightly self-improvement audit endpoints (admin-only)
 
 router.get('/audit/runs', (req, res) => {
   try {
