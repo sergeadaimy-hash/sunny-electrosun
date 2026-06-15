@@ -18,6 +18,7 @@ const {
   sendDailyLearningReport
 } = require('./src/reports');
 const { runWindowScan } = require('./src/window_monitor');
+const { runNightlyAudit } = require('./src/audit');
 
 initDb();
 
@@ -205,6 +206,24 @@ if (require.main === module) {
     }
   });
   logger.info('cron.window_scan.registered', { interval: '*/30 * * * *', silent: notificationsDisabled() });
+
+  // Nightly self-improvement audit (2026-06-15). Gated by its OWN flag so it can
+  // run even while DISABLE_NOTIFICATIONS=true (which silences the legacy reports).
+  // Default OFF until soaked.
+  if (String(process.env.ENABLE_NIGHTLY_AUDIT || '').toLowerCase() === 'true') {
+    cron.schedule('0 21 * * *', async () => {
+      try {
+        logger.info('cron.nightly_audit.start');
+        const res = await runNightlyAudit({ windowHours: 24 });
+        logger.info('cron.nightly_audit.done', res);
+      } catch (err) {
+        logger.error('cron.nightly_audit.error', { message: err.message });
+      }
+    }, { timezone: 'Africa/Lagos' });
+    logger.info('cron.nightly_audit.registered', { interval: '0 21 * * *', tz: 'Africa/Lagos' });
+  } else {
+    logger.info('cron.nightly_audit.disabled', { reason: 'ENABLE_NIGHTLY_AUDIT not true' });
+  }
 
   if (notificationsDisabled()) {
     logger.warn('cron.all_schedules_skipped_at_boot', {
