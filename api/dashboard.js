@@ -38,6 +38,8 @@ const {
 } = require('../src/catalog');
 const warehouseModule = require('../src/warehouse');
 const promptStore = require('../src/prompt_store');
+const auditStore = require('../src/audit_store');
+const { rebuildAndCommitPlaybook } = require('../src/playbook');
 const ownerRouting = require('../src/owner_routing');
 const {
   listItems: listWarehouseItems,
@@ -771,6 +773,51 @@ router.get('/warehouse/photos/:photoId/file', (req, res) => {
     res.setHeader('Content-Type', photo.mime_type || 'image/jpeg');
     res.setHeader('Cache-Control', 'private, max-age=300');
     require('fs').createReadStream(photo.file_path).pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Nightly self-improvement audit (admin-only) ----
+
+router.get('/audit/runs', (req, res) => {
+  try {
+    res.json({ runs: auditStore.listRuns(parseInt32(req.query.limit, 30)) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/audit/runs/:id', (req, res) => {
+  try {
+    const id = parseInt32(req.params.id, 0);
+    const run = auditStore.getRun(id);
+    if (!run) return res.status(404).json({ error: 'run not found' });
+    res.json({ run, findings: auditStore.getFindingsForRun(id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/audit/findings/:id/status', (req, res) => {
+  const id = parseInt32(req.params.id, 0);
+  const status = String(req.body?.status || '').trim();
+  if (!['approved', 'rejected', 'pending'].includes(status)) {
+    return res.status(400).json({ error: 'status must be approved|rejected|pending' });
+  }
+  const editedText = typeof req.body?.edited_text === 'string' ? req.body.edited_text : undefined;
+  try {
+    auditStore.setFindingStatus(id, status, editedText);
+    res.json({ ok: true, id, status });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/audit/apply', async (req, res) => {
+  try {
+    const result = await rebuildAndCommitPlaybook();
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
