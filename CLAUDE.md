@@ -203,6 +203,7 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `ENABLE_NIGHTLY_AUDIT` | When true, registers the nightly self-improvement audit cron (`0 21 * * *` Africa/Lagos). Independent of `DISABLE_NOTIFICATIONS`. Default off. |
 | `MODEL_AUDIT` | Model for the nightly audit (default `claude-sonnet-4-6`; must be a prefix the cost tracker recognizes). |
 | `AUDIT_MAX_CONVERSATIONS` | Max conversations audited per nightly run (default 60). |
+| `AUDIT_PING_WHATSAPP` | Recipient of the nightly audit "proposals waiting" ping. Defaults to `OWNER_WHATSAPP`. Set to a developer number while testing so the owner is not pinged; the owner's other alerts stay on `OWNER_WHATSAPP`. |
 
 ### Models, costs, and budget
 

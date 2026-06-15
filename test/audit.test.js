@@ -9,6 +9,7 @@ const {
   buildAuditTranscript,
   parseAuditFindings,
   buildOwnerAuditPing,
+  auditPingRecipient,
 } = require('../src/audit');
 
 test('isAuditableContact excludes the owner and desk numbers', () => {
@@ -85,4 +86,19 @@ test('buildAuditTranscript labels speakers, skips empty bodies, and truncates', 
   const long = buildAuditTranscript([{ direction: 'inbound', body: 'x'.repeat(500) }], 100);
   assert.ok(long.includes('transcript truncated'));
   assert.ok(long.length <= 140);
+});
+
+test('auditPingRecipient prefers AUDIT_PING_WHATSAPP, else falls back to OWNER_WHATSAPP', () => {
+  const savedAudit = process.env.AUDIT_PING_WHATSAPP;
+  const savedOwner = process.env.OWNER_WHATSAPP;
+  try {
+    process.env.OWNER_WHATSAPP = '2347041328055';
+    delete process.env.AUDIT_PING_WHATSAPP;
+    assert.equal(auditPingRecipient(), '2347041328055');
+    process.env.AUDIT_PING_WHATSAPP = '966502392650';
+    assert.equal(auditPingRecipient(), '966502392650');
+  } finally {
+    if (savedAudit === undefined) delete process.env.AUDIT_PING_WHATSAPP; else process.env.AUDIT_PING_WHATSAPP = savedAudit;
+    if (savedOwner === undefined) delete process.env.OWNER_WHATSAPP; else process.env.OWNER_WHATSAPP = savedOwner;
+  }
 });

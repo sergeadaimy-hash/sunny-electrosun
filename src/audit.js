@@ -209,23 +209,30 @@ async function auditOneConversation(conv, runId, rulesSystemBlocks) {
   return parseAuditFindings(text, { runId, conversationId: conv.conversation_id, contactId: conv.contact_id });
 }
 
+// The audit "proposals waiting" ping goes to AUDIT_PING_WHATSAPP when set
+// (useful while a developer is testing the audit), otherwise to the owner.
+// This keeps the owner's other alerts (escalations, reports) on OWNER_WHATSAPP.
+function auditPingRecipient() {
+  return process.env.AUDIT_PING_WHATSAPP || process.env.OWNER_WHATSAPP || null;
+}
+
 async function sendOwnerAuditPing(runId, counts) {
-  const ownerPhone = process.env.OWNER_WHATSAPP;
-  if (!ownerPhone) return;
+  const pingPhone = auditPingRecipient();
+  if (!pingPhone) return;
   const run = auditStore.getRun(runId);
   const text = buildOwnerAuditPing(run, counts);
   if (!text) return;
   try {
-    const sendRes = await sendMessage(ownerPhone, text);
-    const ownerContact = getOrCreateContact(ownerPhone, null);
-    const ownerConv = getActiveConversation(ownerContact.id);
-    appendMessage(ownerConv.id, 'outbound', text, {
+    const sendRes = await sendMessage(pingPhone, text);
+    const pingContact = getOrCreateContact(pingPhone, null);
+    const pingConv = getActiveConversation(pingContact.id);
+    appendMessage(pingConv.id, 'outbound', text, {
       whatsapp_message_id: sendRes && sendRes.messageId,
       intent: 'audit_summary_ping',
       language: 'english'
     });
   } catch (err) {
-    logger.warn('audit.owner_ping_fail', { message: err.message });
+    logger.warn('audit.ping_fail', { message: err.message });
   }
 }
 
@@ -286,5 +293,6 @@ module.exports = {
   buildAuditTranscript,
   parseAuditFindings,
   buildOwnerAuditPing,
+  auditPingRecipient,
   runNightlyAudit
 };
