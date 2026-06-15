@@ -214,3 +214,40 @@ CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_whatsapp_id ON messages(whatsapp_message_id) WHERE whatsapp_message_id IS NOT NULL;
+
+-- Nightly self-improvement audit (2026-06-15). One row per nightly pass.
+CREATE TABLE IF NOT EXISTS audit_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_date TEXT NOT NULL,
+  window_start TEXT,
+  window_end TEXT,
+  status TEXT NOT NULL DEFAULT 'running',
+  conversations_audited INTEGER NOT NULL DEFAULT 0,
+  findings_count INTEGER NOT NULL DEFAULT 0,
+  scorecard TEXT,
+  error TEXT,
+  created_at TEXT,
+  finished_at TEXT
+);
+
+-- One row per proposal the audit produced.
+CREATE TABLE IF NOT EXISTS audit_findings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  conversation_id INTEGER,
+  contact_id INTEGER,
+  lane TEXT NOT NULL,
+  finding_type TEXT,
+  finding_text TEXT NOT NULL,
+  proposed_change TEXT NOT NULL,
+  cited_rule TEXT,
+  cited_message TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  edited_text TEXT,
+  created_at TEXT,
+  updated_at TEXT,
+  applied_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_findings_run ON audit_findings(run_id);
+CREATE INDEX IF NOT EXISTS idx_audit_findings_status ON audit_findings(status);
