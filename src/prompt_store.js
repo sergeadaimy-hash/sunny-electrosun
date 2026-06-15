@@ -3,7 +3,7 @@ const path = require('path');
 const logger = require('./utils/logger');
 
 const PROMPTS_DIR = path.join(__dirname, 'prompts');
-const ALLOWED = ['system', 'classifier', 'owner_qa'];
+const ALLOWED = ['system', 'classifier', 'owner_qa', 'audit', 'learned-playbook'];
 const CACHE_TTL_MS = 30 * 1000;
 
 const cache = new Map();
