@@ -1780,6 +1780,25 @@
       border: 1px dashed var(--border);
       border-radius: 10px;
     }
+    .audit-wrap { display: flex; gap: 16px; padding: 16px; }
+    .audit-sidebar { width: 200px; flex: 0 0 auto; }
+    .audit-sidebar h3 { margin: 0 0 8px; font-size: 13px; color: #555; }
+    .audit-main { flex: 1 1 auto; min-width: 0; }
+    .audit-run-btn { display: block; width: 100%; text-align: left; padding: 8px 10px; margin-bottom: 4px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .audit-run-btn.active { background: #DCF8C6; border-color: #25D366; }
+    .audit-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #fff; }
+    .audit-card.status-approved { border-left: 4px solid #25D366; }
+    .audit-card.status-rejected { border-left: 4px solid #c0392b; opacity: 0.6; }
+    .audit-card.status-applied { border-left: 4px solid #888; }
+    .audit-lane { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 6px; }
+    .audit-problem, .audit-proposed, .audit-rule, .audit-quote { font-size: 13px; margin-bottom: 6px; line-height: 1.4; }
+    .audit-edit { background: #f6f6f6; padding: 2px 4px; border-radius: 4px; display: inline-block; min-width: 60px; }
+    .audit-actions { margin-top: 8px; }
+    .audit-actions button, .audit-apply-bar button { padding: 6px 12px; margin-right: 8px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; font-size: 13px; }
+    .audit-approve { background: #DCF8C6; }
+    .audit-reject { background: #fde0dc; }
+    .audit-apply-bar { margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee; }
+    #audit-apply-btn { background: #25D366; color: #fff; border-color: #25D366; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -1841,6 +1860,7 @@
         <button data-view="view-owner">Owner Chat</button>
         <button data-view="view-warehouse">Warehouse Stock</button>
         <button data-view="view-knowledge">Knowledge</button>
+        <button data-view="view-audit">Nightly Audit</button>
       </nav>
     </div>
     <div class="header-stats">
@@ -1950,6 +1970,18 @@
         </div>
       </section>
     </section>
+
+      <section id="view-audit" class="view">
+        <div class="audit-wrap">
+          <div class="audit-sidebar">
+            <h3>Audit runs</h3>
+            <div id="audit-runs"><div class="wh-empty">Loading...</div></div>
+          </div>
+          <div class="audit-main">
+            <div id="audit-findings"><div class="wh-empty">Select a run.</div></div>
+          </div>
+        </div>
+      </section>
 
     <section id="view-contacts" class="view">
       <div class="contacts-toolbar">
@@ -2166,6 +2198,9 @@ function switchView(viewId) {
   }
   if (viewId === 'view-owner') {
     loadOwnerChat();
+  }
+  if (viewId === 'view-audit' && !auditLoaded) {
+    loadAudit();
   }
 }
 
@@ -3686,6 +3721,134 @@ async function adjustWarehouseQty(itemId, loc, locEl, delta) {
   }
 }
 
+// ---- Nightly Audit tab ----
+let auditLoaded = false;
+let auditRuns = [];
+let currentAuditRunId = null;
+
+async function loadAudit() {
+  try {
+    const data = await apiFetch('/audit/runs?limit=30');
+    auditRuns = data.runs || [];
+    auditLoaded = true;
+    renderAuditRuns();
+    if (currentAuditRunId) {
+      loadAuditRun(currentAuditRunId);
+    } else if (auditRuns.length) {
+      loadAuditRun(auditRuns[0].id);
+    } else {
+      document.getElementById('audit-findings').innerHTML = '<div class="wh-empty">No audit runs yet.</div>';
+    }
+  } catch (err) {
+    document.getElementById('audit-runs').innerHTML = '<div class="wh-empty">Error: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function renderAuditRuns() {
+  const root = document.getElementById('audit-runs');
+  if (!auditRuns.length) {
+    root.innerHTML = '<div class="wh-empty">No runs.</div>';
+    return;
+  }
+  root.innerHTML = auditRuns.map(r =>
+    '<button class="audit-run-btn' + (r.id === currentAuditRunId ? ' active' : '') + '" data-run="' + r.id + '">' +
+    escapeHtml(r.run_date || ('run ' + r.id)) + ' (' + (r.findings_count || 0) + ')' +
+    '</button>'
+  ).join('');
+  root.querySelectorAll('.audit-run-btn').forEach(b => {
+    b.addEventListener('click', () => loadAuditRun(parseInt(b.dataset.run, 10)));
+  });
+}
+
+async function loadAuditRun(runId) {
+  currentAuditRunId = runId;
+  renderAuditRuns();
+  const root = document.getElementById('audit-findings');
+  root.innerHTML = '<div class="wh-empty">Loading...</div>';
+  try {
+    const data = await apiFetch('/audit/runs/' + runId);
+    renderAuditFindings(data.run, data.findings || []);
+  } catch (err) {
+    root.innerHTML = '<div class="wh-empty">Error: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function renderAuditFindings(run, findings) {
+  const root = document.getElementById('audit-findings');
+  if (!findings.length) {
+    root.innerHTML = '<div class="wh-empty">No proposals in this run.</div>';
+    return;
+  }
+  const laneLabel = { skill_lesson: 'Skill lesson', knowledge_fact: 'Knowledge fact', engineering_note: 'Code note' };
+  const blocks = findings.map(f => {
+    const text = (f.edited_text != null && f.edited_text !== '') ? f.edited_text : f.proposed_change;
+    const convLink = f.conversation_id ? '<a href="#conv=' + f.conversation_id + '">open chat</a>' : '';
+    return '' +
+      '<div class="audit-card status-' + escapeHtml(f.status) + '" data-id="' + f.id + '">' +
+      '<div class="audit-lane">' + escapeHtml(laneLabel[f.lane] || f.lane) + ' &middot; ' + escapeHtml(f.status) + '</div>' +
+      '<div class="audit-problem"><b>Problem:</b> ' + escapeHtml(f.finding_text) + '</div>' +
+      '<div class="audit-proposed"><b>Proposed:</b> <span contenteditable="true" class="audit-edit">' + escapeHtml(text) + '</span></div>' +
+      (f.cited_rule ? '<div class="audit-rule"><b>Checked vs:</b> ' + escapeHtml(f.cited_rule) + '</div>' : '') +
+      (f.cited_message ? '<div class="audit-quote"><b>Message:</b> "' + escapeHtml(f.cited_message) + '" ' + convLink + '</div>' : (convLink ? '<div class="audit-quote">' + convLink + '</div>' : '')) +
+      '<div class="audit-actions">' +
+      '<button class="audit-approve" data-id="' + f.id + '">Approve</button>' +
+      '<button class="audit-reject" data-id="' + f.id + '">Reject</button>' +
+      '</div></div>';
+  });
+  blocks.push('<div class="audit-apply-bar"><button id="audit-apply-btn">Apply approved (push live)</button></div>');
+  root.innerHTML = blocks.join('');
+  root.querySelectorAll('.audit-approve').forEach(b => b.addEventListener('click', () => setAuditStatus(b.dataset.id, 'approved', b)));
+  root.querySelectorAll('.audit-reject').forEach(b => b.addEventListener('click', () => setAuditStatus(b.dataset.id, 'rejected', b)));
+  document.getElementById('audit-apply-btn').addEventListener('click', applyApprovedAudit);
+}
+
+async function setAuditStatus(id, status, btn) {
+  const card = btn.closest('.audit-card');
+  const editEl = card ? card.querySelector('.audit-edit') : null;
+  const body = { status };
+  if (status === 'approved' && editEl) body.edited_text = editEl.textContent.trim();
+  try {
+    await apiFetch('/audit/findings/' + id + '/status', { method: 'POST', body: JSON.stringify(body) });
+    loadAuditRun(currentAuditRunId);
+  } catch (err) {
+    alert('Failed: ' + err.message);
+  }
+}
+
+async function applyApprovedAudit() {
+  const btn = document.getElementById('audit-apply-btn');
+  btn.disabled = true;
+  btn.textContent = 'Applying...';
+  try {
+    const res = await apiFetch('/audit/apply', { method: 'POST', body: '{}' });
+    const pushed = res.commit && res.commit.committed;
+    alert('Applied ' + (res.applied || 0) + ' lessons. ' + (pushed ? 'Pushed to GitHub; Railway will redeploy.' : 'Saved on this server only (no GitHub token).'));
+    loadAuditRun(currentAuditRunId);
+  } catch (err) {
+    alert('Apply failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Apply approved (push live)';
+  }
+}
+
+function parseAuditIdFromHash() {
+  const h = String(window.location.hash || '');
+  const m = h.match(/(?:^|[#&])audit=(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function openAuditFromHashIfAny() {
+  const id = parseAuditIdFromHash();
+  if (id) {
+    currentAuditRunId = id;
+    switchView('view-audit');
+    loadAudit();
+  }
+}
+
+window.addEventListener('hashchange', openAuditFromHashIfAny);
+
 // INIT
 
 function parseConvIdFromHash() {
@@ -3709,6 +3872,7 @@ if (apiKey) {
   refreshAll().then(() => {
     refreshTimer = setInterval(refreshAll, 15000);
     openConvFromHashIfAny();
+    openAuditFromHashIfAny();
   }).catch(() => {
     showLogin();
   });
