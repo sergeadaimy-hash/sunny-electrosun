@@ -2,6 +2,27 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-06-15: Nightly self-improvement audit (Phase 1), branch `feat/nightly-self-improvement-phase-1`
+
+Built the core of a nightly self-improvement loop (designed in `docs/superpowers/specs/2026-06-15-sunny-nightly-self-improvement-design.md`, planned in `docs/superpowers/plans/2026-06-15-sunny-nightly-self-improvement-phase-1.md`). OFF by default (`ENABLE_NIGHTLY_AUDIT=false`); nothing runs or changes a reply until the owner approves.
+
+What shipped:
+- New tables `audit_runs` and `audit_findings` (`db/schema.sql`).
+- `src/audit.js`: nightly engine `runNightlyAudit()` plus pure helpers (contact filtering, signal summary, transcript build, findings parse, owner ping). One Sonnet call per active conversation (`MODEL_AUDIT`, default `claude-sonnet-4-6`) against a cached rules block (audit.md + system.md + warehouse + current playbook). Findings tagged into three lanes: skill_lesson, knowledge_fact, engineering_note. Each finding cites the rule and a message snippet.
+- `src/audit_store.js`: CRUD for runs and findings.
+- `src/playbook.js` + `src/prompts/learned-playbook.md`: the injected, owner-approved playbook. `buildPlaybookMarkdown` (dedup, edited-text-wins, numbered), `rebuildAndCommitPlaybook` (write local plus commit via the GitHub Contents API, then flip approved to applied).
+- `src/github_commit.js`: reusable single-file GitHub commit helper.
+- `src/prompts/audit.md`: the auditor prompt (conservative, JSON-only, citation-required).
+- `src/claude.js`: injects the playbook as a system block in `generateReply` (skipped when empty).
+- `api/dashboard.js`: admin-only endpoints `GET /audit/runs`, `GET /audit/runs/:id`, `POST /audit/findings/:id/status`, `POST /audit/apply`.
+- `public/admin.html`: new "Nightly Audit" tab (runs list, findings with Approve / Edit / Reject, "Apply approved", `#audit=<id>` deep link). Hidden from the inbox role.
+- `server.js`: gated cron `0 21 * * *` Africa/Lagos behind `ENABLE_NIGHTLY_AUDIT`, independent of `DISABLE_NOTIFICATIONS`.
+- Tests: `test/audit.test.js`, `test/playbook.test.js`, `test/github_commit.test.js`. Full suite 96/96.
+
+Phase 2 (pending): knowledge_fact routing into Warehouse and system.md; lesson lifecycle (graduation into system.md, did-it-work recheck, merge, regression watch); the weekly scorecard; cross-chat pattern mining. Phase 3: guard-trip log signals.
+
+To go live: set `ENABLE_NIGHTLY_AUDIT=true` (and `MODEL_AUDIT`, `AUDIT_MAX_CONVERSATIONS` if tuning) on Railway; `GITHUB_TOKEN` must be set for Apply-approved to push. Branch not yet merged or pushed.
+
 ## 2026-06-08 Beirut — emoji reactions stop the "type your question" nag
 
 Owner sent a screenshot (Babajide Samson Daramola) showing two `UNSUPPORTED_TYPE` inbound rows labelled `[unsupported_reaction]`, each answered by Sunny with the canned `UNSUPPORTED_REPLY` ("This number receives text messages only. Please type your question and the team will respond."). The customer had simply tapped an emoji reaction (WhatsApp long-press 👍/❤️/🙏) on one of Sunny's messages, right after Sunny told him "No problem, take your time." A reaction is a passive acknowledgement, not a question, so nagging him to "type your question" made Sunny look broken and pushy. He reacted twice, so he got nagged twice.

@@ -200,6 +200,9 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `HUMAN_AUTO_RELEASE_MINUTES` | Threshold for the auto-release cron. Default 15. Conversations with `human_handled=1` that have been idle past this threshold (max of `human_handled_at` and `last_human_reply_at`) are released back to Sunny. |
 | `STALE_HANDOFF_MINUTES` | Ghost-sweep threshold (default 5). A lead asked "Abuja or Lagos?" that never answers with a city is routed to the Abuja desk after this many minutes (`routeStaleDeferredHandoffs`, on the `*/5` cron). 24h floor, 30/run cap, off when `DISABLE_ESCALATIONS=true`. |
 | `META_REGISTRATION_PIN` | Cloud API registration PIN (current: `271828`). Needed if Meta forces re-register of the phone number. |
+| `ENABLE_NIGHTLY_AUDIT` | When true, registers the nightly self-improvement audit cron (`0 21 * * *` Africa/Lagos). Independent of `DISABLE_NOTIFICATIONS`. Default off. |
+| `MODEL_AUDIT` | Model for the nightly audit (default `claude-sonnet-4-6`; must be a prefix the cost tracker recognizes). |
+| `AUDIT_MAX_CONVERSATIONS` | Max conversations audited per nightly run (default 60). |
 
 ### Models, costs, and budget
 
@@ -247,6 +250,10 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `formatConversationBriefForOwner(contactId, maxTurns)` (in `src/handler.js`) | Builds a compact `[HH:MM] Customer: ...\n[HH:MM] Sunny: ...` brief from the last N messages of the contact's active conversation. Each line truncated at 220 chars, multi-line bodies flattened to single line. Used inside both escalation alert builders. |
 | `buildAdminConversationLink(conversationId)` (in `src/handler.js`) | Returns `${PUBLIC_BASE_URL}/admin#conv=<id>`. Default base falls back to the Railway production URL when `PUBLIC_BASE_URL` is unset. The admin SPA parses `#conv=<id>` on boot and on every `hashchange`, then calls `selectConversation(id)` to deep-link the inbox to that conversation. |
 | Admin `Owner Chat` tab + `GET /api/owner-chat?limit=N` | Read-only conversation thread of every message between Sunny and OWNER_WHATSAPP, including escalation alerts, follow-up pings, and the brother's replies. Renders with the same `msgHtml()` bubble component as the inbox. Auto-refreshes every 15s. |
+| `src/audit.js` + `src/prompts/audit.md` | Nightly self-improvement audit. `runNightlyAudit()` selects the day's active conversations (excludes owner and sales desks), runs one Sonnet call each against a cached rules block (audit.md + system.md + warehouse + playbook), and writes findings (lanes: skill_lesson / knowledge_fact / engineering_note) to `audit_findings`. Pure helpers exported for tests. Off unless `ENABLE_NIGHTLY_AUDIT=true`. |
+| `src/audit_store.js` | CRUD for `audit_runs` and `audit_findings` (create/finish/fail run, insert/list/get findings, set status, get active skill-lessons, mark applied). |
+| `src/playbook.js` + `src/prompts/learned-playbook.md` | The owner-approved learned playbook injected into replies. `buildPlaybookMarkdown` (dedup, edited-text-wins, numbered), `getPlaybookText`, `rebuildAndCommitPlaybook` (rebuild from approved skill-lessons, write plus GitHub commit, flip approved to applied). |
+| `src/github_commit.js` | Reusable single-file GitHub Contents API commit (GET sha then PUT). Used by Apply-approved. |
 
 ## Mission
 
@@ -393,6 +400,8 @@ Schema lives in `db/schema.sql`. Tables:
 - **`warehouse_stock`**: per-item × per-location stock row. Columns: `item_id`, `location` ('abuja' | 'lagos'), `state` ('in_stock' | 'out_of_stock' | 'incoming'), `quantity` (integer, default 0), `coming_note` (free text), `eta_date` (YYYY-MM-DD). UNIQUE(item_id, location). Two rows are auto-created per item (Abuja + Lagos) on insert.
 - **`warehouse_item_photos`**: per-item photo attachments (many per item). Columns: `id`, `item_id` (FK warehouse_items, ON DELETE CASCADE), `filename`, `file_path`, `mime_type`, `size_bytes`, `caption` (optional, max 280 chars), `sort_order`, `meta_media_id`, `meta_media_uploaded_at`, `status` ('active' | 'archived'), `created_at`, `updated_at`. Files stored under `WAREHOUSE_PHOTOS_DIR` (defaults to `<DB dir>/warehouse_photos/`, `/data/warehouse_photos/` on Railway). Allowed mimes: image/jpeg, image/png (webp removed 2026-05-21: WhatsApp Cloud API image messages reject webp, which is sticker-only; the matcher also filters out non-jpeg/png photos as a backstop). Max 5MB per photo (override via `PHOTO_MAX_BYTES`). When a customer asks for photos, the handler's photo fast-path sends up to `PHOTO_SEND_CAP` photos (default 3) inline as WhatsApp images, ordered by sort_order.
 - **`datasheets`** (legacy): retained for migration; replaced by per-item attachments on warehouse_items.
+- **`audit_runs`**: one row per nightly audit pass. `run_date`, `window_start`, `window_end`, `status`, `conversations_audited`, `findings_count`, `scorecard`, `error`, timestamps.
+- **`audit_findings`**: one row per audit proposal. `run_id`, `conversation_id`, `contact_id`, `lane` (skill_lesson/knowledge_fact/engineering_note), `finding_type`, `finding_text`, `proposed_change`, `cited_rule`, `cited_message`, `status` (pending/approved/rejected/applied), `edited_text`, timestamps.
 
 Idempotent ALTER TABLE migrations live in `db/init.js > applyMigrations`.
 
@@ -509,6 +518,7 @@ Mounted at `/admin`. Single-page HTML+JS+CSS, WhatsApp-style light theme (white 
 - **Knowledge**: two sub-panels.
   - Rules: editable per-prompt textareas for `system.md`, `classifier.md`, `owner_qa.md` (teacher.md retired from the editor 2026-05-10; doctrine edits go directly into `system.md`). Each has a Save button (writes file via `src/prompt_store.js` and commits + pushes to GitHub via the Contents API if `GITHUB_TOKEN` is set). A global "Deploy to live" button calls Railway's GraphQL `serviceInstanceRedeploy` if `RAILWAY_TOKEN` is set. Sunny re-reads prompts on every classify/reply call (cached 30s, busted on Save), so saved prompts take effect on the next customer message without a restart.
   - Models & config: model IDs, runtime config, env-var booleans.
+- **Nightly Audit**: admin-only tab (hidden from the inbox role). Lists each nightly audit run and its proposals grouped by lane, each showing the cited message and rule, with Approve / Edit / Reject. "Apply approved" rebuilds `src/prompts/learned-playbook.md` from approved skill-lessons and commits it (one push per apply). Reached from the owner ping via the `#audit=<run_id>` deep link.
 
 ## Prompts: where to tune Sunny's voice
 
