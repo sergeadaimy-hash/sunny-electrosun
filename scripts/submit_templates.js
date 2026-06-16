@@ -13,8 +13,11 @@ if (!TOKEN) {
 }
 
 const TEMPLATE_FILES = [
-  'templates/owner_hourly_report_en.json',
-  'templates/follow_up_24h_en.json',
+  // Already submitted/approved on the live WABA; re-submitting errors as a
+  // duplicate name, so they stay commented. Uncomment only to re-create.
+  // 'templates/owner_hourly_report_en.json',
+  // 'templates/follow_up_24h_en.json',
+  'templates/nightly_audit_ping_en.json',
 ];
 
 async function submit(file) {

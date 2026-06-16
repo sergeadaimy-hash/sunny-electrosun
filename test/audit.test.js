@@ -9,6 +9,7 @@ const {
   buildAuditTranscript,
   parseAuditFindings,
   buildOwnerAuditPing,
+  buildAuditPingTemplateComponents,
   auditPingRecipient,
 } = require('../src/audit');
 
@@ -70,6 +71,21 @@ test('buildOwnerAuditPing includes the deep link and counts', () => {
   const msg = buildOwnerAuditPing({ id: 42 }, { total: 3, skill_lesson: 2, knowledge_fact: 1, engineering_note: 0 });
   assert.match(msg, /3 proposals waiting/);
   assert.match(msg, /#audit=42/);
+});
+
+test('buildAuditPingTemplateComponents maps counts to ordered body params', () => {
+  const comps = buildAuditPingTemplateComponents({ total: 164, skill_lesson: 120, knowledge_fact: 6, engineering_note: 38 });
+  assert.equal(comps.length, 1);
+  assert.equal(comps[0].type, 'body');
+  assert.deepEqual(comps[0].parameters.map(p => p.text), ['164', '120', '6', '38']);
+  assert.ok(comps[0].parameters.every(p => p.type === 'text'));
+});
+
+test('buildAuditPingTemplateComponents never emits a blank variable (Meta rejects blanks)', () => {
+  const comps = buildAuditPingTemplateComponents({ total: 0 });
+  assert.deepEqual(comps[0].parameters.map(p => p.text), ['0', '0', '0', '0']);
+  const none = buildAuditPingTemplateComponents(null);
+  assert.deepEqual(none[0].parameters.map(p => p.text), ['0', '0', '0', '0']);
 });
 
 test('buildAuditTranscript labels speakers, skips empty bodies, and truncates', () => {

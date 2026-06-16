@@ -6,7 +6,7 @@ const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { formatWarehouseForPrompt } = require('./warehouse');
 const { getPlaybookText } = require('./playbook');
 const auditStore = require('./audit_store');
-const { sendMessage } = require('./whatsapp');
+const { sendMessage, sendTemplate } = require('./whatsapp');
 const { getOrCreateContact, getActiveConversation, appendMessage } = require('./memory');
 
 const MODEL_AUDIT = process.env.MODEL_AUDIT || 'claude-sonnet-4-6';
@@ -123,6 +123,31 @@ function buildOwnerAuditPing(run, counts) {
   ].join('\n');
 }
 
+// Name + language of the permanent-delivery template (templates/
+// nightly_audit_ping_en.json). The template is window-independent, so the ping
+// lands even when the developer line has been silent for more than 24h.
+const AUDIT_PING_TEMPLATE = process.env.AUDIT_PING_TEMPLATE || 'nightly_audit_ping_en';
+const AUDIT_PING_TEMPLATE_LANG = process.env.AUDIT_PING_TEMPLATE_LANG || 'en';
+
+// Pure: the WhatsApp template BODY parameters, in the order the template
+// declares them ({{1}} total, {{2}} lessons, {{3}} facts, {{4}} code notes).
+// Meta rejects blank variables, so every value is a non-empty string.
+function buildAuditPingTemplateComponents(counts) {
+  const c = counts || {};
+  const v = n => String(n == null ? 0 : n);
+  return [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: v(c.total) },
+        { type: 'text', text: v(c.skill_lesson) },
+        { type: 'text', text: v(c.knowledge_fact) },
+        { type: 'text', text: v(c.engineering_note) }
+      ]
+    }
+  ];
+}
+
 function deskPhonesFromEnv() {
   return [
     process.env.SALES_ABUJA_WHATSAPP,
@@ -223,7 +248,32 @@ async function sendOwnerAuditPing(runId, counts) {
   const text = buildOwnerAuditPing(run, counts);
   if (!text) return;
   try {
-    const sendRes = await sendMessage(pingPhone, text);
+    // Prefer the approved template (window-independent so the ping is not
+    // silently dropped outside the 24h window). Fall back to the free-form
+    // text if the template send fails, which also covers the period while the
+    // template is still PENDING approval. The DB row stores the readable text
+    // either way.
+    let sendRes = null;
+    let via = 'template';
+    try {
+      sendRes = await sendTemplate(
+        pingPhone,
+        AUDIT_PING_TEMPLATE,
+        AUDIT_PING_TEMPLATE_LANG,
+        buildAuditPingTemplateComponents(counts)
+      );
+    } catch (err) {
+      sendRes = { ok: false, error: err.message };
+    }
+    if (!sendRes || !sendRes.ok) {
+      logger.warn('audit.ping_template_failed_falling_back', {
+        template: AUDIT_PING_TEMPLATE,
+        error: sendRes && sendRes.error
+      });
+      sendRes = await sendMessage(pingPhone, text);
+      via = 'free_form';
+    }
+    logger.info('audit.ping_sent', { via, to_tail: String(pingPhone).slice(-4), messageId: sendRes && sendRes.messageId });
     const pingContact = getOrCreateContact(pingPhone, null);
     const pingConv = getActiveConversation(pingContact.id);
     appendMessage(pingConv.id, 'outbound', text, {
@@ -293,6 +343,7 @@ module.exports = {
   buildAuditTranscript,
   parseAuditFindings,
   buildOwnerAuditPing,
+  buildAuditPingTemplateComponents,
   auditPingRecipient,
   runNightlyAudit
 };

@@ -1,0 +1,38 @@
+{
+  "name": "nightly_audit_ping_en",
+  "language": "en",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Electro-Sun nightly audit complete. {{1}} proposals waiting for review. Lessons: {{2}}, Facts: {{3}}, Code notes: {{4}}. Open the admin Nightly Audit tab to review and approve.",
+      "example": {
+        "body_text": [["164", "120", "6", "38"]]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Open admin",
+          "url": "https://sunny-electrosun-production.up.railway.app/admin"
+        }
+      ]
+    }
+  ],
+  "_notes": {
+    "purpose": "Permanent-delivery version of the nightly self-improvement audit ping (src/audit.js > sendOwnerAuditPing). The free-form ping rides the 24h customer-service window, so a ping sent at 21:00 Africa/Lagos to a recipient who has been silent for more than 24h is accepted by Meta (whatsapp.send.ok logs) but silently dropped (confirmed 2026-06-16: run #1, 164 findings, never delivered to AUDIT_PING_WHATSAPP). An approved template is not window-bound.",
+    "category_reason": "UTILITY: an operational notification about a system process, not marketing. Meta is generally lenient on internal-facing UTILITY templates (see owner_hourly_report_en).",
+    "recipient": "Sent to AUDIT_PING_WHATSAPP (the developer line, currently 966502392650), NOT the owner. The owner is deliberately kept out of audit/developer pings during the soak.",
+    "variables": {
+      "{{1}}": "total proposals (counts.total, integer)",
+      "{{2}}": "skill lessons (counts.skill_lesson, integer)",
+      "{{3}}": "knowledge facts (counts.knowledge_fact, integer)",
+      "{{4}}": "engineering notes (counts.engineering_note, integer)"
+    },
+    "button_note": "Static URL button to /admin (no per-run deep link). A dynamic suffix button with #audit={{run_id}} was considered but a fragment in a dynamic URL button is an approval risk (see owner_escalation_alert_en open questions); the admin Nightly Audit tab auto-selects the most recent run, so the static link is sufficient. The free-form fallback (buildOwnerAuditPing) still carries the exact #audit=<id> deep link when the window is open.",
+    "code_wiring": "src/audit.js > sendOwnerAuditPing tries this template first and falls back to the free-form sendMessage if the template send fails (e.g. while still PENDING approval), so the deploy is safe regardless of approval state.",
+    "how_to_submit": "META_WABA_ID must be the live WABA (986225450549617) in .env. Already added to TEMPLATE_FILES in scripts/submit_templates.js. Run: node scripts/submit_templates.js. Check status with: node scripts/check_templates.js."
+  }
+}
