@@ -41,7 +41,7 @@ function getPlaybookText() {
 
 // Rebuild from all active skill-lessons, write locally (cache-busts), commit to
 // GitHub, then flip approved -> applied. Returns a summary.
-async function rebuildAndCommitPlaybook() {
+async function rebuildAndCommitPlaybookCore() {
   const lessons = auditStore.getActiveSkillLessons();
   const content = buildPlaybookMarkdown(lessons);
   promptStore.write(PLAYBOOK_NAME, content);
@@ -59,6 +59,20 @@ async function rebuildAndCommitPlaybook() {
   const applied = auditStore.markApprovedSkillLessonsApplied();
   logger.info('playbook.rebuilt', { lessons: lessons.length, applied, committed: !!commit.committed });
   return { content_chars: content.length, lessons: lessons.length, applied, commit };
+}
+
+// Serialize rebuilds: approve-per-group can fire several /audit/approve calls
+// close together, and each does a GET-sha-then-PUT GitHub commit. Overlapping
+// commits race on the same file (stale sha -> 409 -> a lost lesson on the next
+// redeploy). Chaining guarantees one rebuild+commit completes before the next
+// starts, so every approved lesson lands in git.
+let _rebuildChain = Promise.resolve();
+function rebuildAndCommitPlaybook() {
+  const next = _rebuildChain.then(rebuildAndCommitPlaybookCore, rebuildAndCommitPlaybookCore);
+  // Keep the chain alive even if a run rejects, but do not let the chain's
+  // stored promise reject unhandled.
+  _rebuildChain = next.catch(() => {});
+  return next;
 }
 
 module.exports = {

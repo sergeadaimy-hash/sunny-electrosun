@@ -1799,6 +1799,21 @@
     .audit-reject { background: #fde0dc; }
     .audit-apply-bar { margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee; }
     #audit-apply-btn { background: #25D366; color: #fff; border-color: #25D366; font-weight: 600; }
+    .audit-card.lane-skill_lesson { border-left: 4px solid #25D366; }
+    .audit-card.lane-knowledge_fact { border-left: 4px solid #2d8fdb; }
+    .audit-card.lane-engineering_note { border-left: 4px solid #b08900; }
+    .audit-card .audit-actions button:disabled { opacity: 0.55; cursor: default; }
+    .audit-badge { display: inline-block; background: #efe7c8; color: #6b5b00; font-weight: 700; border-radius: 10px; padding: 0 7px; font-size: 11px; margin-left: 6px; }
+    .audit-summary { position: sticky; top: 0; background: #fff; z-index: 1; padding: 4px 2px 10px; margin-bottom: 6px; border-bottom: 1px solid #eee; font-size: 14px; color: #333; }
+    .audit-muted { color: #999; font-weight: 400; }
+    .audit-sorted { margin-top: 18px; padding-top: 12px; border-top: 2px solid #25D366; }
+    .audit-sorted-h { margin: 0 0 8px; font-size: 13px; color: #1a8a45; text-transform: uppercase; letter-spacing: 0.04em; }
+    .audit-sorted-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 4px; background: #f1faf1; border-radius: 6px; font-size: 13px; }
+    .audit-tick { color: #25D366; font-weight: 700; }
+    .audit-sorted-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .audit-chip { flex: 0 0 auto; font-size: 11px; color: #1a8a45; background: #d8f3df; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+    .audit-just-sorted { animation: auditFlash 1s ease; }
+    @keyframes auditFlash { from { background: #b9f0c8; } to { background: #f1faf1; } }
   </style>
 </head>
 <body>
@@ -3767,69 +3782,155 @@ async function loadAuditRun(runId) {
   root.innerHTML = '<div class="wh-empty">Loading...</div>';
   try {
     const data = await apiFetch('/audit/runs/' + runId);
-    renderAuditFindings(data.run, data.findings || []);
+    renderAuditFindings(data.run, data.findings || [], data.groups || []);
   } catch (err) {
     root.innerHTML = '<div class="wh-empty">Error: ' + escapeHtml(err.message) + '</div>';
   }
 }
 
-function renderAuditFindings(run, findings) {
+const AUDIT_LANE_LABEL = { skill_lesson: 'Skill lesson', knowledge_fact: 'Knowledge fact', engineering_note: 'Code note' };
+
+function auditGroupCardHtml(g) {
+  const text = (g.edited_text != null && g.edited_text !== '') ? g.edited_text : g.proposed_change;
+  const badge = g.count > 1 ? ' <span class="audit-badge">x' + g.count + '</span>' : '';
+  const convs = (g.conversation_ids || []);
+  let convHtml = '';
+  if (convs.length) {
+    const shown = convs.slice(0, 5).map(id => '<a href="#conv=' + id + '">open chat</a>').join(', ');
+    const more = convs.length > 5 ? ' +' + (convs.length - 5) + ' more' : '';
+    convHtml = '<div class="audit-quote"><b>Seen in ' + convs.length + ' chat' + (convs.length === 1 ? '' : 's') + ':</b> ' + shown + more + '</div>';
+  }
+  return '' +
+    '<div class="audit-card lane-' + escapeHtml(g.lane) + '" data-key="' + escapeHtml(g.key) + '" data-ids="' + escapeHtml((g.ids || []).join(',')) + '" data-lane="' + escapeHtml(g.lane) + '">' +
+    '<div class="audit-lane">' + escapeHtml(AUDIT_LANE_LABEL[g.lane] || g.lane) + badge + '</div>' +
+    '<div class="audit-problem"><b>Problem:</b> ' + escapeHtml(g.finding_text || '') + '</div>' +
+    '<div class="audit-proposed"><b>Proposed:</b> <span contenteditable="true" class="audit-edit">' + escapeHtml(text || '') + '</span></div>' +
+    (g.cited_rule ? '<div class="audit-rule"><b>Checked vs:</b> ' + escapeHtml(g.cited_rule) + '</div>' : '') +
+    convHtml +
+    '<div class="audit-actions">' +
+    '<button class="audit-approve">Approve &amp; deploy</button>' +
+    '<button class="audit-reject">Reject</button>' +
+    '</div></div>';
+}
+
+function renderAuditFindings(run, findings, groups) {
   const root = document.getElementById('audit-findings');
+  groups = groups || [];
   if (!findings.length) {
     root.innerHTML = '<div class="wh-empty">No proposals in this run.</div>';
     return;
   }
-  const laneLabel = { skill_lesson: 'Skill lesson', knowledge_fact: 'Knowledge fact', engineering_note: 'Code note' };
-  const blocks = findings.map(f => {
-    const text = (f.edited_text != null && f.edited_text !== '') ? f.edited_text : f.proposed_change;
-    const convLink = f.conversation_id ? '<a href="#conv=' + f.conversation_id + '">open chat</a>' : '';
-    return '' +
-      '<div class="audit-card status-' + escapeHtml(f.status) + '" data-id="' + f.id + '">' +
-      '<div class="audit-lane">' + escapeHtml(laneLabel[f.lane] || f.lane) + ' &middot; ' + escapeHtml(f.status) + '</div>' +
-      '<div class="audit-problem"><b>Problem:</b> ' + escapeHtml(f.finding_text) + '</div>' +
-      '<div class="audit-proposed"><b>Proposed:</b> <span contenteditable="true" class="audit-edit">' + escapeHtml(text) + '</span></div>' +
-      (f.cited_rule ? '<div class="audit-rule"><b>Checked vs:</b> ' + escapeHtml(f.cited_rule) + '</div>' : '') +
-      (f.cited_message ? '<div class="audit-quote"><b>Message:</b> "' + escapeHtml(f.cited_message) + '" ' + convLink + '</div>' : (convLink ? '<div class="audit-quote">' + convLink + '</div>' : '')) +
-      '<div class="audit-actions">' +
-      '<button class="audit-approve" data-id="' + f.id + '">Approve</button>' +
-      '<button class="audit-reject" data-id="' + f.id + '">Reject</button>' +
-      '</div></div>';
+  const pending = groups.filter(g => g.status === 'pending');
+  const sorted = groups.filter(g => g.status === 'approved' || g.status === 'applied');
+  const totalRaw = findings.length;
+
+  root.innerHTML =
+    '<div class="audit-summary" id="audit-summary"></div>' +
+    '<div id="audit-pending">' + (pending.length ? pending.map(auditGroupCardHtml).join('') : '<div class="wh-empty" id="audit-pending-empty">All proposals sorted. Nothing left to review.</div>') + '</div>' +
+    '<div class="audit-sorted" id="audit-sorted-wrap" style="' + (sorted.length ? '' : 'display:none') + '">' +
+    '<h3 class="audit-sorted-h">Sorted</h3><div id="audit-sorted-list">' +
+    sorted.map(g => auditSortedItemHtml(g, g.status === 'applied' ? 'Applied &amp; deployed' : 'Approved')).join('') +
+    '</div></div>';
+
+  root.dataset.totalRaw = String(totalRaw);
+  bindAuditCardActions(root);
+  updateAuditSummary();
+}
+
+function auditSortedItemHtml(g, chipText) {
+  const text = (g.edited_text != null && g.edited_text !== '') ? g.edited_text : g.proposed_change;
+  return '<div class="audit-sorted-item"><span class="audit-tick">&#10003;</span> <span class="audit-sorted-text">' + escapeHtml(text || '') + '</span> <span class="audit-chip">' + chipText + '</span></div>';
+}
+
+function bindAuditCardActions(root) {
+  root.querySelectorAll('.audit-card .audit-approve').forEach(b => {
+    b.addEventListener('click', () => approveAuditGroup(b.closest('.audit-card'), b));
   });
-  blocks.push('<div class="audit-apply-bar"><button id="audit-apply-btn">Apply approved (push live)</button></div>');
-  root.innerHTML = blocks.join('');
-  root.querySelectorAll('.audit-approve').forEach(b => b.addEventListener('click', () => setAuditStatus(b.dataset.id, 'approved', b)));
-  root.querySelectorAll('.audit-reject').forEach(b => b.addEventListener('click', () => setAuditStatus(b.dataset.id, 'rejected', b)));
-  document.getElementById('audit-apply-btn').addEventListener('click', applyApprovedAudit);
+  root.querySelectorAll('.audit-card .audit-reject').forEach(b => {
+    b.addEventListener('click', () => rejectAuditGroup(b.closest('.audit-card'), b));
+  });
 }
 
-async function setAuditStatus(id, status, btn) {
-  const card = btn.closest('.audit-card');
-  const editEl = card ? card.querySelector('.audit-edit') : null;
-  const body = { status };
-  if (status === 'approved' && editEl) body.edited_text = editEl.textContent.trim();
+function updateAuditSummary() {
+  const root = document.getElementById('audit-findings');
+  const summary = document.getElementById('audit-summary');
+  if (!summary) return;
+  const pendingCards = document.querySelectorAll('#audit-pending .audit-card').length;
+  const sortedItems = document.querySelectorAll('#audit-sorted-list .audit-sorted-item').length;
+  const totalRaw = parseInt(root.dataset.totalRaw || '0', 10);
+  summary.innerHTML =
+    '<b>' + pendingCards + '</b> topic' + (pendingCards === 1 ? '' : 's') + ' to review' +
+    (totalRaw > pendingCards + sortedItems ? ' <span class="audit-muted">(merged from ' + totalRaw + ' findings)</span>' : '') +
+    ' &middot; <b>' + sortedItems + '</b> sorted';
+}
+
+function idsFromCard(card) {
+  return (card.dataset.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
+async function approveAuditGroup(card, btn) {
+  if (!card) return;
+  const ids = idsFromCard(card);
+  const editEl = card.querySelector('.audit-edit');
+  const lane = card.dataset.lane;
+  const body = { ids };
+  if (editEl) body.edited_text = editEl.textContent.trim();
+  const rejectBtn = card.querySelector('.audit-reject');
+  btn.disabled = true; if (rejectBtn) rejectBtn.disabled = true;
+  btn.textContent = (lane === 'skill_lesson') ? 'Deploying...' : 'Saving...';
   try {
-    await apiFetch('/audit/findings/' + id + '/status', { method: 'POST', body: JSON.stringify(body) });
-    loadAuditRun(currentAuditRunId);
+    const res = await apiFetch('/audit/approve', { method: 'POST', body: JSON.stringify(body) });
+    let chip;
+    if (res.deployed) chip = 'Applied &amp; deployed';
+    else if (res.has_lesson) chip = 'Applied (saved on server)';
+    else chip = 'Approved (recorded)';
+    moveCardToSorted(card, chip);
   } catch (err) {
-    alert('Failed: ' + err.message);
+    btn.disabled = false; if (rejectBtn) rejectBtn.disabled = false;
+    btn.innerHTML = 'Approve &amp; deploy';
+    alert('Approve failed: ' + err.message);
   }
 }
 
-async function applyApprovedAudit() {
-  const btn = document.getElementById('audit-apply-btn');
-  btn.disabled = true;
-  btn.textContent = 'Applying...';
+async function rejectAuditGroup(card, btn) {
+  if (!card) return;
+  const ids = idsFromCard(card);
+  const approveBtn = card.querySelector('.audit-approve');
+  btn.disabled = true; if (approveBtn) approveBtn.disabled = true;
+  btn.textContent = 'Removing...';
   try {
-    const res = await apiFetch('/audit/apply', { method: 'POST', body: '{}' });
-    const pushed = res.commit && res.commit.committed;
-    alert('Applied ' + (res.applied || 0) + ' lessons. ' + (pushed ? 'Pushed to GitHub; Railway will redeploy.' : 'Saved on this server only (no GitHub token).'));
-    loadAuditRun(currentAuditRunId);
+    await apiFetch('/audit/reject', { method: 'POST', body: JSON.stringify({ ids }) });
+    card.parentNode && card.parentNode.removeChild(card);
+    const empty = document.getElementById('audit-pending');
+    if (empty && !empty.querySelector('.audit-card') && !document.getElementById('audit-pending-empty')) {
+      empty.innerHTML = '<div class="wh-empty" id="audit-pending-empty">All proposals sorted. Nothing left to review.</div>';
+    }
+    updateAuditSummary();
   } catch (err) {
-    alert('Apply failed: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Apply approved (push live)';
+    btn.disabled = false; if (approveBtn) approveBtn.disabled = false;
+    btn.textContent = 'Reject';
+    alert('Reject failed: ' + err.message);
   }
+}
+
+function moveCardToSorted(card, chipText) {
+  const editEl = card.querySelector('.audit-edit');
+  const text = editEl ? editEl.textContent.trim() : '';
+  const wrap = document.getElementById('audit-sorted-wrap');
+  const list = document.getElementById('audit-sorted-list');
+  if (wrap) wrap.style.display = '';
+  if (list) {
+    const item = document.createElement('div');
+    item.className = 'audit-sorted-item audit-just-sorted';
+    item.innerHTML = '<span class="audit-tick">&#10003;</span> <span class="audit-sorted-text">' + escapeHtml(text) + '</span> <span class="audit-chip">' + chipText + '</span>';
+    list.insertBefore(item, list.firstChild);
+  }
+  card.parentNode && card.parentNode.removeChild(card);
+  const pendingWrap = document.getElementById('audit-pending');
+  if (pendingWrap && !pendingWrap.querySelector('.audit-card') && !document.getElementById('audit-pending-empty')) {
+    pendingWrap.innerHTML = '<div class="wh-empty" id="audit-pending-empty">All proposals sorted. Nothing left to review.</div>';
+  }
+  updateAuditSummary();
 }
 
 function parseAuditIdFromHash() {

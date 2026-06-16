@@ -40,6 +40,7 @@ const warehouseModule = require('../src/warehouse');
 const promptStore = require('../src/prompt_store');
 const auditStore = require('../src/audit_store');
 const { rebuildAndCommitPlaybook } = require('../src/playbook');
+const { groupFindings } = require('../src/audit');
 const ownerRouting = require('../src/owner_routing');
 const {
   listItems: listWarehouseItems,
@@ -793,7 +794,8 @@ router.get('/audit/runs/:id', (req, res) => {
     const id = parseInt32(req.params.id, 0);
     const run = auditStore.getRun(id);
     if (!run) return res.status(404).json({ error: 'run not found' });
-    res.json({ run, findings: auditStore.getFindingsForRun(id) });
+    const findings = auditStore.getFindingsForRun(id);
+    res.json({ run, findings, groups: groupFindings(findings) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -811,6 +813,52 @@ router.post('/audit/findings/:id/status', (req, res) => {
     res.json({ ok: true, id, status });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Batch approve a merged group: mark every underlying finding approved (with the
+// owner's edited text, if any), then immediately apply + deploy. The deploy is
+// the learned-playbook rebuild + GitHub commit (Railway auto-redeploys on push),
+// and is only run when the batch contains at least one skill_lesson (the other
+// lanes have no automated target, so they are recorded only). Returns the deploy
+// outcome so the UI can show "applied & deployed".
+router.post('/audit/approve', async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(n => parseInt32(n, 0)).filter(Boolean) : [];
+  if (!ids.length) return res.status(400).json({ error: 'ids[] required' });
+  const editedText = typeof req.body?.edited_text === 'string' ? req.body.edited_text : undefined;
+  try {
+    let hasLesson = false;
+    for (const id of ids) {
+      const f = auditStore.getFinding(id);
+      if (!f) continue;
+      if (f.lane === 'skill_lesson') hasLesson = true;
+      auditStore.setFindingStatus(id, 'approved', editedText);
+    }
+    let applied = 0;
+    let deployed = false;
+    let commit = null;
+    if (hasLesson) {
+      const result = await rebuildAndCommitPlaybook();
+      applied = result.applied || 0;
+      commit = result.commit || null;
+      deployed = !!(commit && commit.committed);
+    }
+    res.json({ ok: true, approved: ids.length, has_lesson: hasLesson, applied, deployed, commit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Batch reject a merged group: every underlying finding is marked rejected and
+// will never be shown again (groupFindings drops rejected rows).
+router.post('/audit/reject', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(n => parseInt32(n, 0)).filter(Boolean) : [];
+  if (!ids.length) return res.status(400).json({ error: 'ids[] required' });
+  try {
+    for (const id of ids) auditStore.setFindingStatus(id, 'rejected');
+    res.json({ ok: true, rejected: ids.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

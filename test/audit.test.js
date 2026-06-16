@@ -10,6 +10,8 @@ const {
   parseAuditFindings,
   buildOwnerAuditPing,
   buildAuditPingTemplateComponents,
+  normalizeTopicKey,
+  groupFindings,
   auditPingRecipient,
 } = require('../src/audit');
 
@@ -86,6 +88,48 @@ test('buildAuditPingTemplateComponents never emits a blank variable (Meta reject
   assert.deepEqual(comps[0].parameters.map(p => p.text), ['0', '0', '0', '0']);
   const none = buildAuditPingTemplateComponents(null);
   assert.deepEqual(none[0].parameters.map(p => p.text), ['0', '0', '0', '0']);
+});
+
+test('normalizeTopicKey ignores case and punctuation so near-duplicates collide', () => {
+  const a = normalizeTopicKey({ proposed_change: 'Quote the price directly when asked.' });
+  const b = normalizeTopicKey({ proposed_change: 'quote the price directly when asked!!!' });
+  assert.equal(a, b);
+});
+
+test('groupFindings merges same lane+topic, combines ids and conversations', () => {
+  const findings = [
+    { id: 1, lane: 'skill_lesson', finding_text: 'p1', proposed_change: 'Quote the price directly when asked.', conversation_id: 11, status: 'pending' },
+    { id: 2, lane: 'skill_lesson', finding_text: 'p2', proposed_change: 'Quote the price directly when asked!', conversation_id: 12, status: 'pending' },
+    { id: 3, lane: 'skill_lesson', finding_text: 'p3', proposed_change: 'Do not re-ask the city once given.', conversation_id: 11, status: 'pending' }
+  ];
+  const groups = groupFindings(findings);
+  assert.equal(groups.length, 2, 'two distinct topics');
+  const merged = groups.find(g => g.count === 2);
+  assert.deepEqual(merged.ids.sort(), [1, 2]);
+  assert.deepEqual(merged.conversation_ids.sort(), [11, 12]);
+  assert.equal(merged.status, 'pending');
+});
+
+test('groupFindings drops rejected findings entirely', () => {
+  const groups = groupFindings([
+    { id: 1, lane: 'knowledge_fact', proposed_change: 'Add the 16kW price.', status: 'rejected' },
+    { id: 2, lane: 'knowledge_fact', proposed_change: 'Add the 8kW price.', status: 'pending' }
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].ids[0], 2);
+});
+
+test('groupFindings derives applied/approved status only when all members agree', () => {
+  const allApplied = groupFindings([
+    { id: 1, lane: 'skill_lesson', proposed_change: 'same lesson', status: 'applied' },
+    { id: 2, lane: 'skill_lesson', proposed_change: 'same lesson', status: 'applied' }
+  ]);
+  assert.equal(allApplied[0].status, 'applied');
+  const mixed = groupFindings([
+    { id: 1, lane: 'skill_lesson', proposed_change: 'same lesson', status: 'applied' },
+    { id: 2, lane: 'skill_lesson', proposed_change: 'same lesson', status: 'pending' }
+  ]);
+  assert.equal(mixed[0].status, 'pending', 'any pending member keeps the group pending');
 });
 
 test('buildAuditTranscript labels speakers, skips empty bodies, and truncates', () => {

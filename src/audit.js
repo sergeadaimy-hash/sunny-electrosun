@@ -112,6 +112,85 @@ function parseAuditFindings(text, ctx = {}) {
   return out;
 }
 
+// --- Finding de-duplication / merge --------------------------------------
+//
+// The nightly run can emit 100+ findings, many of which are the SAME lesson
+// seen in different conversations ("trailing question after a short answer"
+// over and over). The review UI groups them so the owner reviews one merged
+// card per topic, not one per occurrence. Pure + exported for tests.
+
+function normalizeTopicKey(f) {
+  const base = String(
+    (f && f.edited_text && f.edited_text.trim()) || (f && f.proposed_change) || (f && f.finding_text) || ''
+  );
+  return base
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
+}
+
+function groupStatus(statuses) {
+  if (!statuses || !statuses.length) return 'pending';
+  if (statuses.every(s => s === 'applied')) return 'applied';
+  if (statuses.every(s => s === 'approved' || s === 'applied')) return 'approved';
+  return 'pending';
+}
+
+// Merge findings by lane + normalized topic. Rejected findings are dropped
+// (they are gone, never shown again). Returns one group object per topic, in
+// lane order then first-seen order, each carrying every underlying finding id
+// so an approve/reject acts on the whole merged set at once.
+function groupFindings(findings) {
+  const laneOrder = { skill_lesson: 0, knowledge_fact: 1, engineering_note: 2 };
+  const map = new Map();
+  for (const f of findings || []) {
+    if (!f || f.status === 'rejected') continue;
+    const key = String(f.lane) + '||' + normalizeTopicKey(f);
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        key,
+        lane: f.lane,
+        finding_type: f.finding_type || null,
+        finding_text: f.finding_text,
+        proposed_change: f.proposed_change,
+        edited_text: f.edited_text || null,
+        cited_rule: f.cited_rule || null,
+        cited_message: f.cited_message || null,
+        ids: [],
+        conversation_ids: [],
+        _statuses: []
+      };
+      map.set(key, g);
+    }
+    g.ids.push(f.id);
+    g._statuses.push(f.status);
+    if (f.conversation_id && !g.conversation_ids.includes(f.conversation_id)) {
+      g.conversation_ids.push(f.conversation_id);
+    }
+    // Prefer an already-edited representative text if any member carries one.
+    if (!g.edited_text && f.edited_text) g.edited_text = f.edited_text;
+  }
+  const groups = Array.from(map.values()).map(g => ({
+    key: g.key,
+    lane: g.lane,
+    finding_type: g.finding_type,
+    finding_text: g.finding_text,
+    proposed_change: g.proposed_change,
+    edited_text: g.edited_text,
+    cited_rule: g.cited_rule,
+    cited_message: g.cited_message,
+    ids: g.ids,
+    count: g.ids.length,
+    conversation_ids: g.conversation_ids,
+    status: groupStatus(g._statuses)
+  }));
+  groups.sort((a, b) => (laneOrder[a.lane] ?? 9) - (laneOrder[b.lane] ?? 9));
+  return groups;
+}
+
 function buildOwnerAuditPing(run, counts) {
   const total = counts.total || 0;
   if (total === 0) return null;
@@ -344,6 +423,8 @@ module.exports = {
   parseAuditFindings,
   buildOwnerAuditPing,
   buildAuditPingTemplateComponents,
+  normalizeTopicKey,
+  groupFindings,
   auditPingRecipient,
   runNightlyAudit
 };
