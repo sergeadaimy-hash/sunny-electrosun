@@ -431,6 +431,7 @@ All listed in `.env.example`. Required at runtime:
 | `ANTHROPIC_API_KEY` | Claude API key. |
 | `OPENAI_API_KEY` | Whisper transcription. Set + validated on Railway 2026-05-29. |
 | `OWNER_WHATSAPP` | E.164 digits, currently `2347041328055`. Receives escalation alerts and reports. |
+| `DEVELOPER_WHATSAPP` | Developer/internal line (2026-06-16), currently `966502392650` (Serge). Recognized as a full owner (`fullOwnerDigits()`), so messages from it route to Owner Q&A and it is excluded from lead stats (`teamPhoneDigits()`). NOT an escalation or round-robin recipient (those use `configuredRecipients()`/`numberForLabel()`, which this does not feed). Side effect: the customer reply pipeline can no longer be tested from this number; use another SIM to test as a customer. |
 | `OWNER_EMAIL`, `SMTP_*` | Email fallback when WhatsApp report fails. Optional. |
 | `PORT` | Express port. Defaults to 3000. |
 | `API_KEY` | Required by `/api/*`. If unset, every API call returns 503. `/version` and `/health` bypass this. Master key = full admin role. |
