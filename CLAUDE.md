@@ -203,7 +203,8 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `ENABLE_NIGHTLY_AUDIT` | When true, registers the nightly self-improvement audit cron (`0 21 * * *` Africa/Lagos). Independent of `DISABLE_NOTIFICATIONS`. Default off. |
 | `MODEL_AUDIT` | Model for the nightly audit (default `claude-sonnet-4-6`; must be a prefix the cost tracker recognizes). |
 | `AUDIT_MAX_CONVERSATIONS` | Max conversations audited per nightly run (default 60). |
-| `AUDIT_PING_WHATSAPP` | Recipient of the nightly audit "proposals waiting" ping. Defaults to `OWNER_WHATSAPP`. Set to a developer number while testing so the owner is not pinged; the owner's other alerts stay on `OWNER_WHATSAPP`. |
+| `AUDIT_PING_WHATSAPP` | Recipient of the nightly audit "proposals waiting" ping. Defaults to `OWNER_WHATSAPP`. Set to a developer number while testing so the owner is not pinged; the owner's other alerts stay on `OWNER_WHATSAPP`. Currently the developer line (`966502392650`). |
+| `AUDIT_PING_TEMPLATE` / `AUDIT_PING_TEMPLATE_LANG` | Name + language of the approved Meta template used for the nightly ping (defaults `nightly_audit_ping_en` / `en`). `sendOwnerAuditPing` sends this template FIRST (window-independent, so it is not silently dropped outside the 24h window) and falls back to the free-form `buildOwnerAuditPing` text if the template send fails (which also covers the PENDING-approval period). Template id `1738387983968228`, submitted PENDING 2026-06-16 under the live WABA. Body vars: {{1}} total, {{2}} lessons, {{3}} facts, {{4}} code notes; static "Open admin" URL button. Reason: 2026-06-16 the free-form ping for run #1 (164 findings) was accepted by Meta but never delivered because the developer line was outside its 24h window. |
 
 ### Models, costs, and budget
 
