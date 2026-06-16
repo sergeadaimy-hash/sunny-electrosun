@@ -1780,10 +1780,10 @@
       border: 1px dashed var(--border);
       border-radius: 10px;
     }
-    .audit-wrap { display: flex; gap: 16px; padding: 16px; }
-    .audit-sidebar { width: 200px; flex: 0 0 auto; }
+    .audit-wrap { display: flex; gap: 16px; padding: 16px; height: 100%; min-height: 0; box-sizing: border-box; }
+    .audit-sidebar { width: 200px; flex: 0 0 auto; overflow-y: auto; min-height: 0; }
     .audit-sidebar h3 { margin: 0 0 8px; font-size: 13px; color: #555; }
-    .audit-main { flex: 1 1 auto; min-width: 0; }
+    .audit-main { flex: 1 1 auto; min-width: 0; overflow-y: auto; min-height: 0; }
     .audit-run-btn { display: block; width: 100%; text-align: left; padding: 8px 10px; margin-bottom: 4px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
     .audit-run-btn.active { background: #DCF8C6; border-color: #25D366; }
     .audit-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #fff; }

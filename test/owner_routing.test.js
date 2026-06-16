@@ -234,3 +234,33 @@ test('tier checks: full owner vs alert-only vs customer, digits-insensitive', ()
   assert.equal(isAlertOnly('2348000000000'), false, 'customer not alert-only');
   process.env = saved;
 });
+
+test('developer line: DEVELOPER_WHATSAPP is recognized as a full owner (Owner Q&A, not a lead)', () => {
+  const saved = { ...process.env };
+  process.env.OWNER_WHATSAPP = '2347041328055';
+  delete process.env.OWNER_CHARBEL_WHATSAPP;
+  process.env.DEVELOPER_WHATSAPP = '966502392650';
+  assert.equal(isFullOwner('966502392650'), true, 'developer routes to Owner Q&A');
+  assert.equal(isFullOwner('+966 50 239 2650'), true, 'digits-insensitive');
+  assert.equal(isAlertOnly('966502392650'), false, 'developer is not an alert-only desk');
+  process.env = saved;
+});
+
+test('developer line: DEVELOPER_WHATSAPP is excluded from lead stats via teamPhoneDigits', () => {
+  const saved = { ...process.env };
+  process.env.OWNER_WHATSAPP = '2347041328055';
+  delete process.env.OWNER_CHARBEL_WHATSAPP;
+  delete process.env.SALES_ABUJA_WHATSAPP;
+  delete process.env.SALES_LAGOS_WHATSAPP;
+  process.env.DEVELOPER_WHATSAPP = '966502392650';
+  assert.ok(teamPhoneDigits().includes('966502392650'), 'developer counted as team, not a customer');
+  process.env = saved;
+});
+
+test('developer line: unset DEVELOPER_WHATSAPP changes nothing', () => {
+  const saved = { ...process.env };
+  process.env.OWNER_WHATSAPP = '2347041328055';
+  delete process.env.DEVELOPER_WHATSAPP;
+  assert.equal(isFullOwner('966502392650'), false, 'no developer configured -> ordinary customer');
+  process.env = saved;
+});

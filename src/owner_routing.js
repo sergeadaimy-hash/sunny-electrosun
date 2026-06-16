@@ -58,9 +58,13 @@ function configuredRecipients() {
 
 // --- Three-tier inbound recognition ---------------------------------------
 
-// Full owners (Patrick + Charbel): can reply-relay to a QID and use Owner Q&A.
+// Full owners (Patrick + Charbel) plus the developer line: can reply-relay to a
+// QID and use Owner Q&A. DEVELOPER_WHATSAPP is the project developer's number;
+// it is recognized as internal so Sunny never treats it as a sales lead, but it
+// is NEVER an escalation/round-robin recipient (those use configuredRecipients /
+// numberForLabel, which this list does not feed).
 function fullOwnerDigits() {
-  return [process.env.OWNER_WHATSAPP, process.env.OWNER_CHARBEL_WHATSAPP]
+  return [process.env.OWNER_WHATSAPP, process.env.OWNER_CHARBEL_WHATSAPP, process.env.DEVELOPER_WHATSAPP]
     .filter(Boolean)
     .map(digits);
 }
@@ -85,7 +89,8 @@ function teamPhoneDigits() {
     process.env.OWNER_WHATSAPP,
     process.env.OWNER_CHARBEL_WHATSAPP,
     process.env.SALES_ABUJA_WHATSAPP,
-    process.env.SALES_LAGOS_WHATSAPP
+    process.env.SALES_LAGOS_WHATSAPP,
+    process.env.DEVELOPER_WHATSAPP
   ]) {
     const d = digits(p);
     if (d && !seen.has(d)) { seen.add(d); out.push(d); }
