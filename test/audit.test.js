@@ -119,6 +119,42 @@ test('groupFindings drops rejected findings entirely', () => {
   assert.equal(groups[0].ids[0], 2);
 });
 
+test('parseAuditFindings stores rule_key in finding_type and normalizes unknowns to other', () => {
+  const text = JSON.stringify({ findings: [
+    { lane: 'skill_lesson', rule_key: 'trailing_question', finding_text: 'asked again', proposed_change: 'stop', cited_rule: 'r', cited_message: 'q' },
+    { lane: 'skill_lesson', rule_key: 'totally_made_up', finding_text: 'x', proposed_change: 'y', cited_rule: 'r', cited_message: 'm' }
+  ] });
+  const out = parseAuditFindings(text, {});
+  assert.equal(out[0].finding_type, 'trailing_question');
+  assert.equal(out[1].finding_type, 'other', 'unknown key normalizes to other');
+});
+
+test('parseAuditFindings caps at 3 findings per conversation', () => {
+  const findings = Array.from({ length: 6 }, (_, i) => ({
+    lane: 'skill_lesson', rule_key: 'other', finding_text: 'f' + i, proposed_change: 'p' + i, cited_rule: 'r', cited_message: 'm'
+  }));
+  const out = parseAuditFindings(JSON.stringify({ findings }), {});
+  assert.equal(out.length, 3);
+});
+
+test('groupFindings merges by rule_key even when the wording differs across chats', () => {
+  const groups = groupFindings([
+    { id: 1, lane: 'skill_lesson', finding_type: 'trailing_question', finding_text: 'a', proposed_change: 'Do not ask another question after a short answer.', conversation_id: 5, status: 'pending' },
+    { id: 2, lane: 'skill_lesson', finding_type: 'trailing_question', finding_text: 'b', proposed_change: 'Stop after acknowledging a one word reply, no follow-up.', conversation_id: 6, status: 'pending' }
+  ]);
+  assert.equal(groups.length, 1, 'same rule_key collapses despite different proposed text');
+  assert.equal(groups[0].count, 2);
+  assert.equal(groups[0].finding_type, 'trailing_question');
+});
+
+test('groupFindings falls back to topic text for legacy generic finding_type', () => {
+  const groups = groupFindings([
+    { id: 1, lane: 'skill_lesson', finding_type: 'rule_violation', proposed_change: 'Quote the price when asked.', status: 'pending' },
+    { id: 2, lane: 'skill_lesson', finding_type: 'rule_violation', proposed_change: 'Never use the customer name.', status: 'pending' }
+  ]);
+  assert.equal(groups.length, 2, 'generic type does not over-merge distinct topics');
+});
+
 test('groupFindings derives applied/approved status only when all members agree', () => {
   const allApplied = groupFindings([
     { id: 1, lane: 'skill_lesson', proposed_change: 'same lesson', status: 'applied' },

@@ -1814,6 +1814,10 @@
     .audit-chip { flex: 0 0 auto; font-size: 11px; color: #1a8a45; background: #d8f3df; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
     .audit-just-sorted { animation: auditFlash 1s ease; }
     @keyframes auditFlash { from { background: #b9f0c8; } to { background: #f1faf1; } }
+    .audit-run-now { width: 100%; padding: 8px 10px; margin-bottom: 6px; border-radius: 6px; border: 1px solid #25D366; background: #25D366; color: #fff; font-weight: 600; cursor: pointer; font-size: 13px; }
+    .audit-run-now:disabled { opacity: 0.6; cursor: default; }
+    .audit-run-now-msg { font-size: 11px; color: #777; margin-bottom: 8px; line-height: 1.35; }
+    .audit-rulekey { color: #1a8a45; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -1990,6 +1994,8 @@
         <div class="audit-wrap">
           <div class="audit-sidebar">
             <h3>Audit runs</h3>
+            <button id="audit-run-now" class="audit-run-now">Run audit now</button>
+            <div id="audit-run-now-msg" class="audit-run-now-msg"></div>
             <div id="audit-runs"><div class="wh-empty">Loading...</div></div>
           </div>
           <div class="audit-main">
@@ -3741,7 +3747,50 @@ let auditLoaded = false;
 let auditRuns = [];
 let currentAuditRunId = null;
 
+function bindAuditRunNow() {
+  const btn = document.getElementById('audit-run-now');
+  if (!btn || btn.dataset.bound) return;
+  btn.dataset.bound = '1';
+  btn.addEventListener('click', runAuditNow);
+}
+
+let auditRunPoll = null;
+async function runAuditNow() {
+  const btn = document.getElementById('audit-run-now');
+  const msg = document.getElementById('audit-run-now-msg');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    await apiFetch('/audit/run', { method: 'POST', body: JSON.stringify({ window_hours: 48 }) });
+    if (msg) msg.textContent = 'Audit started. This takes a few minutes; the new run will appear below and fill in when done.';
+    btn.textContent = 'Running...';
+    let ticks = 0;
+    if (auditRunPoll) clearInterval(auditRunPoll);
+    auditRunPoll = setInterval(async () => {
+      ticks += 1;
+      try {
+        const data = await apiFetch('/audit/runs?limit=30');
+        auditRuns = data.runs || [];
+        renderAuditRuns();
+        const newest = auditRuns[0];
+        if (newest && newest.status !== 'running') {
+          clearInterval(auditRunPoll); auditRunPoll = null;
+          btn.disabled = false; btn.textContent = 'Run audit now';
+          if (msg) msg.textContent = 'Done. Showing the newest run.';
+          loadAuditRun(newest.id);
+        }
+      } catch (e) {}
+      if (ticks > 60) { clearInterval(auditRunPoll); auditRunPoll = null; btn.disabled = false; btn.textContent = 'Run audit now'; }
+    }, 12000);
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'Run audit now';
+    if (msg) msg.textContent = 'Could not start: ' + err.message;
+  }
+}
+
 async function loadAudit() {
+  bindAuditRunNow();
   try {
     const data = await apiFetch('/audit/runs?limit=30');
     auditRuns = data.runs || [];
@@ -3789,10 +3838,18 @@ async function loadAuditRun(runId) {
 }
 
 const AUDIT_LANE_LABEL = { skill_lesson: 'Skill lesson', knowledge_fact: 'Knowledge fact', engineering_note: 'Code note' };
+const AUDIT_RULE_LABEL = {
+  proactive_price: 'Proactive price', price_not_quoted: 'Price not quoted', trailing_question: 'Trailing question',
+  pushy_cta: 'Pushy CTA', used_customer_name: 'Used customer name', proactive_phone: 'Proactive phone',
+  warehouse_revealed: 'Warehouse revealed', stall_language: 'Stall language', invented_fact: 'Invented fact',
+  wrong_variant: 'Wrong variant', missing_datasheet_or_photo: 'Missing datasheet/photo', language_mismatch: 'Language mismatch',
+  handoff_link_leak: 'Handoff link leak', garbled_reply: 'Garbled reply', missing_price_fact: 'Missing price fact'
+};
 
 function auditGroupCardHtml(g) {
   const text = (g.edited_text != null && g.edited_text !== '') ? g.edited_text : g.proposed_change;
   const badge = g.count > 1 ? ' <span class="audit-badge">x' + g.count + '</span>' : '';
+  const ruleLabel = AUDIT_RULE_LABEL[g.finding_type] ? ' &middot; <span class="audit-rulekey">' + escapeHtml(AUDIT_RULE_LABEL[g.finding_type]) + '</span>' : '';
   const convs = (g.conversation_ids || []);
   let convHtml = '';
   if (convs.length) {
@@ -3802,7 +3859,7 @@ function auditGroupCardHtml(g) {
   }
   return '' +
     '<div class="audit-card lane-' + escapeHtml(g.lane) + '" data-key="' + escapeHtml(g.key) + '" data-ids="' + escapeHtml((g.ids || []).join(',')) + '" data-lane="' + escapeHtml(g.lane) + '">' +
-    '<div class="audit-lane">' + escapeHtml(AUDIT_LANE_LABEL[g.lane] || g.lane) + badge + '</div>' +
+    '<div class="audit-lane">' + escapeHtml(AUDIT_LANE_LABEL[g.lane] || g.lane) + ruleLabel + badge + '</div>' +
     '<div class="audit-problem"><b>Problem:</b> ' + escapeHtml(g.finding_text || '') + '</div>' +
     '<div class="audit-proposed"><b>Proposed:</b> <span contenteditable="true" class="audit-edit">' + escapeHtml(text || '') + '</span></div>' +
     (g.cited_rule ? '<div class="audit-rule"><b>Checked vs:</b> ' + escapeHtml(g.cited_rule) + '</div>' : '') +

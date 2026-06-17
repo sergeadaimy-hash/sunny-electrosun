@@ -40,7 +40,10 @@ const warehouseModule = require('../src/warehouse');
 const promptStore = require('../src/prompt_store');
 const auditStore = require('../src/audit_store');
 const { rebuildAndCommitPlaybook } = require('../src/playbook');
-const { groupFindings } = require('../src/audit');
+const { groupFindings, runNightlyAudit } = require('../src/audit');
+
+// Guards a manual audit run from being double-triggered while one is in flight.
+let _manualAuditRunning = false;
 const ownerRouting = require('../src/owner_routing');
 const {
   listItems: listWarehouseItems,
@@ -869,6 +872,23 @@ router.post('/audit/apply', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Manually trigger an audit run now (does not wait for the 21:00 cron). Runs in
+// the background because a full run takes minutes; the new run row appears in
+// the list immediately as 'running' and flips to 'done' when finished.
+router.post('/audit/run', (req, res) => {
+  if (_manualAuditRunning) {
+    return res.status(409).json({ error: 'an audit run is already in progress' });
+  }
+  const windowHours = Math.min(Math.max(parseInt32(req.body?.window_hours, 24) || 24, 1), 168);
+  _manualAuditRunning = true;
+  Promise.resolve()
+    .then(() => runNightlyAudit({ windowHours }))
+    .then(r => logger.info('audit.manual_run_done', r))
+    .catch(err => logger.error('audit.manual_run_fail', { message: err.message }))
+    .finally(() => { _manualAuditRunning = false; });
+  res.json({ ok: true, started: true, window_hours: windowHours });
 });
 
 router.get('/brain', (req, res) => {

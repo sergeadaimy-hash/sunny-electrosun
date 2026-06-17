@@ -15,6 +15,25 @@ const ADMIN_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sunny-electrosun
 
 const VALID_LANES = ['skill_lesson', 'knowledge_fact', 'engineering_note'];
 
+// Fixed taxonomy the auditor must tag every finding with (see audit.md). Merging
+// by this key is what collapses the same issue across many conversations into a
+// single review card. Anything outside the list normalizes to 'other'.
+const RULE_KEYS = new Set([
+  'proactive_price', 'price_not_quoted', 'trailing_question', 'pushy_cta',
+  'used_customer_name', 'proactive_phone', 'warehouse_revealed', 'stall_language',
+  'invented_fact', 'wrong_variant', 'missing_datasheet_or_photo', 'language_mismatch',
+  'handoff_link_leak', 'garbled_reply', 'missing_price_fact', 'other'
+]);
+
+// finding_type values that carry no merge signal (legacy/free-text). When a
+// finding's type is one of these, the merge falls back to the topic-text key.
+const GENERIC_FINDING_TYPES = new Set(['', 'none', 'rule_violation', 'knowledge_not_applied', 'other']);
+
+function normalizeRuleKey(f) {
+  const raw = String((f && (f.rule_key || f.finding_type || f.type)) || '').trim().toLowerCase();
+  return RULE_KEYS.has(raw) ? raw : 'other';
+}
+
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;
 let _client = null;
 function client() {
@@ -101,13 +120,14 @@ function parseAuditFindings(text, ctx = {}) {
       conversation_id: ctx.conversationId || null,
       contact_id: ctx.contactId || null,
       lane,
-      finding_type: (String(f.finding_type || f.type || '').trim().slice(0, 60)) || null,
+      // Store the fixed rule_key in finding_type so the merge can group by it.
+      finding_type: normalizeRuleKey(f),
       finding_text: findingText.slice(0, 1000),
       proposed_change: proposed.slice(0, 1000),
       cited_rule: (String(f.cited_rule || '').trim().slice(0, 300)) || null,
       cited_message: (String(f.cited_message || f.quote || '').trim().slice(0, 500)) || null
     });
-    if (out.length >= 10) break;
+    if (out.length >= 3) break;
   }
   return out;
 }
@@ -142,12 +162,22 @@ function groupStatus(statuses) {
 // (they are gone, never shown again). Returns one group object per topic, in
 // lane order then first-seen order, each carrying every underlying finding id
 // so an approve/reject acts on the whole merged set at once.
+// The merge key: prefer the fixed rule_key (stored in finding_type) so the same
+// issue across many conversations collapses into one card. Fall back to the
+// normalized topic text only for legacy/generic types that carry no rule_key
+// (so old runs still group sensibly instead of all under "other").
+function mergeKeyFor(f) {
+  const ft = String((f && f.finding_type) || '').trim().toLowerCase();
+  if (ft && !GENERIC_FINDING_TYPES.has(ft)) return ft;
+  return normalizeTopicKey(f);
+}
+
 function groupFindings(findings) {
   const laneOrder = { skill_lesson: 0, knowledge_fact: 1, engineering_note: 2 };
   const map = new Map();
   for (const f of findings || []) {
     if (!f || f.status === 'rejected') continue;
-    const key = String(f.lane) + '||' + normalizeTopicKey(f);
+    const key = String(f.lane) + '||' + mergeKeyFor(f);
     let g = map.get(key);
     if (!g) {
       g = {
