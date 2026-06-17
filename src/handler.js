@@ -93,22 +93,19 @@ function isGratitudeMessage(text) {
 const WELCOME_REPLY = [
   'Welcome To ElectroSun Global Services LTD',
   '',
-  '*Abuja Address*',
+  '*Abuja*',
   '',
-  'Office: Sunset Place, 141 Adetokunbo Ademola Cres, Wuse 2, Abuja',
+  '📍 Office: https://maps.app.goo.gl/bQvqyaQRHLZ51RXz6?g_st=aw',
   '',
-  'Warehouse address: Plot 816, Gidado Idriss way Idu Industrial area FCT Abuja',
+  '📍 Warehouse: https://maps.app.goo.gl/6zLRGrPwzBdQM7MEA?g_st=aw',
   '',
   'Contact:',
   'Charbel: 09068859213',
   'Patrick: 07041328055',
   '',
-  '*Lagos Address:*',
+  '*Lagos*',
   '',
-  'Guardian Newspapers Ltd.',
-  'RUTAM HOUSE',
-  'Apapa-Oshodi Expressway, Isolo, P.M.B 1217, Oshodi',
-  'Lagos, Nigeria.'
+  '📍 Warehouse & Offices: https://maps.app.goo.gl/pQQk7H7uSeP7yRAs9?g_st=aw'
 ].join('\n');
 
 const HANDLER_GREETING_RE = /^(hi+|hello+|hey+|hola|bonjour|salam|asalam|good\s+(morning|afternoon|evening|day)|gm|ga|ge|how\s+far|wetin\s+dey|sup|yo|howdy|greetings|hii?|test|testing)\b[\s!.?]*$/i;
