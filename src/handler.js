@@ -624,6 +624,19 @@ function extractMessages(payload) {
             body: msg.reaction?.emoji || '',
             reactedToId: msg.reaction?.message_id || null
           });
+        } else if (msg.type === 'system') {
+          // WhatsApp control notification (NOT a customer message): almost
+          // always a "customer changed their phone number / security code"
+          // event. It carries no question and no media. Persist it for admin
+          // visibility but NEVER reply, otherwise Sunny answers a number-change
+          // notice with the "this number receives text messages only" nag.
+          out.push({
+            ...base,
+            kind: 'system',
+            body: msg.system?.body || '',
+            systemType: msg.system?.type || null,
+            newWaId: msg.system?.wa_id || msg.system?.new_wa_id || null
+          });
         } else {
           logger.info('webhook.message.unsupported_type', { type: msg.type, id: msg.id });
           out.push({ ...base, kind: 'unsupported' });
@@ -839,6 +852,27 @@ async function handleReaction(msg) {
   logEvent(contact.id, 'reaction_received', {
     emoji: emoji || null,
     reactedToId: msg.reactedToId || null,
+    whatsappId: msg.id
+  });
+}
+
+// WhatsApp `system` notification handler (e.g. customer changed their phone
+// number / security code). Persist a marker for admin visibility, log the
+// event, and NEVER reply. A system notice is not a customer question, so it
+// must not trigger the "this number receives text messages only" nag.
+async function handleSystemMessage(msg) {
+  const contact = getOrCreateContact(msg.from, msg.profileName);
+  const conversation = getActiveConversation(contact.id);
+
+  const body = msg.body ? `[system: ${msg.body}]` : `[system notification: ${msg.systemType || 'event'}]`;
+  appendMessage(conversation.id, 'inbound', body, {
+    whatsapp_message_id: msg.id,
+    intent: 'system_notification'
+  });
+
+  logEvent(contact.id, 'system_notification', {
+    systemType: msg.systemType || null,
+    newWaId: msg.newWaId || null,
     whatsappId: msg.id
   });
 }
@@ -2194,6 +2228,11 @@ async function handleInbound(payload) {
 
       if (msg.kind === 'reaction') {
         await handleReaction(msg);
+        continue;
+      }
+
+      if (msg.kind === 'system') {
+        await handleSystemMessage(msg);
         continue;
       }
 
