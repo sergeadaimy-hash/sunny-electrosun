@@ -51,6 +51,32 @@ const HOT_LEAD_REPLY = "Noted. To proceed, you can continue directly with our Sa
 const SILENT_QUERY_REPLY = "Noted. The team will get back to you shortly. In the meantime, you can also reach our Sales Manager on WhatsApp.";
 const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
 
+// Lead-source tagging. ElectroLeads (a separate outreach agent, not in this
+// repo) reaches leads from its own WhatsApp number with a template that carries
+// a wa.me click-to-chat link into THIS number, pre-filling a fixed opener. A
+// plain wa.me link leaves no referral metadata in the webhook (that only exists
+// for Click-to-WhatsApp ads), so the only reliable signal is the opener text
+// itself. We match it on the contact's message and tag lead_source once.
+const ELECTROLEADS_OPENER = process.env.ELECTROLEADS_OPENER || "Hello Electrosun team, I'm reaching out for a quotation";
+
+function normalizeForLeadMatch(s) {
+  return String(s == null ? '' : s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Returns 'electroleads' when the message contains the configured ElectroLeads
+// opener (tolerant of case, punctuation, and surrounding text), else null.
+function detectLeadSource(body) {
+  const opener = normalizeForLeadMatch(ELECTROLEADS_OPENER);
+  if (!opener) return null;
+  const hay = normalizeForLeadMatch(body);
+  if (!hay) return null;
+  return hay.includes(opener) ? 'electroleads' : null;
+}
+
 const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '15', 10);
 
 // Defensive timeout on open pending_queries rows. Without this, one early
@@ -2348,6 +2374,22 @@ async function handleInbound(payload) {
       const contact = getOrCreateContact(msg.from, msg.profileName);
       const conversation = getActiveConversation(contact.id);
 
+      // Tag the lead source once, the first time we see the ElectroLeads opener.
+      // Never overwrite an already-set source.
+      if (!contact.lead_source) {
+        const src = detectLeadSource(msg.body);
+        if (src) {
+          try {
+            updateContactFields(contact.id, { lead_source: src });
+            contact.lead_source = src;
+            logEvent(contact.id, 'lead_source_tagged', { source: src, whatsappId: msg.id });
+            logger.info('handler.lead_source.tagged', { contactId: contact.id, source: src });
+          } catch (err) {
+            logger.warn('handler.lead_source.tag_fail', { contactId: contact.id, message: err.message });
+          }
+        }
+      }
+
       const trunc = security.truncateInbound(msg.body);
       if (trunc.truncated) {
         security.logSecurityEvent('inbound_truncated', {
@@ -2788,5 +2830,6 @@ module.exports = {
   buildStallFallbackText,
   isPresenceOrImpatienceCheck,
   detectBulkQuantity,
-  isLiveAgentRequest
+  isLiveAgentRequest,
+  detectLeadSource
 };

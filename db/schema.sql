@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   products_asked_about TEXT,
   brand_preference TEXT,
   budget_mentioned TEXT,
+  lead_source TEXT,
   assigned_big_project_owner TEXT,
   deferred_handoff TEXT,
   deferred_handoff_at TEXT,

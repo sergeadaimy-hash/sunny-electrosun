@@ -24,7 +24,7 @@ function updateContactFields(contactId, fields) {
     'name', 'category', 'lead_temperature', 'client_type', 'language',
     'location', 'use_case', 'load_estimate', 'timeline',
     'products_asked_about', 'brand_preference', 'budget_mentioned',
-    'notes', 'last_active'
+    'lead_source', 'notes', 'last_active'
   ];
   const updates = [];
   const values = [];

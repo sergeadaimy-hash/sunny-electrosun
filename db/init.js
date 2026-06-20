@@ -87,7 +87,8 @@ function applyMigrations(db) {
       { name: 'budget_mentioned', type: 'TEXT' },
       { name: 'assigned_big_project_owner', type: 'TEXT' },
       { name: 'deferred_handoff', type: 'TEXT' },
-      { name: 'deferred_handoff_at', type: 'TEXT' }
+      { name: 'deferred_handoff_at', type: 'TEXT' },
+      { name: 'lead_source', type: 'TEXT' }
     ],
     pending_queries: [
       { name: 'expiring_warning_sent_at', type: 'TIMESTAMP' },
@@ -128,6 +129,7 @@ function applyMigrations(db) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_contacts_lead_temperature ON contacts(lead_temperature);
     CREATE INDEX IF NOT EXISTS idx_contacts_client_type ON contacts(client_type);
+    CREATE INDEX IF NOT EXISTS idx_contacts_lead_source ON contacts(lead_source);
   `);
 
   // Owner-alert routing state (2026-06-06). Single-row key/value used by the

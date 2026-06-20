@@ -2,6 +2,18 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-06-20: lead-source tagging (ElectroLeads) + root README + system-message fix
+
+Three small shipments, each committed + pushed to `main`.
+
+1. **ElectroLeads lead-source tagging.** ElectroLeads is a separate outreach agent (its own WhatsApp number, NOT in this repo) that messages leads a template with a wa.me click-to-chat link into Sunny's number, pre-filling a fixed opener: "Hello Electrosun team, I'm reaching out for a quotation". A plain wa.me link leaves NO referral metadata in the webhook (the `referral` object only exists for Click-to-WhatsApp Ads), so the only signal is the opener text. New `detectLeadSource(body)` in `src/handler.js` normalizes (lowercase, strip punctuation, collapse whitespace) and matches the configurable `ELECTROLEADS_OPENER` env var (default = that phrase) anywhere in the message; on a contact's inbound, if `contact.lead_source` is null and it matches, sets `lead_source='electroleads'` once (never overwrites), logs `lead_source_tagged` + `handler.lead_source.tagged`. New `contacts.lead_source` column (schema + idempotent migration + index). Surfaced in admin Contacts (new "Source" column with a blue `electroleads` pill; search box matches lead_source) and the Excel export (new "Lead source" column). Tunable opener via `ELECTROLEADS_OPENER`. Tests: `test/lead_source.test.js` (6). NOTE: matching is on the constant opener; if ElectroLeads can append a per-lead code (e.g. "(ref: EL7F3K)") we could map each contact back to the exact lead record, deferred.
+
+2. **Root `README.md`** added (GitHub home page had the empty "Add a README" slot). Front-door overview: what Sunny does, locked tech stack, folder map, local-run + test commands, deployment. Points to CLAUDE.md + docs/ for detail. No secrets.
+
+3. **WhatsApp `system`-message fix** (commit `08454c8`). `system` events (customer changed phone number / security code) had no branch in `extractMessages` and fell through to `unsupported`, so Sunny replied "This number receives text messages only" to a number-change notice (stored as `[unsupported_system]`). Now `extractMessages` tags them `kind: 'system'`, `handleSystemMessage` persists a `[system: ...]` marker + logs `system_notification` and never replies (mirrors the silent reaction handler). Tests: `test/extract_messages.test.js` (4).
+
+Full suite 120/120.
+
 ## 2026-06-15: Nightly self-improvement audit (Phase 1), branch `feat/nightly-self-improvement-phase-1`
 
 Built the core of a nightly self-improvement loop (designed in `docs/superpowers/specs/2026-06-15-sunny-nightly-self-improvement-design.md`, planned in `docs/superpowers/plans/2026-06-15-sunny-nightly-self-improvement-phase-1.md`). OFF by default (`ENABLE_NIGHTLY_AUDIT=false`); nothing runs or changes a reply until the owner approves.

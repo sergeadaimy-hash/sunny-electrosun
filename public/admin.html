@@ -602,6 +602,11 @@
       display: inline-flex; align-items: center;
       line-height: 1.5;
     }
+    .pill.src-electroleads {
+      background: #e7f0ff;
+      color: #1b4fa0;
+      border-color: #b9d2ff;
+    }
     .pill.hot {
       background: var(--hot-soft);
       color: var(--hot);
@@ -2046,6 +2051,7 @@
             <tr>
               <th>Phone</th>
               <th>Name</th>
+              <th>Source</th>
               <th>Category</th>
               <th>Temperature</th>
               <th>Client type</th>
@@ -2059,7 +2065,7 @@
             </tr>
           </thead>
           <tbody id="contacts-tbody">
-            <tr><td colspan="12" class="contacts-empty">Loading.</td></tr>
+            <tr><td colspan="13" class="contacts-empty">Loading.</td></tr>
           </tbody>
         </table>
       </div>
@@ -2380,7 +2386,7 @@ function periodCutoff(period) {
 
 function passesContactFilter(c, search, category, temperature, cutoffIso) {
   if (search) {
-    const hay = ((c.name || '') + ' ' + (c.phone || '')).toLowerCase();
+    const hay = ((c.name || '') + ' ' + (c.phone || '') + ' ' + (c.lead_source || '')).toLowerCase();
     if (!hay.includes(search)) return false;
   }
   if (category && (c.category || 'unsorted') !== category) return false;
@@ -2410,7 +2416,7 @@ function renderContacts() {
 
   const tbody = document.getElementById('contacts-tbody');
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="12" class="contacts-empty">No matches.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="contacts-empty">No matches.</td></tr>';
     return;
   }
   tbody.innerHTML = filtered.map(contactRowHtml).join('');
@@ -2425,10 +2431,14 @@ function contactRowHtml(c) {
     : '<span class="empty">-</span>';
   const catPill = c.category ? '<span class="pill">' + c.category + '</span>' : '<span class="empty">-</span>';
   const cell = (v) => v ? escapeHtml(v) : '<span class="empty">-</span>';
+  const srcPill = c.lead_source
+    ? '<span class="pill src-' + escapeHtml(String(c.lead_source).toLowerCase()) + '">' + escapeHtml(c.lead_source) + '</span>'
+    : '<span class="empty">-</span>';
   return [
     '<tr data-contact-id="' + c.id + '">',
     '  <td class="phone-cell">' + escapeHtml(c.phone || '') + '</td>',
     '  <td>' + cell(c.name) + '</td>',
+    '  <td>' + srcPill + '</td>',
     '  <td>' + catPill + '</td>',
     '  <td>' + tempPill + '</td>',
     '  <td>' + cell(c.client_type) + '</td>',

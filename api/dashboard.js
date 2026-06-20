@@ -178,6 +178,7 @@ router.get('/contacts/export', async (req, res) => {
       { header: 'Products asked about', key: 'products_asked_about', width: 26 },
       { header: 'Brand preference', key: 'brand_preference', width: 16 },
       { header: 'Budget mentioned', key: 'budget_mentioned', width: 16 },
+      { header: 'Lead source', key: 'lead_source', width: 16 },
       { header: 'First seen', key: 'first_seen', width: 22 },
       { header: 'Last active', key: 'last_active', width: 22 },
       { header: 'Notes', key: 'notes', width: 30 }
@@ -202,6 +203,7 @@ router.get('/contacts/export', async (req, res) => {
         products_asked_about: r.products_asked_about || '',
         brand_preference: r.brand_preference || '',
         budget_mentioned: r.budget_mentioned || '',
+        lead_source: r.lead_source || '',
         first_seen: r.first_seen || '',
         last_active: r.last_active || '',
         notes: r.notes || ''

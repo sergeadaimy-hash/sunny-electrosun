@@ -200,6 +200,7 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `HUMAN_AUTO_RELEASE_MINUTES` | Threshold for the auto-release cron. Default 15. Conversations with `human_handled=1` that have been idle past this threshold (max of `human_handled_at` and `last_human_reply_at`) are released back to Sunny. |
 | `STALE_HANDOFF_MINUTES` | Ghost-sweep threshold (default 5). A lead asked "Abuja or Lagos?" that never answers with a city is routed to the Abuja desk after this many minutes (`routeStaleDeferredHandoffs`, on the `*/5` cron). 24h floor, 30/run cap, off when `DISABLE_ESCALATIONS=true`. |
 | `META_REGISTRATION_PIN` | Cloud API registration PIN (current: `271828`). Needed if Meta forces re-register of the phone number. |
+| `ELECTROLEADS_OPENER` | The fixed opener that the external ElectroLeads outreach agent pre-fills in its wa.me click-to-chat link (default `Hello Electrosun team, I'm reaching out for a quotation`). `detectLeadSource()` in `src/handler.js` normalizes (case/punctuation/whitespace) and matches it on a contact's inbound; on first match it sets `contacts.lead_source='electroleads'` (once, never overwritten). A plain wa.me link carries NO webhook referral metadata (that exists only for Click-to-WhatsApp Ads), so the opener text is the only available signal. Surfaced in admin Contacts ("Source" column + search) and the Excel export ("Lead source"). Change this value to retune detection without a code change. |
 | `ENABLE_NIGHTLY_AUDIT` | When true, registers the nightly self-improvement audit cron (`0 21 * * *` Africa/Lagos). Independent of `DISABLE_NOTIFICATIONS`. Default off. |
 | `MODEL_AUDIT` | Model for the nightly audit (default `claude-sonnet-4-6`; must be a prefix the cost tracker recognizes). |
 | `AUDIT_MAX_CONVERSATIONS` | Max conversations audited per nightly run (default 60). |
@@ -388,7 +389,7 @@ The project folder path contains a space: `/Users/sergeadaimy/Desktop/Claude Pro
 ## Database schema and conventions
 
 Schema lives in `db/schema.sql`. Tables:
-- **`contacts`**: phone, profile_name, category, language, lead_data fields (`name`, `location`, `use_case`, `load_estimate`, `timeline`), `lead_temperature`, `client_type`, `products_asked_about`, `brand_preference`, `budget_mentioned`, `expiring_warning_sent_at`, `last_active`.
+- **`contacts`**: phone, profile_name, category, language, lead_data fields (`name`, `location`, `use_case`, `load_estimate`, `timeline`), `lead_temperature`, `client_type`, `products_asked_about`, `brand_preference`, `budget_mentioned`, `lead_source` (e.g. `electroleads`, set by `detectLeadSource()` matching the `ELECTROLEADS_OPENER`), `expiring_warning_sent_at`, `last_active`.
 - **`conversations`**: `contact_id`, `started_at`, `last_message_at`, `human_handled`, `human_handled_at`, `last_human_reply_at`.
 - **`messages`**: `whatsapp_message_id` (partial unique index for idempotency), `conversation_id`, `direction`, `body`, `kind`, `media_path`, `media_mime`, `reacted_to_wamid` (for emoji-reaction rows: the `whatsapp_message_id` of the message the reaction was applied to; used to render the reaction as a badge on its target bubble), `intent`, `created_at`.
 - **`events`**: log of category_changed, escalated, silent_query_resolved, call_received, conversation_auto_released, etc.
