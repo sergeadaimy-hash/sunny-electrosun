@@ -16,9 +16,11 @@ What shipped (prepared locally; owner submits the template):
 - `scripts/submit_templates.js` TEMPLATE_FILES now points at `owner_escalation_alert_en.json` (audit-ping line commented, already approved).
 - Tests: 7 new template-component cases in `test/owner_alert.test.js`; full suite 126/126.
 
-Submitted to Meta 2026-06-24 after the three rejections above: template id `1348312343392016`, status PENDING, category UTILITY, on the live WABA.
+Submitted to Meta 2026-06-24 after the three rejections above: template id `1348312343392016`, on the live WABA. **APPROVED same day**, but Meta recategorized it UTILITY -> MARKETING (it read the copy as promotional). Left as MARKETING for now (owner decision): per-message billing applies to template sends either way since these go out when the recipient's 24h window is closed, and at 4-recipient volume the MARKETING-vs-UTILITY rate difference is negligible. Reworking the copy to plainly-transactional wording would get it back to the cheaper UTILITY rate (not free) if volume ever warrants. A test alert was sent to Patrick via `node scripts/send_test_escalation.js` and returned `whatsapp.template.ok`.
 
-Safe to deploy before approval: if the template is missing / PENDING / rejected, `sendOwnerAlert` falls back to the old free-form send (window-bound, exactly today's behavior). Once Meta approves, alerts become window-independent automatically, no redeploy needed. ACTION: watch approval with `node scripts/check_templates.js`. Not yet committed/pushed.
+Safe to deploy before approval: if the template is missing / PENDING / rejected, `sendOwnerAlert` falls back to the old free-form send (window-bound). Now that it is approved, owner/sales-desk alerts are window-independent automatically. Committed + pushed to main (`3244f6a`); the test script + ElectroLeads handoff doc in `68c8b00`.
+
+Also shipped this session: `scripts/send_test_escalation.js` (one-shot sample alert) and `docs/electroleads-escalation-handoff.md` (a self-contained kit so the sibling ElectroLeads agent can submit the same template on ITS OWN WABA and send to the same four numbers; templates are per-WABA, so its copy may also land as MARKETING and needs its own approval).
 
 ## 2026-06-20: lead-source tagging (ElectroLeads) + root README + system-message fix
 
