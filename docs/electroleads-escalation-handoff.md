@@ -26,6 +26,14 @@ the `escalation-kit.js` module.
    ElectroLeads side. Owners (Patrick, Charbel) receive BIG PROJECTS only;
    everything else routes to the regional sales desk (Abuja / Lagos).
 
+4. **Your WABA needs a valid payment method, or template sends silently fail.**
+   Template messages are billed, so a WABA with no payment method attached has
+   the API accept the send (`messages.ok`) but the delivery webhook returns
+   `error_code 131042 "Business eligibility payment issue"` and nothing arrives.
+   Free-form in-window replies still work, so this is easy to miss. Add a
+   payment method in WhatsApp Manager -> Billing before relying on the alerts.
+   (We hit exactly this on our first live test 2026-06-24.)
+
 ---
 
 ## 1. The template (submit on YOUR WABA)
