@@ -20,14 +20,14 @@ const {
 } = require('./memory');
 const { runClassification } = require('./classifier');
 const { generateReply } = require('./claude');
-const { sendMessage, downloadMedia, uploadMediaToMeta, sendDocument, sendImage } = require('./whatsapp');
+const { sendMessage, sendTemplate, downloadMedia, uploadMediaToMeta, sendDocument, sendImage } = require('./whatsapp');
 const warehouse = require('./warehouse');
 const { DB_PATH } = require('../db/init');
 // owner teaching retired 2026-05-10: owner edits master prompt directly via admin Rules editor
 const { answerOwnerQuestion } = require('./owner_qa');
 const { transcribeAudio } = require('./transcribe');
 const security = require('./security');
-const { buildOwnerAlertText } = require('./owner_alert');
+const { buildOwnerAlertText, buildOwnerAlertTemplateComponents } = require('./owner_alert');
 const ownerRouting = require('./owner_routing');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
@@ -730,6 +730,44 @@ function buildAdminConversationLink(conversationId) {
   return `${ADMIN_BASE_URL}/admin#conv=${conversationId}`;
 }
 
+const OWNER_ALERT_TEMPLATE = process.env.OWNER_ALERT_TEMPLATE || 'owner_escalation_alert_en';
+const OWNER_ALERT_TEMPLATE_LANG = process.env.OWNER_ALERT_TEMPLATE_LANG || 'en';
+
+// Send an owner / sales-desk alert. Prefer the approved template (window-
+// independent, so Meta does not silently drop it when the recipient has been
+// quiet for more than 24h), and fall back to the free-form text if the
+// template send fails (which also covers the period while the template is
+// still PENDING approval, or if OWNER_ALERT_TEMPLATE is unset/wrong). Mirrors
+// src/audit.js > sendOwnerAuditPing. The readable free-form text is what the
+// caller persists to the Owner Chat thread either way.
+async function sendOwnerAlert(ownerPhone, alertText, components) {
+  let sendRes = null;
+  let via = 'template';
+  if (components) {
+    try {
+      sendRes = await sendTemplate(ownerPhone, OWNER_ALERT_TEMPLATE, OWNER_ALERT_TEMPLATE_LANG, components);
+    } catch (err) {
+      sendRes = { ok: false, error: err.message };
+    }
+    if (!sendRes || !sendRes.ok) {
+      logger.warn('escalation.alert_template_failed_falling_back', {
+        template: OWNER_ALERT_TEMPLATE,
+        error: sendRes && sendRes.error
+      });
+    }
+  }
+  if (!sendRes || !sendRes.ok) {
+    sendRes = await sendMessage(ownerPhone, alertText);
+    via = 'free_form';
+  }
+  logger.info('escalation.alert_sent', {
+    via,
+    to_tail: String(ownerPhone).slice(-4),
+    messageId: sendRes && sendRes.messageId
+  });
+  return sendRes;
+}
+
 async function notifyOwnerEscalation(contact, message, classification, recipientPhone) {
   // recipientPhone is resolved once by the caller (after throttles pass) so the
   // Category 2 round-robin is not consumed by a throttled alert and the HOT
@@ -747,8 +785,10 @@ async function notifyOwnerEscalation(contact, message, classification, recipient
   // follow-up draft ride on the classifier output (classification.owner_brief
   // / owner_followup_draft); buildOwnerAlertText handles the fallbacks when
   // those are absent (synthetic classifications).
-  const alertText = buildOwnerAlertText(contact, classification, escalationHeader(escalationType), message);
-  const sendRes = await sendMessage(ownerPhone, alertText);
+  const alertHeader = escalationHeader(escalationType);
+  const alertText = buildOwnerAlertText(contact, classification, alertHeader, message);
+  const alertComponents = buildOwnerAlertTemplateComponents(contact, classification, alertHeader, message);
+  const sendRes = await sendOwnerAlert(ownerPhone, alertText, alertComponents);
   try {
     const ownerContact = getOrCreateContact(ownerPhone, null);
     const ownerConv = getActiveConversation(ownerContact.id);
@@ -1030,13 +1070,15 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
       let followSendRes = null;
       if (ownerPhone) {
         // Same concise shape as the main alert, just a repeat-ping header.
-        const followText = buildOwnerAlertText(
+        const followHeader = 'FOLLOW-UP, same customer is still asking on the pending query.';
+        const followText = buildOwnerAlertText(contact, classification, followHeader, safeCombinedText);
+        const followComponents = buildOwnerAlertTemplateComponents(
           contact,
           classification,
-          'FOLLOW-UP, same customer is still asking on the pending query.',
+          followHeader,
           safeCombinedText
         );
-        followSendRes = await sendMessage(ownerPhone, followText);
+        followSendRes = await sendOwnerAlert(ownerPhone, followText, followComponents);
         try {
           const ownerContact = getOrCreateContact(ownerPhone, null);
           const ownerConv = getActiveConversation(ownerContact.id);

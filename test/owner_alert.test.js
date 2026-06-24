@@ -6,6 +6,7 @@ const assert = require('node:assert');
 
 const {
   buildOwnerAlertText,
+  buildOwnerAlertTemplateComponents,
   buildOwnerFollowupLink,
   stripDashesForAlert,
   GENERIC_FOLLOWUP_DRAFT,
@@ -101,4 +102,55 @@ test('draft with dashes is cleaned before encoding', () => {
   const c = { owner_followup_draft: 'Following up — on your order', lead_data: {} };
   const link = buildOwnerFollowupLink({ phone: '2347000000000' }, c);
   assert.equal(decodeURIComponent(link.split('?text=')[1]), 'Following up, on your order');
+});
+
+// --- Template components (window-independent owner_escalation_alert_en) ---
+
+test('template components: 4 body params map header/phone/summary/link in order', () => {
+  const comps = buildOwnerAlertTemplateComponents(FULL_CONTACT, FULL_CLASSIFICATION, HEADER);
+  const body = comps.find(c => c.type === 'body');
+  const p = body.parameters.map(x => x.text);
+  assert.equal(p.length, 4, 'exactly 4 variables (Meta ratio limit)');
+  assert.equal(p[0], HEADER, '{{1}} header');
+  assert.equal(p[1], '2348034455038', '{{2}} customer phone');
+  assert.ok(p[2].includes('Customer wants details on the Deye 6KW off-grid inverter.'), '{{3}} summary');
+  assert.ok(p[3].startsWith('https://wa.me/2348034455038?text='), '{{4}} link');
+});
+
+test('template components: summary is flattened to a single line (no newlines)', () => {
+  const comps = buildOwnerAlertTemplateComponents(FULL_CONTACT, FULL_CLASSIFICATION, HEADER);
+  const summary = comps.find(c => c.type === 'body').parameters[2].text;
+  assert.ok(!summary.includes('\n'), 'no newline in body variable');
+  // The two source lines are still both present, just space-joined.
+  assert.ok(summary.includes('needs a team reply.'), 'second line preserved');
+});
+
+test('template components: product is folded into the summary (no own variable)', () => {
+  const noProductInBrief = {
+    intent: 'pricing_question',
+    owner_brief: 'Customer wants a quote.',
+    owner_followup_draft: 'Following up on your enquiry.',
+    lead_data: { products_asked_about: 'Deye 12KW Hybrid' },
+  };
+  const comps = buildOwnerAlertTemplateComponents({ phone: '2347000000000' }, noProductInBrief, HEADER);
+  const summary = comps.find(c => c.type === 'body').parameters[2].text;
+  assert.ok(summary.startsWith('Deye 12KW Hybrid.'), 'product prepended to summary');
+  assert.ok(summary.includes('Customer wants a quote.'), 'brief preserved');
+});
+
+test('template components: no URL button (Meta blocks wa.me in buttons)', () => {
+  const comps = buildOwnerAlertTemplateComponents(FULL_CONTACT, FULL_CLASSIFICATION, HEADER);
+  assert.ok(!comps.some(c => c.type === 'button'), 'no button component');
+  assert.equal(comps.length, 1, 'body component only');
+});
+
+test('template components: link decodes to the follow-up draft', () => {
+  const comps = buildOwnerAlertTemplateComponents(FULL_CONTACT, FULL_CLASSIFICATION, HEADER);
+  const link = comps.find(c => c.type === 'body').parameters[3].text;
+  const decoded = decodeURIComponent(link.split('?text=')[1]);
+  assert.equal(decoded, FULL_CLASSIFICATION.owner_followup_draft, 'decoded matches draft');
+});
+
+test('template components: returns null when contact has no phone', () => {
+  assert.equal(buildOwnerAlertTemplateComponents({}, FULL_CLASSIFICATION, HEADER), null);
 });

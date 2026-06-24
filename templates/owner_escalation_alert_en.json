@@ -5,44 +5,36 @@
   "components": [
     {
       "type": "BODY",
-      "text": "Electro-Sun lead alert.\n{{1}}\nCustomer: {{2}}\nProduct: {{3}}\n\n{{4}}",
+      "text": "Electro-Sun lead alert. A customer is waiting on a team follow-up, please take a look.\n\nStatus: {{1}}\nCustomer number: {{2}}\n\nSummary: {{3}}\n\nTo reply to this customer on WhatsApp, tap the link below: {{4}}\n\nYou can also open the Electro-Sun admin inbox to see the full conversation.",
       "example": {
         "body_text": [[
           "FOLLOW-UP NEEDED, customer is waiting on a team answer.",
           "2348034455038",
-          "Deye 6KW Off-Grid Inverter",
-          "Customer wants details on the Deye 6KW off-grid inverter. No price or stock confirmed yet, needs a team reply."
+          "Deye 6KW Off-Grid Inverter. Customer wants details on it, no price or stock confirmed yet, needs a team reply.",
+          "https://wa.me/2348034455038?text=Hello%2C%20this%20is%20ElectroSun%20following%20up%20on%20your%20Deye%206KW%20enquiry.%20How%20can%20we%20help%20you%20move%20forward%3F"
         ]]
       }
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Follow up on WhatsApp",
-          "url": "https://wa.me/{{1}}",
-          "example": ["2348034455038?text=Hello%2C%20this%20is%20ElectroSun%20following%20up%20on%20your%20Deye%206KW%20enquiry.%20How%20can%20we%20help%20you%20move%20forward%3F"]
-        }
-      ]
     }
   ],
   "_notes": {
-    "purpose": "Permanent-delivery version of the owner escalation alert. Lets Sunny reach an owner / sales desk even when that number has been silent for more than 24h (free-form sends are blocked outside the 24h customer-service window; approved templates are not). Mirrors the concise free-form alert built by src/owner_alert.js > buildOwnerAlertText.",
-    "category_reason": "UTILITY: it is an operational notification tied to a live lead, not marketing.",
+    "purpose": "Permanent-delivery version of the owner / sales-desk escalation alert. Lets Sunny reach an owner OR a sales desk even when that number has been silent for more than 24h (free-form sends are silently dropped outside the 24h customer-service window; approved templates are not). ONE template covers every recipient and every escalation type because src/owner_alert.js > buildOwnerAlertText produces an identical body for all of them, with only the header line varying. The matching template parameters are built by buildOwnerAlertTemplateComponents in the same file.",
+    "covers": "Both the owner alerts (Patrick / Charbel, big projects) AND the sales-desk alerts (Abuja Sales / Lagos Sales) AND the repeat follow-up ping. The recipient is chosen by the router (src/owner_routing.js); the message body is the same template, only {{1}} (header) and the routed phone differ.",
+    "category_reason": "UTILITY: an operational notification tied to a live lead, not marketing.",
     "variables": {
-      "{{1}} (BODY)": "typed header line from ESCALATION_HEADERS (HOT LEAD / FOLLOW-UP NEEDED / NEGOTIATION / BIG PROJECT / etc.)",
+      "{{1}} (BODY)": "typed header line from ESCALATION_HEADERS (HOT LEAD / FOLLOW-UP NEEDED / NEGOTIATION / BIG PROJECT / BULK ORDER / LIVE AGENT / etc.), or the repeat-ping header.",
       "{{2}} (BODY)": "customer phone number (digits)",
-      "{{3}} (BODY)": "product discussed; pass 'Not specified' when none (template variables cannot be blank)",
-      "{{4}} (BODY)": "the 2-line situation summary (owner_brief), or the fallback one-liner",
-      "{{1}} (BUTTON URL suffix)": "the customer's digits plus URL-encoded follow-up draft, e.g. '2348034455038?text=Hello...'. Appended to the fixed base https://wa.me/"
+      "{{3}} (BODY)": "the situation summary, flattened to a single line by the component builder (Meta rejects newlines inside a variable). The product (when known) is prepended to the summary here instead of being its own variable, to keep the variable count down for Meta's parameters-to-words ratio. The fallback one-liner is used for synthetic classifications.",
+      "{{4}} (BODY)": "the full wa.me follow-up link, e.g. 'https://wa.me/2348034455038?text=Hello...'. Tappable in the delivered message; the owner taps it, reviews the pre-filled draft, and sends."
     },
-    "open_questions_for_review": [
-      "Meta sometimes rejects a BODY that starts with a variable; we prefix a fixed 'Electro-Sun lead alert.' line to avoid that. Verify on submission.",
-      "Body variables cannot contain newlines on some validations; the 2-line summary {{4}} uses a space-joined single line if Meta rejects the embedded newline. Confirm at submit time.",
-      "Decide whether to send the template ALWAYS, or only when the recipient's 24h window is closed (free-form keeps richer formatting inside the window).",
-      "Confirm the dynamic URL-button suffix is accepted; if not, fall back to putting the wa.me link as a plain text body variable (Meta is pickier about links in body text)."
+    "code_wiring": "src/handler.js > sendOwnerAlert tries this template FIRST (window-independent) and falls back to the free-form sendMessage if the template send fails (covers the PENDING-approval period, a missing OWNER_ALERT_TEMPLATE env, or any Meta rejection), so the deploy is safe regardless of approval state. Used by notifyOwnerEscalation (main alert) and the repeat-ping branch. The readable multi-line free-form text is still what gets persisted to the Owner Chat thread. Template name/lang overridable via OWNER_ALERT_TEMPLATE / OWNER_ALERT_TEMPLATE_LANG.",
+    "design_decisions": [
+      "Send template ALWAYS (template-first, free-form fallback), matching the proven nightly_audit_ping_en pattern. The whole point is to escape the 24h window, so we do not try to detect whether the recipient's window is open.",
+      "One shared template, not one-per-recipient: the bodies are byte-identical except the variable header, so a second template would add a Meta approval for zero message difference (decided 2026-06-24).",
+      "BODY is prefixed with a fixed sentence so it does not start with a variable (a known Meta rejection trigger).",
+      "NO URL button: Meta rejects wa.me destinations in URL buttons (error_subcode 2388081, 'Direct links to WhatsApp aren't allowed for buttons', confirmed on submit 2026-06-24). The follow-up link is therefore carried as a body variable, which renders as a tappable link in the delivered message (same as the free-form alert, which puts the link in body text). This is why the template has no BUTTONS component.",
+      "FOUR variables, not five: a 5-variable version was rejected with error_subcode 2388293 'Parameters words ratio exceeds limit' (too many variables for the fixed-text length, confirmed on submit 2026-06-24). The dedicated Product variable was dropped and the product is now prepended to the Summary ({{3}}) by buildOwnerAlertTemplateComponents, and the fixed scaffolding text was lengthened, to satisfy Meta's parameters-to-words ratio.",
+      "BODY must not end on a variable: a version ending '...tap this link: {{4}}' was rejected with error_subcode 2388299 'Leading or trailing params not allowed' (confirmed on submit 2026-06-24). A fixed trailing sentence ('You can also open the Electro-Sun admin inbox...') was added after {{4}} so neither the first nor the last element is a variable."
     ],
-    "how_to_submit": "Ensure META_WABA_ID is the live WABA (986225450549617) in .env, add 'templates/owner_escalation_alert_en.json' to TEMPLATE_FILES in scripts/submit_templates.js, then run: node scripts/submit_templates.js. Check status with: node scripts/check_templates.js. DO NOT submit until we decide (kept offline 2026-06-06)."
+    "how_to_submit": "META_WABA_ID must be the live WABA (986225450549617) in .env. Already added to TEMPLATE_FILES in scripts/submit_templates.js. Run: node scripts/submit_templates.js  then check status with: node scripts/check_templates.js"
   }
 }

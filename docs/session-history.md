@@ -2,6 +2,24 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-06-24: owner / sales-desk escalation alerts via Meta template (escape the 24h window)
+
+Owner and sales-desk escalation alerts were free-form sends, so Meta silently dropped them whenever the routed recipient (owner OR sales desk) had been quiet for more than 24h, the same class of bug that hid the nightly-audit ping (2026-06-16) and the early owner alerts. Fixed by sending an approved Meta template first, with the existing free-form text as a fallback.
+
+Key realization: owner alerts and sales-manager/desk alerts are the SAME message. `buildOwnerAlertText` produces an identical body for every routed recipient (Patrick / Charbel / Abuja Sales / Lagos Sales); only the header line and the phone differ. The repeat follow-up ping uses the same builder too. So ONE parametrized template covers all of them. (Owner confirmed "one shared template" over two identical named ones.)
+
+What shipped (prepared locally; owner submits the template):
+- **`templates/owner_escalation_alert_en.json` finalized.** This template was drafted offline 2026-06-06 but kept unsubmitted ("DO NOT submit until we decide"). UTILITY category, one shared template covers owners + sales desks + follow-up ping, template-first/free-form-fallback (matches `nightly_audit_ping_en`). **Two Meta rejections during submit shaped the final form:** (1) error_subcode 2388081 "Direct links to WhatsApp aren't allowed for buttons" killed the `https://wa.me/{{1}}` URL button, so the button was dropped and the follow-up link moved into the body; (2) error_subcode 2388293 "Parameters words ratio exceeds limit" killed the 5-variable version, so the dedicated Product variable was dropped (product is now prepended to the Summary) and the fixed scaffolding text was lengthened, leaving 4 variables. Final BODY: `Electro-Sun lead alert. A customer is waiting on a team follow-up, please take a look.\n\nStatus: {{1}}\nCustomer number: {{2}}\n\nSummary: {{3}}\n\nTo reply to this customer on WhatsApp, tap this link: {{4}}`, no buttons.
+- **`buildOwnerAlertTemplateComponents(contact, classification, headerText, customerMessage)`** added to `src/owner_alert.js` (pure, unit-tested). Mirrors `buildOwnerAlertText`: 4 body params {{1}} header, {{2}} phone, {{3}} summary (brief flattened to a single line, with the product prepended when known), {{4}} full wa.me follow-up link (via `buildOwnerFollowupLink`). Returns null when there is no customer phone/link, so the caller falls back to free-form.
+- **`sendOwnerAlert(ownerPhone, alertText, components)`** added to `src/handler.js`: tries `sendTemplate` first, falls back to `sendMessage` on any failure, logs `escalation.alert_sent {via}` and `escalation.alert_template_failed_falling_back`. Wired into both `notifyOwnerEscalation` (main alert) and the repeat-ping branch. The readable multi-line free-form text is still what gets persisted to the Owner Chat thread, so the admin view is unchanged.
+- New env overrides `OWNER_ALERT_TEMPLATE` (default `owner_escalation_alert_en`) / `OWNER_ALERT_TEMPLATE_LANG` (default `en`).
+- `scripts/submit_templates.js` TEMPLATE_FILES now points at `owner_escalation_alert_en.json` (audit-ping line commented, already approved).
+- Tests: 7 new template-component cases in `test/owner_alert.test.js`; full suite 126/126.
+
+Submitted to Meta 2026-06-24 after the three rejections above: template id `1348312343392016`, status PENDING, category UTILITY, on the live WABA.
+
+Safe to deploy before approval: if the template is missing / PENDING / rejected, `sendOwnerAlert` falls back to the old free-form send (window-bound, exactly today's behavior). Once Meta approves, alerts become window-independent automatically, no redeploy needed. ACTION: watch approval with `node scripts/check_templates.js`. Not yet committed/pushed.
+
 ## 2026-06-20: lead-source tagging (ElectroLeads) + root README + system-message fix
 
 Three small shipments, each committed + pushed to `main`.

@@ -110,8 +110,57 @@ function buildOwnerAlertText(contact, classification, headerText, customerMessag
   return lines.join('\n');
 }
 
+// Template-message equivalent of buildOwnerAlertText. Meta silently drops a
+// free-form send to a recipient who has been quiet for more than 24h, but an
+// approved template is window-independent. This maps the SAME (contact,
+// classification, header, message) inputs onto the BODY + URL-button
+// parameters of the owner_escalation_alert_en template so the owner / sales
+// desk alert always lands. Returns null when there is no customer phone to
+// build the required URL-button variable, so the caller falls back to the
+// free-form send.
+//
+// Template shape (templates/owner_escalation_alert_en.json), FOUR variables:
+//   BODY "...Status: {{1}}\nCustomer number: {{2}}\n\nSummary: {{3}}\n\n...tap this link: {{4}}"
+// Two deliberate Meta workarounds:
+//   - NO URL button: Meta rejects wa.me destinations in buttons (subcode
+//     2388081), so the follow-up link rides as body variable {{4}} (tappable).
+//   - FOUR variables, not five: a 5-var version was rejected for exceeding the
+//     parameters-to-words ratio (subcode 2388293), so the product is prepended
+//     to the Summary ({{3}}) here instead of being its own variable.
+function buildOwnerAlertTemplateComponents(contact, classification, headerText, customerMessage) {
+  const digits = digitsOnly(contact && contact.phone);
+  if (!digits) return null;
+
+  const link = buildOwnerFollowupLink(contact, classification);
+  if (!link) return null;
+
+  // Meta rejects BODY variables that contain newlines, so flatten the 2-line
+  // brief to a single line. The DB still stores the multi-line free-form text.
+  let summary = ownerBriefLine(classification, customerMessage)
+    .replace(/\s*\n\s*/g, ' ')
+    .trim();
+  // Fold the product into the summary (it has no dedicated variable anymore).
+  const product = productFromClassification(classification);
+  if (product && !summary.toLowerCase().includes(product.toLowerCase())) {
+    summary = `${product}. ${summary}`;
+  }
+
+  return [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: headerText },
+        { type: 'text', text: (contact && contact.phone) ? String(contact.phone) : digits },
+        { type: 'text', text: summary },
+        { type: 'text', text: link },
+      ],
+    },
+  ];
+}
+
 module.exports = {
   buildOwnerAlertText,
+  buildOwnerAlertTemplateComponents,
   buildOwnerFollowupLink,
   stripDashesForAlert,
   GENERIC_FOLLOWUP_DRAFT,

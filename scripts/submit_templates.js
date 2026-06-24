@@ -17,7 +17,8 @@ const TEMPLATE_FILES = [
   // duplicate name, so they stay commented. Uncomment only to re-create.
   // 'templates/owner_hourly_report_en.json',
   // 'templates/follow_up_24h_en.json',
-  'templates/nightly_audit_ping_en.json',
+  // 'templates/nightly_audit_ping_en.json',
+  'templates/owner_escalation_alert_en.json',
 ];
 
 async function submit(file) {
