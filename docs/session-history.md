@@ -2,6 +2,25 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-06-27 (later): owner alert silently dropped, traced to MARKETING category, fixed with a UTILITY v2 template
+
+The owner reported an `ESCALATION_ALERT_SILENT` (FOLLOW-UP NEEDED) alert showing in the admin Owner Chat as sent to Patrick but never arriving on his WhatsApp.
+
+Root cause (from live Railway logs, not a guess):
+- The alert WAS sent correctly as the `owner_escalation_alert_en` template and Meta ACCEPTED it (`whatsapp.template.ok` + messageId). Not the 24h window, not billing (131042).
+- Two seconds later the delivery webhook returned `whatsapp.delivery.failed ... error_code 131049` ("This message was not delivered to maintain healthy ecosystem engagement.") to Patrick's number. 131049 is Meta's **per-user MARKETING-template frequency cap**.
+- `check_templates.js` confirmed `owner_escalation_alert_en` is live-categorized **MARKETING** (Meta recategorized it on approval 2026-06-24; the team left it MARKETING believing it was only a cost tradeoff). MARKETING templates are silently throttled per recipient; UTILITY templates are exempt. The "cost only" framing in the docs missed this deliverability risk.
+
+Correction surfaced to the owner: MARKETING is not "never delivers"; it delivers until a recipient hits their hidden marketing cap, then drops invisibly. Unacceptable for a must-deliver alert, but not a code bug.
+
+Fix (owner directive: KEEP the one-tap wa.me link):
+- New `templates/owner_escalation_alert_v2_en.json`, UTILITY, SAME 4-variable structure (so `buildOwnerAlertTemplateComponents` needed NO change), wa.me link kept, promotional tone stripped. Calibration that justified keeping the link: our own `follow_up_24h_en` (no link, re-engagement tone) is MARKETING while `owner_hourly_report_en` (no link, transactional) is UTILITY, so Meta's classifier reacts mostly to TONE.
+- Wired into `scripts/submit_templates.js`, submitted via `railway run node scripts/submit_templates.js`. Meta **APPROVED it as UTILITY**.
+- `railway variables --set OWNER_ALERT_TEMPLATE=owner_escalation_alert_v2_en` (service redeployed).
+- Proven end to end: a v2 test send (`scripts/send_test_escalation.js 966502392650`) went `sent -> delivered -> read`, no 131049.
+
+Watch item: holds only while Meta keeps v2 UTILITY (the wa.me link is the one remaining marketing-ish signal). Spot-check with `check_templates.js`. The old MARKETING template is left unused on the WABA. No customer-pipeline code changed.
+
 ## 2026-06-27: missing-facts one-click apply (knowledge_fact lane goes live)
 
 Follow-on to 2026-06-26. Wired the second audit lane so approving a `knowledge_fact` finding actually teaches Sunny, instead of being recorded-only. Owner decisions: handle BOTH fact kinds; price path = "shortcut + reminder" (no auto-create).

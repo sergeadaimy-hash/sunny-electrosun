@@ -1,0 +1,38 @@
+{
+  "name": "owner_escalation_alert_v2_en",
+  "language": "en",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Electro-Sun lead notification. A customer enquiry is awaiting a team response.\n\nStatus: {{1}}\nCustomer number: {{2}}\nDetails: {{3}}\n\nTo respond to this customer on WhatsApp, use this link: {{4}}\n\nThe full conversation is in the Electro-Sun admin inbox.",
+      "example": {
+        "body_text": [[
+          "FOLLOW-UP NEEDED, customer is waiting on a team answer.",
+          "2348034455038",
+          "Deye 6KW Off-Grid Inverter. Customer wants details on it, no price or stock confirmed yet, needs a team reply.",
+          "https://wa.me/2348034455038?text=Hello%2C%20this%20is%20Electro-Sun%20regarding%20your%20enquiry."
+        ]]
+      }
+    }
+  ],
+  "_notes": {
+    "purpose": "UTILITY replacement for owner_escalation_alert_en, which Meta auto-recategorized to MARKETING on approval and is now being throttled at delivery with error 131049 ('This message was not delivered to maintain healthy ecosystem engagement.', the per-user MARKETING-template frequency cap). UTILITY templates are exempt from that cap, so this version delivers reliably to owners and sales desks even when they have been silent for more than 24h.",
+    "why_v2_keeps_the_wa_me_link": "Owner directive 2026-06-27: keep the one-tap wa.me reply link. Calibration from our own WABA shows Meta's classifier reacts mostly to PROMOTIONAL TONE, not only to the presence of a link: follow_up_24h_en (no link, re-engagement tone) was tagged MARKETING, while owner_hourly_report_en (no link, transactional tone) stayed UTILITY. v2 therefore keeps the wa.me link {{4}} but strips the promotional phrasing from the original ('please take a look', the 'How can we help you move forward' pre-fill) and frames the message as a strictly transactional internal lead notification, to maximise the chance Meta keeps it UTILITY. If Meta still tags it MARKETING, the wa.me link is proven to be the trigger and the owner must choose between the link and guaranteed delivery (see the admin-button alternative).",
+    "category_reason": "UTILITY: an internal operational notification about a live lead awaiting a team response, not a promotion.",
+    "variables": {
+      "{{1}}": "typed header from ESCALATION_HEADERS (HOT LEAD / FOLLOW-UP NEEDED / NEGOTIATION / BIG PROJECT / BULK ORDER / LIVE AGENT), or the repeat-ping header.",
+      "{{2}}": "customer phone number (digits).",
+      "{{3}}": "single-line situation summary; product (when known) is prepended by buildOwnerAlertTemplateComponents.",
+      "{{4}}": "full wa.me follow-up link, tappable in the delivered message."
+    },
+    "code_wiring": "Identical variable structure to owner_escalation_alert_en, so src/owner_alert.js > buildOwnerAlertTemplateComponents needs NO change. To switch, set OWNER_ALERT_TEMPLATE=owner_escalation_alert_v2_en on Railway ONLY AFTER this template is APPROVED as UTILITY (verify with node scripts/check_templates.js). Until then OWNER_ALERT_TEMPLATE stays on the old name and nothing breaks.",
+    "meta_rejection_guards_carried_over": [
+      "Body starts with fixed text, not a variable (avoids 'leading params not allowed').",
+      "Body ends with a fixed sentence, not a variable (avoids 'trailing params not allowed', subcode 2388299).",
+      "Four variables, product folded into {{3}} (avoids parameters-to-words ratio rejection, subcode 2388293).",
+      "wa.me link rides in BODY text, not a URL button (Meta rejects wa.me button destinations, subcode 2388081)."
+    ],
+    "how_to_submit": "META_WABA_ID must be the live WABA (986225450549617). Added to TEMPLATE_FILES in scripts/submit_templates.js. Run: railway run node scripts/submit_templates.js  then check: railway run node scripts/check_templates.js"
+  }
+}

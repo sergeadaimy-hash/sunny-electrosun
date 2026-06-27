@@ -18,7 +18,8 @@ const TEMPLATE_FILES = [
   // 'templates/owner_hourly_report_en.json',
   // 'templates/follow_up_24h_en.json',
   // 'templates/nightly_audit_ping_en.json',
-  'templates/owner_escalation_alert_en.json',
+  // 'templates/owner_escalation_alert_en.json',  // approved but MARKETING; throttled by Meta 131049
+  'templates/owner_escalation_alert_v2_en.json',  // UTILITY replacement, keeps the wa.me link
 ];
 
 async function submit(file) {
