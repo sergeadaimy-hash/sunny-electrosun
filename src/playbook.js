@@ -35,8 +35,20 @@ function buildPlaybookMarkdown(lessons) {
   return lines.join('\n');
 }
 
+// Build the playbook Sunny reads straight from the database (Option A,
+// 2026-06-26). The approved/applied skill-lessons live in audit_findings on the
+// Railway persistent volume, so they survive every restart with no GitHub token
+// needed. An approved lesson is therefore live on the very next reply. If the DB
+// read ever throws, fall back to the on-disk file so a transient DB hiccup can
+// never blank the playbook.
 function getPlaybookText() {
-  return promptStore.get(PLAYBOOK_NAME) || '';
+  try {
+    const lessons = auditStore.getActiveSkillLessons();
+    return buildPlaybookMarkdown(lessons);
+  } catch (err) {
+    logger.warn('playbook.db_read_fail_fallback_file', { message: err.message });
+    return promptStore.get(PLAYBOOK_NAME) || '';
+  }
 }
 
 // Rebuild from all active skill-lessons, write locally (cache-busts), commit to

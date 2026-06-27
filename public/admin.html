@@ -3896,7 +3896,7 @@ function renderAuditFindings(run, findings, groups) {
     '<div id="audit-pending">' + (pending.length ? pending.map(auditGroupCardHtml).join('') : '<div class="wh-empty" id="audit-pending-empty">All proposals sorted. Nothing left to review.</div>') + '</div>' +
     '<div class="audit-sorted" id="audit-sorted-wrap" style="' + (sorted.length ? '' : 'display:none') + '">' +
     '<h3 class="audit-sorted-h">Sorted</h3><div id="audit-sorted-list">' +
-    sorted.map(g => auditSortedItemHtml(g, g.status === 'applied' ? 'Applied &amp; deployed' : 'Approved')).join('') +
+    sorted.map(g => auditSortedItemHtml(g, g.lane === 'skill_lesson' ? 'Learned &amp; saved' : 'Approved (recorded)')).join('') +
     '</div></div>';
 
   root.dataset.totalRaw = String(totalRaw);
@@ -3947,10 +3947,9 @@ async function approveAuditGroup(card, btn) {
   btn.textContent = (lane === 'skill_lesson') ? 'Deploying...' : 'Saving...';
   try {
     const res = await apiFetch('/audit/approve', { method: 'POST', body: JSON.stringify(body) });
-    let chip;
-    if (res.deployed) chip = 'Applied &amp; deployed';
-    else if (res.has_lesson) chip = 'Applied (saved on server)';
-    else chip = 'Approved (recorded)';
+    // A skill-lesson is saved in the database (durable) and read on every future
+    // reply, so it is permanently learned. Other lanes are recorded for action.
+    const chip = res.has_lesson ? 'Learned &amp; saved' : 'Approved (recorded)';
     moveCardToSorted(card, chip);
   } catch (err) {
     btn.disabled = false; if (rejectBtn) rejectBtn.disabled = false;

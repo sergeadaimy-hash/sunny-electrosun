@@ -2,6 +2,23 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-06-26: approved audit lessons now persist (read learned-playbook from the DB, "Option A")
+
+Full audit of the nightly self-improvement feature at Serge's request ("verify that each time we approve, the correction goes live and is not forgotten"). The audit found the loop was wired but had a silent-loss bug.
+
+Finding: `getPlaybookText()` read the playbook from the on-disk file `src/prompts/learned-playbook.md`. That file is rebuilt from GitHub on every Railway redeploy, so an approved skill-lesson committed only to the running container's file (when `GITHUB_TOKEN` is unset or the commit fails) vanished on the next restart, while `markApprovedSkillLessonsApplied()` had already flipped the DB row to `applied` and the admin showed "Applied (saved on server)". Net: approved lessons could silently disappear and Sunny stopped obeying them. Evidence: the committed `learned-playbook.md` in git was still "(No approved lessons yet.)" with only its initial commit, despite the feature being live since 2026-06-15. The two other lanes (knowledge_fact, engineering_note) were confirmed recorded-only by design.
+
+Owner decision: "Option A" (scope: behavior lessons only, done right). The real source of truth, `audit_findings` (status approved/applied), already lives in the SQLite DB on the Railway persistent volume (`/data/sunny.db`), which survives restarts. So the fix is to stop reading the ephemeral file.
+
+What shipped (local, TDD; awaiting Serge's manual commit/push per hard rule #6):
+- **`src/playbook.js > getPlaybookText()`** now renders `auditStore.getActiveSkillLessons()` via the existing pure `buildPlaybookMarkdown()`, falling back to the file read only if the DB throws. An approved lesson is therefore live on the very next reply and survives every redeploy with NO `GITHUB_TOKEN` needed. `rebuildAndCommitPlaybook` (file write + best-effort GitHub commit + approved->applied) is now an optional backup/history path; its failure no longer loses the lesson.
+- **`api/dashboard.js > /audit/approve`** response gained `persisted:true` for skill lessons (DB save is durable regardless of the GitHub commit outcome).
+- **`public/admin.html`**: the "Sorted" chip for skill lessons now reads **"Learned & saved"** (was "Applied & deployed" / the scary "Applied (saved on server)"); knowledge_fact/engineering_note stay "Approved (recorded)".
+- New `test/playbook_persistence.test.js`: real temp SQLite DB; proves pending stays out, approved goes into the playbook, edited_text wins, empty renders the no-lessons sentinel. End-to-end smoke test confirmed pending->out, approve->in, survives-restart. Full suite **130/130** (was 126).
+- Design doc: `docs/superpowers/specs/2026-06-26-playbook-from-db-design.md`.
+
+Out of scope (explicitly deferred): auto-applying knowledge_fact (missing prices/policies) and engineering_note (guard/code bugs); removing the GitHub commit path.
+
 ## 2026-06-24: owner / sales-desk escalation alerts via Meta template (escape the 24h window)
 
 Owner and sales-desk escalation alerts were free-form sends, so Meta silently dropped them whenever the routed recipient (owner OR sales desk) had been quiet for more than 24h, the same class of bug that hid the nightly-audit ping (2026-06-16) and the early owner alerts. Fixed by sending an approved Meta template first, with the existing free-form text as a fallback.

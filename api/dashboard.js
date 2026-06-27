@@ -848,7 +848,10 @@ router.post('/audit/approve', async (req, res) => {
       commit = result.commit || null;
       deployed = !!(commit && commit.committed);
     }
-    res.json({ ok: true, approved: ids.length, has_lesson: hasLesson, applied, deployed, commit });
+    // persisted: an approved skill-lesson is durably saved in the DB (on the
+    // Railway persistent volume) and read straight from there on every reply, so
+    // it is permanent regardless of whether the optional GitHub backup committed.
+    res.json({ ok: true, approved: ids.length, has_lesson: hasLesson, persisted: hasLesson, applied, deployed, commit });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
