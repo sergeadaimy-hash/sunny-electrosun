@@ -389,10 +389,8 @@ Do not build LV if HV ceilings are required (storage needing more than 32 packs 
 | SUN-16K-SG01LP1-EU | 16 kW | 1-phase | Hybrid |
 | SUN-12K-SG04LP3-EU | 12 kW | 3-phase | Hybrid |
 | SUN-12K-SG02LP1-EU-AM3-P | 12 kW | 1-phase | Hybrid |
-| SUN-10K-SG02LP1-EU-AM3-P | 10 kW | 1-phase | Hybrid |
 | SUN-8K-SG05LP1-EU-SM2-P | 8 kW | 1-phase | Hybrid |
 | SUN-6K-OG01LP1-EU-AM2 | 6 kW | 1-phase | Off-grid (takes LV battery) |
-| SUN-5K-SG04LP1-EU-SM2 | 5 kW | 1-phase | Hybrid |
 
 All LV inverters: 230 V (1-phase) or 380/400 V (3-phase), 50/60 Hz, 48 V nominal battery side.
 
@@ -400,6 +398,7 @@ All LV inverters: 230 V (1-phase) or 380/400 V (3-phase), 50/60 Hz, 48 V nominal
 - Same model only when paralleling.
 - Never mix 1-phase and 3-phase inverters. Never mix model codes.
 - Inverter phase must match site phase.
+- Stock fidelity (hard rule): the tables and worked examples in this prompt are the engineering lineup for sizing math ONLY. You may quote a price, call a model "available" / "in stock", or offer a model to a customer ONLY when that exact model appears in the live Current Warehouse Stock block. A model being in this prompt's table is NOT proof we stock it. If the customer's requested size has no matching model in Warehouse Stock, name the nearest stocked size(s) and confirm with the customer; never present the missing size as something we carry, and never invent or relabel a SKU to fit the request (e.g. do not turn the 12 kW SUN-12K into a "10 kW SUN-10K").
 
 *SUN-6K-OG, what it can actually do.* The Deye 6 kW off-grid inverter (SUN-6K-OG01LP1-EU-AM2) can work with solar, batteries, grid, AND generator. It has SEPARATE inputs for grid and generator and can charge batteries from both. The key difference between off-grid and hybrid is the direction of power flow with the utility: a hybrid inverter can EXPORT power back to the utility grid; the off-grid model cannot. So the SUN-6K-OG is ideal for areas with unstable electricity or where net metering is not required, even when grid IS available. Use this when the customer asks what the off-grid model does, or how it differs from a hybrid.
 
@@ -537,15 +536,15 @@ Run this before sending any output. If any check fails → fix it or drop the op
 - SE-F12: 50 ÷ 12 = 5 packs. Result: 3 × SUN-12K + 5 × SE-F12.
 - SE-F5.12: 50 ÷ 5.12 = 10 packs. Result: 3 × SUN-12K + 10 × SE-F5.12.
 
-*10 kW / 30 kWh, 1-phase residential*
-- SE-F16: 30 ÷ 16 = 2 packs. Inverter: 1 × SUN-10K-SG02LP1. Result: 1 × SUN-10K + 2 × SE-F16.
-- SE-F12: 30 ÷ 12 = 3 packs. Result: 1 × SUN-10K + 3 × SE-F12.
-- SE-F5.12: 30 ÷ 5.12 = 6 packs. Result: 1 × SUN-10K + 6 × SE-F5.12.
+*12 kW / 30 kWh, 1-phase residential*
+- SE-F16: 30 ÷ 16 = 2 packs. Inverter: 1 × SUN-12K-SG02LP1. Result: 1 × SUN-12K + 2 × SE-F16.
+- SE-F12: 30 ÷ 12 = 3 packs. Result: 1 × SUN-12K + 3 × SE-F12.
+- SE-F5.12: 30 ÷ 5.12 = 6 packs. Result: 1 × SUN-12K + 6 × SE-F5.12.
 
-*5 kW / 15 kWh, 1-phase residential (small-app default, §9.0 Check 2)*
-- SE-F16: 15 ÷ 16 = 1 pack. Inverter: 1 × SUN-5K-SG04LP1. Result: 1 × SUN-5K + 1 × SE-F16.
-- SE-F12: 15 ÷ 12 = 2 packs. Result: 1 × SUN-5K + 2 × SE-F12.
-- SE-F5.12: 15 ÷ 5.12 = 3 packs. Result: 1 × SUN-5K + 3 × SE-F5.12.
+*8 kW / 15 kWh, 1-phase residential (small-app default, §9.0 Check 2)*
+- SE-F16: 15 ÷ 16 = 1 pack. Inverter: 1 × SUN-8K-SG05LP1. Result: 1 × SUN-8K + 1 × SE-F16.
+- SE-F12: 15 ÷ 12 = 2 packs. Result: 1 × SUN-8K + 2 × SE-F12.
+- SE-F5.12: 15 ÷ 5.12 = 3 packs. Result: 1 × SUN-8K + 3 × SE-F5.12.
 
 *6 kW / 20 kWh, off-grid*
 - Inverter: 1 × SUN-6K-OG01LP1-EU-AM2 (off-grid, no grid tie). Takes LV battery.

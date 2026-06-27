@@ -2,6 +2,19 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-06-27 (later still): Sunny offered a 10kW inverter we don't stock, traced to the system prompt
+
+Owner reported Sunny quoting `Deye SUN-10K-SG02LP1-EU-AM3-P (10kW, 1-phase) ... 2.35M NGN, available` to a customer who asked for "10kw". ElectroSun stocks no 10kW inverter.
+
+Audit (warehouse API + prompt grep):
+- The warehouse (source of truth) has no 10kW inverter; nearest 1-phase are SUN-8K (1.6M) and SUN-12K-SG02LP1-EU-AM3-P (2.35M).
+- The "10kW" came from Sunny's OWN system prompt: `src/prompts/system.md` had a SUN-10K row in the inverter reference table (and a SUN-5K row), plus worked BOM examples titled "10 kW / 30 kWh" and "5 kW / 15 kWh" using those SKUs. The 2.35M price was the real 12K unit's price (near-identical SKU suffix). The prompt's catalog had drifted from the warehouse, and the prompt even contradicted itself (line 181 / line 1041 already say we don't carry 5kW).
+
+Fix (three parts, all shipped, tests green 145/145):
+1. Removed the SUN-10K and SUN-5K rows from the system.md inverter table; re-based the two worked BOM examples to stocked sizes (10kW->12kW/SUN-12K, 5kW->8kW/SUN-8K), battery math unchanged.
+2. Added a "Stock fidelity (hard rule)" line to system.md: the prompt tables/examples are the engineering lineup for sizing math ONLY; quote a price / call a model available / offer it ONLY when it is in the live Warehouse Stock block; for an unstocked requested size, offer the nearest stocked size; never invent or relabel a SKU.
+3. Hardened `detectFabricatedVariant` (the guard that was supposed to catch this): extracted a pure `detectFabricatedVariantFromItems(text, items)` (exported, unit-tested). It had been near-inert because its stocked-size map used a `/Nkw/` regex that never matched real `SUN-12K` SKUs (map silently empty), and its bridge classes `[\s\w,-]` broke on the `)` and `.` in the quoted claim. Now reads sizes via `warehouse.extractSizeNumbers` (bare `K`) + phase via `warehouse.itemPhase`, widened bridge classes to `[\s\w,.()/:%-]`, and scoped to inverter phases (single/three) so battery LV/HV lines don't false-positive. New tests cover the incident line, real-stock pass-through, wrong-phase flagging, battery-line no-false-positive, negation, and empty-stock inert.
+
 ## 2026-06-27 (later): owner alert silently dropped, traced to MARKETING category, fixed with a UTILITY v2 template
 
 The owner reported an `ESCALATION_ALERT_SILENT` (FOLLOW-UP NEEDED) alert showing in the admin Owner Chat as sent to Patrick but never arriving on his WhatsApp.

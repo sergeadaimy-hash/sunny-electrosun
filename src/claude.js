@@ -6,7 +6,7 @@ const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { getPlaybookText } = require('./playbook');
 const { getFactsText } = require('./facts');
 // knowledge facts retired 2026-05-10: rules now live entirely in src/prompts/system.md
-const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt, listItems: listWarehouseItems } = require('./warehouse');
+const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt, listItems: listWarehouseItems, extractSizeNumbers, itemPhase } = require('./warehouse');
 // datasheets retired from prompt 2026-05-10: now attached to warehouse items, looked up at send time
 const security = require('./security');
 const {
@@ -23,38 +23,44 @@ const {
 // flags when the reply combines (size, phase, stock-state) AND the combo is
 // absent from the live warehouse AND the surrounding context isn't a negation
 // ("we don't carry the 20kW single-phase", "stops at the 18kW", etc.).
-function detectFabricatedVariant(text, contactId) {
+// Pure core of the fabricated-variant guard, testable without a DB (see
+// test/reply_guards.test.js). Given the reply text and the warehouse items,
+// returns the list of (size + phase + stock-state) claims in the reply that
+// have NO matching warehouse item, or null when every such claim is backed by
+// real stock (or there are no claims).
+function detectFabricatedVariantFromItems(text, items) {
   if (!text) return null;
-  let items;
-  try { items = listWarehouseItems(); }
-  catch (err) {
-    logger.warn('claude.reply.variant_guard_load_fail', { message: err.message });
-    return null;
-  }
-  if (!items.length) return null;
+  if (!Array.isArray(items) || !items.length) return null;
 
+  // Map each stocked INVERTER size (kW) to the phases we actually carry it in.
+  // Sizes come from extractSizeNumbers, which reads a bare "K" suffix so a real
+  // SKU like "SUN-12K-SG02LP1" yields "12" (the guard's old inline /Nkw/ regex
+  // did NOT, so this map was silently empty in production and the guard was
+  // near-inert). Phase comes from itemPhase (LP1 -> single, LP3/HP3 -> three).
+  // Scope is inverters only (itemPhase null skips batteries/racks/panels): a
+  // battery's kWh and an inverter's kW share the same number space ("16"), so
+  // mixing them would false-positive a legit "16kWh LV pack" availability line.
   const sizeToPhases = new Map();
   for (const it of items) {
-    const blob = [it.brand, it.model, it.notes, it.section].filter(Boolean).join(' ').toLowerCase();
-    const sizes = new Set();
-    const reSize = /(\d+(?:\.\d+)?)\s*k(?:w|va|wh)\b/gi;
-    let mm;
-    while ((mm = reSize.exec(blob)) !== null) sizes.add(mm[1]);
-
-    const phases = new Set();
-    if (/\b(single[\s-]?phase|1[\s-]?phase|1ph|1[\s-]?p\b|1\s+phase)\b/.test(blob)) phases.add('single');
-    if (/\b(three[\s-]?phase|3[\s-]?phase|3ph|3[\s-]?p\b|3\s*phases?|3\s+phase)\b/.test(blob)) phases.add('three');
-    if (/\bhv\b/.test(blob)) phases.add('hv');
-    if (/\blv\b/.test(blob)) phases.add('lv');
-
+    const ph = itemPhase(it); // 'single' | 'three' | null
+    if (!ph) continue;
+    const sizes = extractSizeNumbers([it.brand, it.model, it.notes].filter(Boolean).join(' '));
     for (const s of sizes) {
       if (!sizeToPhases.has(s)) sizeToPhases.set(s, new Set());
-      const set = sizeToPhases.get(s);
-      for (const p of phases) set.add(p);
+      sizeToPhases.get(s).add(ph);
     }
   }
+  if (!sizeToPhases.size) return null;
 
-  const VARIANT_CLAIM_RE = /(\d+(?:\.\d+)?)\s*k(?:w|va|wh)\b[\s\w,-]{0,40}?\b(single[\s-]?phase|three[\s-]?phase|3[\s-]?phase|1[\s-]?phase|hv|lv)\b[\s\w,-]{0,60}?\b(is\s+(?:currently\s+)?)?(incoming|available|in\s+stock|on\s+order|out\s+of\s+stock|pre[\s-]?order|coming|new\s+shipment|currently)\b/gi;
+  // Bridge classes between size -> phase -> stock-state. They allow word chars,
+  // spaces, commas, AND the punctuation that naturally sits inside a quote:
+  // parentheses "(10kW, 1-phase)", the period in a price "2.35M", a slash, a
+  // colon, a percent. Before 2026-06-27 the class was [\s\w,-], which broke on
+  // the ")" and "." in "(10kW, 1-phase) is 2.35M NGN, available" so a
+  // fabricated 10kW variant slipped through unflagged (the SUN-10K incident).
+  // Phase is restricted to single/three (inverter electrical phase) so the
+  // guard never fires on battery LV/HV availability lines.
+  const VARIANT_CLAIM_RE = /(\d+(?:\.\d+)?)\s*k(?:w|va|wh)\b[\s\w,.()/:%-]{0,40}?\b(single[\s-]?phase|three[\s-]?phase|3[\s-]?phase|1[\s-]?phase)\b[\s\w,.()/:%-]{0,60}?\b(is\s+(?:currently\s+)?)?(incoming|available|in\s+stock|on\s+order|out\s+of\s+stock|pre[\s-]?order|coming|new\s+shipment|currently)\b/gi;
   const flagged = [];
   let m;
   while ((m = VARIANT_CLAIM_RE.exec(text)) !== null) {
@@ -76,6 +82,17 @@ function detectFabricatedVariant(text, contactId) {
   }
 
   return flagged.length ? flagged : null;
+}
+
+function detectFabricatedVariant(text, contactId) {
+  if (!text) return null;
+  let items;
+  try { items = listWarehouseItems(); }
+  catch (err) {
+    logger.warn('claude.reply.variant_guard_load_fail', { message: err.message });
+    return null;
+  }
+  return detectFabricatedVariantFromItems(text, items);
 }
 
 // BOM reply cleanup. Catches three recurring leaks the prompt cannot
@@ -1177,4 +1194,4 @@ function buildKnownCustomerContext(contact, isCasualGreeting) {
   return `\n\n# Known about this customer\n${contextLines.join('\n')}${greetingNote}`;
 }
 
-module.exports = { classify, generateReply, detectDanglingFragment, buildKnownCustomerContext };
+module.exports = { classify, generateReply, detectDanglingFragment, buildKnownCustomerContext, detectFabricatedVariantFromItems };

@@ -929,6 +929,7 @@ module.exports = {
   findItemDatasheetByQuery,
   detectPhaseIntent,
   itemPhase,
+  extractSizeNumbers,
   selectItemByQuery,
   formatWarehouseForPrompt,
   extractDatasheetTextForItem,

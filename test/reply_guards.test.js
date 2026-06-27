@@ -14,7 +14,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 
-const { detectDanglingFragment, buildKnownCustomerContext } = require('../src/claude');
+const { detectDanglingFragment, buildKnownCustomerContext, detectFabricatedVariantFromItems } = require('../src/claude');
 const { buildStallFallbackText, isPresenceOrImpatienceCheck, detectBulkQuantity, isLiveAgentRequest } = require('../src/handler');
 const { buildRoutingSummary } = require('../src/owner_qa');
 
@@ -198,4 +198,59 @@ test('customer context: the name is never injected (normal turn)', () => {
 test('customer context: the name is never injected (casual greeting)', () => {
   const ctx = buildKnownCustomerContext({ name: 'Ajay' }, true);
   assert.ok(!/Ajay/i.test(ctx), 'must not leak the customer name on a greeting');
+});
+
+// ---------------------------------------------------------------------------
+// detectFabricatedVariantFromItems (the SUN-10K incident, 2026-06-27).
+// A customer asked for "10kw"; Sunny offered a non-existent 10kW Deye SKU
+// (relabeled from the real 12kW unit) and called it "available". The guard's
+// stocked-size map was silently empty (its /Nkw/ regex never matched real
+// "SUN-12K" SKUs) and its bridge regex broke on the ")" and "." in the quote,
+// so the fabricated variant went through. These pin both fixes.
+// ---------------------------------------------------------------------------
+const WH_ITEMS = [
+  { brand: 'Deye', model: 'SUN-16K-SG01LP1-EU', notes: '', section: 'Inverter' },      // 16 single
+  { brand: 'Deye', model: 'SUN-12K-SG02LP1-EU-AM3-P', notes: '', section: 'Inverter' }, // 12 single
+  { brand: 'Deye', model: 'SUN-12K-SG04LP3-EU', notes: '', section: 'Inverter' },        // 12 three
+  { brand: 'Deye', model: 'SUN-18K-SG01LP1-EU-AM3-P', notes: '', section: 'inverter' },  // 18 single
+  { brand: 'Deye', model: 'SUN-8K-SG05LP1-EU-SM2-P', notes: '', section: 'Inverter' },   // 8 single
+  { brand: 'Deye', model: 'SUN-16K-SG05LP3-EU SM2', notes: '', section: 'inverter' },    // 16 three
+  { brand: 'Deye', model: 'SE-F16', notes: 'LV', section: 'batteries' },                  // battery (no phase)
+];
+
+test('fabricated variant: flags the SUN-10K incident line (paren + price punctuation)', () => {
+  const reply = 'Deye SUN-10K-SG02LP1-EU-AM3-P (10kW, 1-phase) is 2.35M NGN, available.';
+  const flagged = detectFabricatedVariantFromItems(reply, WH_ITEMS);
+  assert.ok(flagged, 'a 10kW 1-phase availability claim must be flagged (we stock no 10kW)');
+  assert.equal(flagged[0].size, '10');
+  assert.equal(flagged[0].phase, 'single');
+});
+
+test('fabricated variant: a real stocked size+phase is NOT flagged', () => {
+  assert.equal(detectFabricatedVariantFromItems('The 12kW 1-phase is in stock.', WH_ITEMS), null);
+  assert.equal(detectFabricatedVariantFromItems('We have the 16kW 3-phase available.', WH_ITEMS), null);
+});
+
+test('fabricated variant: a stocked size in a phase we do NOT carry IS flagged', () => {
+  // We stock 18kW only in 1-phase, so an "18kW 3-phase available" claim is fake.
+  const flagged = detectFabricatedVariantFromItems('The 18kW 3-phase is available.', WH_ITEMS);
+  assert.ok(flagged);
+  assert.equal(flagged[0].size, '18');
+  assert.equal(flagged[0].phase, 'three');
+});
+
+test('fabricated variant: battery LV/HV availability lines are out of scope (no false positive)', () => {
+  // "16" is also an inverter size, but a battery line has no single/three token,
+  // so the guard must not fire on it.
+  assert.equal(detectFabricatedVariantFromItems('SE-F16 (16kWh) LV pack is available.', WH_ITEMS), null);
+});
+
+test('fabricated variant: a negated/corrective line is allowed through', () => {
+  const reply = "We don't carry a 10kW 1-phase. Available sizes: 8kW and 12kW.";
+  assert.equal(detectFabricatedVariantFromItems(reply, WH_ITEMS), null);
+});
+
+test('fabricated variant: empty/no items returns null (guard inert without stock)', () => {
+  assert.equal(detectFabricatedVariantFromItems('The 10kW 1-phase is available.', []), null);
+  assert.equal(detectFabricatedVariantFromItems('', WH_ITEMS), null);
 });
