@@ -2,6 +2,26 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-06-27: missing-facts one-click apply (knowledge_fact lane goes live)
+
+Follow-on to 2026-06-26. Wired the second audit lane so approving a `knowledge_fact` finding actually teaches Sunny, instead of being recorded-only. Owner decisions: handle BOTH fact kinds; price path = "shortcut + reminder" (no auto-create).
+
+Two sub-types, split by the auditor's existing `rule_key`:
+- **General fact** (warranty, delivery, policy): approved into a new DB-backed learned-FACTS block (`src/facts.js`, mirrors the playbook's Option-A persistence). The owner confirms the wording in the edit box, approves, and Sunny reads it on the next reply, permanently, no GitHub token. Chip "Sunny learned this".
+- **Missing price** (`rule_key=missing_price_fact`): NEVER injected (hard rule: prices come only from Warehouse Stock). Approving tags the Sorted card "Add in Warehouse Stock" with an "Open Warehouse Stock" button (`switchView('view-warehouse')`); the owner types the price in the one authoritative place and Sunny reads it via `formatWarehouseForPrompt`.
+- **Safety net**: if a general fact's confirmed text `looksLikePrice(...)`, `POST /audit/approve` reclassifies it to `missing_price_fact` so a price can never land in the facts block.
+
+What shipped (local, TDD; Serge commits/pushes):
+- `src/facts.js` (new): `buildFactsMarkdown` (pure), `looksLikePrice` (pure, conservative: flags ₦/NGN/naira, 4,200,000, "N million", bare 5+ digit ints not glued to a unit; does NOT flag "2-year warranty"/"7.68kWh"/"16kW"/"10 units"), `getFactsText` (reads `auditStore.getActiveKnowledgeFacts`).
+- `src/audit_store.js`: `getActiveKnowledgeFacts()` (approved+applied knowledge_facts excluding `missing_price_fact`), `setFindingType()`.
+- `src/claude.js`: inject the facts block after the playbook block (guarded by the no-facts sentinel). `src/audit.js`: inject it into the auditor context so confirmed facts are not re-proposed.
+- `api/dashboard.js > /audit/approve`: branch by lane; reclassify price-looking facts; response adds `has_fact`/`has_price`, `persisted = hasLesson || hasFact`.
+- `public/admin.html`: per-lane chips ("Sunny learned this" / "Add in Warehouse Stock"), the "Open Warehouse Stock" button (delegated click), shared `auditSortedChip()`.
+- New `test/facts.test.js` + `test/facts_persistence.test.js`; end-to-end smoke confirmed general-fact->learned, price-in-fact->rerouted, price-finding->Warehouse Stock. Full suite **139/139** (was 130).
+- Design doc: `docs/superpowers/specs/2026-06-27-missing-facts-one-click-design.md`.
+
+Out of scope (unchanged): skill_lesson (done 2026-06-26), engineering_note (developer note), auto-creating Warehouse Stock rows.
+
 ## 2026-06-26: approved audit lessons now persist (read learned-playbook from the DB, "Option A")
 
 Full audit of the nightly self-improvement feature at Serge's request ("verify that each time we approve, the correction goes live and is not forgotten"). The audit found the loop was wired but had a silent-loss bug.

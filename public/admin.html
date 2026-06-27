@@ -3896,7 +3896,7 @@ function renderAuditFindings(run, findings, groups) {
     '<div id="audit-pending">' + (pending.length ? pending.map(auditGroupCardHtml).join('') : '<div class="wh-empty" id="audit-pending-empty">All proposals sorted. Nothing left to review.</div>') + '</div>' +
     '<div class="audit-sorted" id="audit-sorted-wrap" style="' + (sorted.length ? '' : 'display:none') + '">' +
     '<h3 class="audit-sorted-h">Sorted</h3><div id="audit-sorted-list">' +
-    sorted.map(g => auditSortedItemHtml(g, g.lane === 'skill_lesson' ? 'Learned &amp; saved' : 'Approved (recorded)')).join('') +
+    sorted.map(g => { const m = auditSortedChip(g); return auditSortedItemHtml(g, m.chip, m.isPrice); }).join('') +
     '</div></div>';
 
   root.dataset.totalRaw = String(totalRaw);
@@ -3904,9 +3904,19 @@ function renderAuditFindings(run, findings, groups) {
   updateAuditSummary();
 }
 
-function auditSortedItemHtml(g, chipText) {
+// Chip text + whether to show the "Open Warehouse Stock" button, by lane/type.
+// skill_lesson and general knowledge_fact are durably learned; a price finding is
+// routed to Warehouse Stock (the only price source) rather than injected.
+function auditSortedChip(g) {
+  if (g.lane === 'skill_lesson') return { chip: 'Learned &amp; saved', isPrice: false };
+  if (g.lane === 'knowledge_fact' && g.finding_type === 'missing_price_fact') return { chip: 'Add in Warehouse Stock', isPrice: true };
+  if (g.lane === 'knowledge_fact') return { chip: 'Sunny learned this', isPrice: false };
+  return { chip: 'Approved (recorded)', isPrice: false };
+}
+
+function auditSortedItemHtml(g, chipText, isPrice) {
   const text = (g.edited_text != null && g.edited_text !== '') ? g.edited_text : g.proposed_change;
-  return '<div class="audit-sorted-item"><span class="audit-tick">&#10003;</span> <span class="audit-sorted-text">' + escapeHtml(text || '') + '</span> <span class="audit-chip">' + chipText + '</span></div>';
+  return '<div class="audit-sorted-item"><span class="audit-tick">&#10003;</span> <span class="audit-sorted-text">' + escapeHtml(text || '') + '</span> <span class="audit-chip">' + chipText + '</span>' + (isPrice ? ' <button type="button" class="audit-open-wh">Open Warehouse Stock</button>' : '') + '</div>';
 }
 
 function bindAuditCardActions(root) {
@@ -3916,6 +3926,14 @@ function bindAuditCardActions(root) {
   root.querySelectorAll('.audit-card .audit-reject').forEach(b => {
     b.addEventListener('click', () => rejectAuditGroup(b.closest('.audit-card'), b));
   });
+  // Delegated once on the stable audit root so dynamically-added "Open Warehouse
+  // Stock" buttons (from moveCardToSorted) work without rebinding each render.
+  if (!root.dataset.whBound) {
+    root.addEventListener('click', (e) => {
+      if (e.target.closest('.audit-open-wh')) switchView('view-warehouse');
+    });
+    root.dataset.whBound = '1';
+  }
 }
 
 function updateAuditSummary() {
@@ -3947,10 +3965,15 @@ async function approveAuditGroup(card, btn) {
   btn.textContent = (lane === 'skill_lesson') ? 'Deploying...' : 'Saving...';
   try {
     const res = await apiFetch('/audit/approve', { method: 'POST', body: JSON.stringify(body) });
-    // A skill-lesson is saved in the database (durable) and read on every future
-    // reply, so it is permanently learned. Other lanes are recorded for action.
-    const chip = res.has_lesson ? 'Learned &amp; saved' : 'Approved (recorded)';
-    moveCardToSorted(card, chip);
+    // A skill-lesson or general fact is saved in the database (durable) and read on
+    // every future reply, so it is permanently learned. A price is routed to
+    // Warehouse Stock (the only price source). Other lanes are recorded for action.
+    let chip, isPrice = false;
+    if (res.has_lesson) chip = 'Learned &amp; saved';
+    else if (res.has_price) { chip = 'Add in Warehouse Stock'; isPrice = true; }
+    else if (res.has_fact) chip = 'Sunny learned this';
+    else chip = 'Approved (recorded)';
+    moveCardToSorted(card, chip, isPrice);
   } catch (err) {
     btn.disabled = false; if (rejectBtn) rejectBtn.disabled = false;
     btn.innerHTML = 'Approve &amp; deploy';
@@ -3979,7 +4002,7 @@ async function rejectAuditGroup(card, btn) {
   }
 }
 
-function moveCardToSorted(card, chipText) {
+function moveCardToSorted(card, chipText, isPrice) {
   const editEl = card.querySelector('.audit-edit');
   const text = editEl ? editEl.textContent.trim() : '';
   const wrap = document.getElementById('audit-sorted-wrap');
@@ -3988,7 +4011,7 @@ function moveCardToSorted(card, chipText) {
   if (list) {
     const item = document.createElement('div');
     item.className = 'audit-sorted-item audit-just-sorted';
-    item.innerHTML = '<span class="audit-tick">&#10003;</span> <span class="audit-sorted-text">' + escapeHtml(text) + '</span> <span class="audit-chip">' + chipText + '</span>';
+    item.innerHTML = '<span class="audit-tick">&#10003;</span> <span class="audit-sorted-text">' + escapeHtml(text) + '</span> <span class="audit-chip">' + chipText + '</span>' + (isPrice ? ' <button type="button" class="audit-open-wh">Open Warehouse Stock</button>' : '');
     list.insertBefore(item, list.firstChild);
   }
   card.parentNode && card.parentNode.removeChild(card);

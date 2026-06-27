@@ -5,6 +5,7 @@ const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { formatWarehouseForPrompt } = require('./warehouse');
 const { getPlaybookText } = require('./playbook');
+const { getFactsText } = require('./facts');
 const auditStore = require('./audit_store');
 const { sendMessage, sendTemplate } = require('./whatsapp');
 const { getOrCreateContact, getActiveConversation, appendMessage } = require('./memory');
@@ -307,6 +308,8 @@ function buildRulesSystemBlocks() {
   if (wh) blocks.push({ type: 'text', text: 'Current warehouse stock and prices:\n\n' + wh, cache_control: { type: 'ephemeral', ttl: '1h' } });
   const pb = getPlaybookText();
   if (pb) blocks.push({ type: 'text', text: 'Existing learned playbook (already approved; do not re-propose these):\n\n' + pb, cache_control: { type: 'ephemeral', ttl: '1h' } });
+  const facts = getFactsText();
+  if (facts && !/No confirmed facts yet/.test(facts)) blocks.push({ type: 'text', text: 'Existing learned facts (already confirmed; do not re-propose these):\n\n' + facts, cache_control: { type: 'ephemeral', ttl: '1h' } });
   return blocks;
 }
 

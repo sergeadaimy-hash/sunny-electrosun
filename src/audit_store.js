@@ -108,6 +108,31 @@ function getActiveSkillLessons() {
   ).all();
 }
 
+// Owner-confirmed general facts that should appear in the facts block Sunny reads.
+// Approved or applied, lane knowledge_fact, EXCLUDING price findings (those live in
+// Warehouse Stock only, never in the injected facts block). Approved alone makes a
+// fact live; no separate apply step is needed.
+function getActiveKnowledgeFacts() {
+  const db = getDb();
+  return db.prepare(
+    `SELECT * FROM audit_findings
+     WHERE lane = 'knowledge_fact'
+       AND status IN ('approved', 'applied')
+       AND COALESCE(finding_type, '') != 'missing_price_fact'
+     ORDER BY id ASC`
+  ).all();
+}
+
+// Reclassify a finding's type. Used by the approve safety net to retag a
+// price-looking general fact as 'missing_price_fact' so it is routed to Warehouse
+// Stock instead of being injected as a fact.
+function setFindingType(id, findingType) {
+  const db = getDb();
+  db.prepare(
+    `UPDATE audit_findings SET finding_type = ?, updated_at = ? WHERE id = ?`
+  ).run(findingType || null, new Date().toISOString(), id);
+}
+
 function markApprovedSkillLessonsApplied() {
   const db = getDb();
   const ts = new Date().toISOString();
@@ -123,5 +148,6 @@ module.exports = {
   createRun, finishRun, failRun,
   insertFinding, listRuns, getRun,
   getFindingsForRun, getFinding, setFindingStatus,
-  getActiveSkillLessons, markApprovedSkillLessonsApplied
+  getActiveSkillLessons, markApprovedSkillLessonsApplied,
+  getActiveKnowledgeFacts, setFindingType
 };

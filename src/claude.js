@@ -4,6 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 const { getPlaybookText } = require('./playbook');
+const { getFactsText } = require('./facts');
 // knowledge facts retired 2026-05-10: rules now live entirely in src/prompts/system.md
 const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt, listItems: listWarehouseItems } = require('./warehouse');
 // datasheets retired from prompt 2026-05-10: now attached to warehouse items, looked up at send time
@@ -555,6 +556,15 @@ async function generateReply(history, message, contact, attachments = [], option
     }
   } catch (err) {
     logger.warn('claude.reply.playbook_load_fail', { message: err.message });
+  }
+  try {
+    const factsText = getFactsText();
+    if (factsText && factsText.trim() && !/No confirmed facts yet/.test(factsText)) {
+      systemBlocks.push({ type: 'text', text: factsText, cache_control: { type: 'ephemeral', ttl: '1h' } });
+      logger.info('claude.reply.facts_injected', { contactId: contact?.id, chars: factsText.length });
+    }
+  } catch (err) {
+    logger.warn('claude.reply.facts_load_fail', { message: err.message });
   }
   let warehouseBlock = '';
   try { warehouseBlock = formatWarehouseForPrompt(); } catch (err) {

@@ -40,6 +40,7 @@ const warehouseModule = require('../src/warehouse');
 const promptStore = require('../src/prompt_store');
 const auditStore = require('../src/audit_store');
 const { rebuildAndCommitPlaybook } = require('../src/playbook');
+const { looksLikePrice } = require('../src/facts');
 const { groupFindings, runNightlyAudit } = require('../src/audit');
 
 // Guards a manual audit run from being double-triggered while one is in flight.
@@ -833,11 +834,34 @@ router.post('/audit/approve', async (req, res) => {
   const editedText = typeof req.body?.edited_text === 'string' ? req.body.edited_text : undefined;
   try {
     let hasLesson = false;
+    let hasFact = false;
+    let hasPrice = false;
     for (const id of ids) {
       const f = auditStore.getFinding(id);
       if (!f) continue;
-      if (f.lane === 'skill_lesson') hasLesson = true;
-      auditStore.setFindingStatus(id, 'approved', editedText);
+      if (f.lane === 'skill_lesson') {
+        hasLesson = true;
+        auditStore.setFindingStatus(id, 'approved', editedText);
+      } else if (f.lane === 'knowledge_fact') {
+        // The owner's confirmed wording is editedText when provided, else the
+        // finding's own text. A price finding (tagged by the auditor) OR a general
+        // fact whose confirmed text looks like a Naira amount is routed to Warehouse
+        // Stock and never injected (prices live in one place only).
+        const effectiveText = (typeof editedText === 'string' && editedText.trim())
+          ? editedText
+          : (f.edited_text || f.proposed_change || '');
+        const isPrice = f.finding_type === 'missing_price_fact' || looksLikePrice(effectiveText);
+        if (isPrice) {
+          if (f.finding_type !== 'missing_price_fact') auditStore.setFindingType(id, 'missing_price_fact');
+          hasPrice = true;
+        } else {
+          hasFact = true;
+        }
+        auditStore.setFindingStatus(id, 'approved', editedText);
+      } else {
+        // engineering_note and anything else: recorded only.
+        auditStore.setFindingStatus(id, 'approved', editedText);
+      }
     }
     let applied = 0;
     let deployed = false;
@@ -848,10 +872,11 @@ router.post('/audit/approve', async (req, res) => {
       commit = result.commit || null;
       deployed = !!(commit && commit.committed);
     }
-    // persisted: an approved skill-lesson is durably saved in the DB (on the
-    // Railway persistent volume) and read straight from there on every reply, so
-    // it is permanent regardless of whether the optional GitHub backup committed.
-    res.json({ ok: true, approved: ids.length, has_lesson: hasLesson, persisted: hasLesson, applied, deployed, commit });
+    // persisted: a skill-lesson or a general fact is durably saved in the DB (on the
+    // Railway persistent volume) and read straight from there on every reply. A price
+    // is acknowledged but lives in Warehouse Stock, so it is not "persisted into Sunny"
+    // here. The optional GitHub backup never affects persistence.
+    res.json({ ok: true, approved: ids.length, has_lesson: hasLesson, has_fact: hasFact, has_price: hasPrice, persisted: hasLesson || hasFact, applied, deployed, commit });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
