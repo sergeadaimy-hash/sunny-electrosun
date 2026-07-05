@@ -193,18 +193,25 @@ function safeIntentFromPayload(payload) {
   } catch { return null; }
 }
 
-async function answerOwnerQuestion(ownerContactId, question) {
+async function answerOwnerQuestion(ownerContactId, question, opts = {}) {
   if (isOverBudget()) {
     return "I'm pausing replies for the rest of the day to stay on budget. Try again tomorrow, or check the admin dashboard.";
   }
 
   const snapshot = buildOwnerSnapshot(ownerContactId);
-  const userBlock = `Snapshot of today's data and recent activity (JSON):\n\n${JSON.stringify(snapshot, null, 2)}\n\nOwner's question:\n${question}\n\nReply now in plain text.`;
+  // extraContext: a "customer in focus" block (contact details + recent
+  // transcript) pre-fetched by the handler when the owner's question names a
+  // specific customer. Lets the model answer in full detail instead of
+  // deflecting to the admin dashboard.
+  const focus = opts && opts.extraContext
+    ? `\n\nCustomer in focus (details and recent transcript fetched for this question):\n${opts.extraContext}`
+    : '';
+  const userBlock = `Snapshot of today's data and recent activity (JSON):\n\n${JSON.stringify(snapshot, null, 2)}${focus}\n\nOwner's question:\n${question}\n\nReply now in plain text.`;
 
   try {
     const resp = await client().messages.create({
       model: MODEL,
-      max_tokens: 600,
+      max_tokens: 1500,
       thinking: { type: 'disabled' },
       system: [{ type: 'text', text: promptStore.get('owner_qa'), cache_control: { type: 'ephemeral', ttl: '1h' } }],
       messages: [{ role: 'user', content: userBlock }]

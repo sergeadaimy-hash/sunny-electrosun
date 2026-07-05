@@ -9,7 +9,7 @@ const logger = require('./src/utils/logger');
 const { initDb, DB_PATH } = require('./db/init');
 const webhookRouter = require('./src/webhook');
 const dashboardRouter = require('./api/dashboard');
-const { recoverOrphanedInbound, autoReleaseStaleHumanConversations, routeStaleDeferredHandoffs } = require('./src/handler');
+const { recoverOrphanedInbound, autoReleaseStaleHumanConversations, routeStaleDeferredHandoffs, scrubTeamContactLeadTags } = require('./src/handler');
 const {
   generateHourlyReport,
   generateDailyReport,
@@ -161,6 +161,14 @@ if (require.main === module) {
         logger.error('server.recovery_fail', { message: err.message });
       });
     }, 3000);
+    // Team numbers must never carry lead tags (Charbel showed HOT/SERIOUS in
+    // admin from a pre-guard classification). Idempotent, env-driven.
+    try {
+      const res = scrubTeamContactLeadTags();
+      if (res.scrubbed > 0) logger.info('server.team_lead_tags_scrubbed', res);
+    } catch (err) {
+      logger.warn('server.team_lead_tags_scrub_fail', { message: err.message });
+    }
   });
 
   // Customer-pipeline cron: auto-release stale human-handled conversations after 15 min idle.
@@ -185,6 +193,20 @@ if (require.main === module) {
       }
     } catch (err) {
       logger.error('cron.stale_deferred_sweep.error', { message: err.message });
+    }
+    // Orphan sweep (2026-07-05, Solar Analyst incident): a redeploy wipes the
+    // in-memory debounce queue, and the boot-time recovery only looks back 10
+    // minutes, so a customer turn lost mid-deploy stayed unanswered forever
+    // ("Location" / "Account to pay into" sat silent for a day). Re-queue any
+    // inbound from the last 6h with no outbound after it, at least 3 minutes
+    // old so we never race a turn still in the debounce window or mid-LLM.
+    try {
+      const rec = await recoverOrphanedInbound(360, { minAgeMinutes: 3 });
+      if (rec.recovered > 0) {
+        logger.info('cron.orphan_sweep.done', rec);
+      }
+    } catch (err) {
+      logger.error('cron.orphan_sweep.error', { message: err.message });
     }
   });
   logger.info('cron.auto_release.registered', { interval: '*/5 * * * *', threshold_minutes: autoReleaseMinutes });

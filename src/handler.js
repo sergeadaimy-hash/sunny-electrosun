@@ -894,6 +894,110 @@ async function handleOwnerReply(msg, pending) {
   });
 }
 
+// --- Owner Q&A capability layer (2026-07-05 owner directive: the agent must
+// answer ANYTHING the two owners ask, in detail: chat transcripts, datasheets,
+// any data). Deterministic fast-paths run first (transcript send, datasheet
+// send); everything else goes to the LLM with a "customer in focus" context
+// block when the question references a specific customer.
+
+const OWNER_DATASHEET_ASK_RE = /\b(data\s*sheet|datasheet|brochure|spec\s*sheet|specification\s*sheet|specs?\s*(sheet|pdf|file|document)|technical\s*(sheet|specs?)|product\s*(sheet|brochure|manual|guide|pdf)|user\s*(manual|guide))\b/i;
+const OWNER_TRANSCRIPT_ASK_RE = /\b(?:send|show|share|give|forward|see|read|pull)\b[^.?!]{0,60}\b(?:chat|conversation|transcript|history|messages?)\b|\b(?:his|her|their)\s+(?:chat|conversation|messages?|history)\b|\bchat\s+transcript\b|\bfull\s+(?:chat|conversation)\b/i;
+
+function extractCustomerPhoneDigits(text) {
+  const team = new Set(ownerRouting.teamPhoneDigits());
+  const matches = String(text || '').match(/\+?\d[\d\s-]{8,18}\d/g) || [];
+  for (const m of matches) {
+    const d = m.replace(/\D/g, '');
+    if (d.length >= 10 && d.length <= 15 && !team.has(d)) return d;
+  }
+  return null;
+}
+
+function findCustomerContactByPhoneDigits(d) {
+  if (!d) return null;
+  const { getDb } = require('../db/init');
+  const db = getDb();
+  const tail = d.slice(-10);
+  const rows = db.prepare(`SELECT * FROM contacts WHERE phone LIKE ? ORDER BY last_active DESC LIMIT 5`).all(`%${tail}`);
+  const team = new Set(ownerRouting.teamPhoneDigits());
+  for (const r of rows) {
+    const rd = String(r.phone || '').replace(/\D/g, '');
+    if (!team.has(rd)) return r;
+  }
+  return null;
+}
+
+// The most recent customer number mentioned anywhere in this owner's own
+// thread (escalation alerts, Q&A replies, the owner's messages). Lets "send
+// his chat" resolve to the hot lead Sunny just reported without re-typing the
+// number.
+function lastCustomerPhoneInOwnerThread(ownerConvId) {
+  const { getDb } = require('../db/init');
+  const db = getDb();
+  const rows = db.prepare(`SELECT body FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 25`).all(ownerConvId);
+  for (const r of rows) {
+    const d = extractCustomerPhoneDigits(r.body);
+    if (d) return d;
+  }
+  return null;
+}
+
+function chunkText(text, maxLen = 3500) {
+  const out = [];
+  let rest = String(text || '');
+  while (rest.length > maxLen) {
+    let cut = rest.lastIndexOf('\n', maxLen);
+    if (cut < maxLen * 0.5) cut = maxLen;
+    out.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n+/, '');
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
+async function trySendDatasheetToOwner(msg, ownerConv) {
+  if (!OWNER_DATASHEET_ASK_RE.test(msg.body || '')) return false;
+  let match = null;
+  try {
+    match = warehouse.findItemDatasheetByQuery(msg.body, '');
+  } catch (err) {
+    logger.warn('handler.owner_qa.datasheet_lookup_fail', { message: err.message });
+  }
+  if (!match || !match.item || !match.item.datasheet_path) return false;
+  const item = match.item;
+  try {
+    let mediaId = item.datasheet_meta_media_id;
+    const fresh = mediaId && warehouse.isMetaMediaFresh(item.datasheet_meta_uploaded_at);
+    if (!fresh) {
+      mediaId = await uploadMediaToMeta(item.datasheet_path, item.datasheet_mime, item.datasheet_filename);
+      warehouse.setItemDatasheetMetaCache(item.id, mediaId);
+    }
+    const caption = `${item.brand || ''} ${item.model || ''} datasheet`.trim();
+    const docRes = await sendDocument(msg.from, mediaId, item.datasheet_filename, caption);
+    appendMessage(ownerConv.id, 'outbound', `[Datasheet sent: ${caption}]`, {
+      whatsapp_message_id: docRes.messageId,
+      intent: 'owner_datasheet_sent'
+    });
+    logger.info('handler.owner_qa.datasheet_sent', { owner: msg.from, warehouse_item_id: item.id });
+    return true;
+  } catch (err) {
+    logger.warn('handler.owner_qa.datasheet_send_fail', { message: err.message });
+    return false;
+  }
+}
+
+function buildCustomerFocusBlock(target) {
+  const brief = formatConversationBriefForOwner(target.id, 30);
+  return [
+    `Customer: ${target.name || 'unknown name'} (${target.phone})`,
+    `category=${target.category || 'n/a'}, temperature=${target.lead_temperature || 'n/a'}, client_type=${target.client_type || 'n/a'}, location=${target.location || 'n/a'}`,
+    `products_asked_about=${target.products_asked_about || 'n/a'}, budget_mentioned=${target.budget_mentioned || 'n/a'}, last_active=${target.last_active || 'n/a'}`,
+    '',
+    'Recent conversation (oldest first):',
+    brief || '(no messages found)'
+  ].join('\n');
+}
+
 async function handleOwnerNonQueryMessage(msg) {
   const ownerContact = getOrCreateContact(msg.from, msg.profileName);
   const ownerConv = getActiveConversation(ownerContact.id);
@@ -908,13 +1012,69 @@ async function handleOwnerNonQueryMessage(msg) {
     preview: (msg.body || '').slice(0, 120)
   });
 
-  const reply = await answerOwnerQuestion(ownerContact.id, msg.body);
+  // Fast-path 1: owner asks for a datasheet, send the actual file.
+  if (await trySendDatasheetToOwner(msg, ownerConv)) return;
 
-  const sendRes = await sendMessage(msg.from, reply);
-  appendMessage(ownerConv.id, 'outbound', reply, {
-    whatsapp_message_id: sendRes.messageId,
-    intent: 'owner_qa_reply'
-  });
+  // Resolve the customer this question is about: an explicit number in the
+  // message wins; otherwise, for transcript-style asks, the last customer
+  // number mentioned in this owner's thread (e.g. the hot lead just reported).
+  const explicitDigits = extractCustomerPhoneDigits(msg.body);
+  const wantsTranscript = OWNER_TRANSCRIPT_ASK_RE.test(msg.body || '');
+  const targetDigits = explicitDigits || (wantsTranscript ? lastCustomerPhoneInOwnerThread(ownerConv.id) : null);
+  const target = targetDigits ? findCustomerContactByPhoneDigits(targetDigits) : null;
+
+  // Fast-path 2: owner asks for a chat/transcript, send it verbatim (chunked).
+  if (wantsTranscript && target) {
+    const brief = formatConversationBriefForOwner(target.id, 40);
+    const head = `Chat with ${target.name || target.phone} (${target.phone}):`;
+    const full = brief ? `${head}\n\n${brief}` : `${head}\n(No messages found.)`;
+    for (const chunk of chunkText(full)) {
+      const sendRes = await sendMessage(msg.from, chunk);
+      appendMessage(ownerConv.id, 'outbound', chunk, {
+        whatsapp_message_id: sendRes.messageId,
+        intent: 'owner_transcript'
+      });
+    }
+    logger.info('handler.owner_qa.transcript_sent', { owner: msg.from, target_contact_id: target.id });
+    return;
+  }
+
+  // Everything else: Owner Q&A, with the referenced customer's details and
+  // transcript injected so the model can answer in full detail.
+  const extraContext = target ? buildCustomerFocusBlock(target) : null;
+  const reply = await answerOwnerQuestion(ownerContact.id, msg.body, { extraContext });
+
+  for (const chunk of chunkText(reply)) {
+    const sendRes = await sendMessage(msg.from, chunk);
+    appendMessage(ownerConv.id, 'outbound', chunk, {
+      whatsapp_message_id: sendRes.messageId,
+      intent: 'owner_qa_reply'
+    });
+  }
+}
+
+// Boot-time hygiene: team numbers (owners, sales desks, developer) must never
+// carry lead tags. A team member who messaged Sunny before being configured in
+// env (or via a non-text message before the 2026-07-05 guard) may have been
+// classified as a lead; the admin header chips read the raw contact row, so
+// Charbel showed as HOT/SERIOUS/RESIDENTIAL. Null the lead fields for every
+// team contact. Idempotent, env-driven, runs at every boot.
+function scrubTeamContactLeadTags() {
+  const { getDb } = require('../db/init');
+  const db = getDb();
+  const team = new Set(ownerRouting.teamPhoneDigits());
+  if (!team.size) return { scrubbed: 0 };
+  const rows = db.prepare(`SELECT id, phone, category, lead_temperature, client_type FROM contacts`).all();
+  let scrubbed = 0;
+  for (const r of rows) {
+    const d = String(r.phone || '').replace(/\D/g, '');
+    if (!team.has(d)) continue;
+    if (r.category == null && r.lead_temperature == null && r.client_type == null) continue;
+    db.prepare(`UPDATE contacts SET category = NULL, lead_temperature = NULL, client_type = NULL WHERE id = ?`).run(r.id);
+    scrubbed++;
+    logger.info('handler.team_contact_lead_tags_scrubbed', { contactId: r.id, phone_tail: d.slice(-4) });
+  }
+  return { scrubbed };
 }
 
 async function handleUnsupported(msg) {
@@ -2449,6 +2609,10 @@ async function handleInbound(payload) {
       }
 
       // Full owners (Patrick + Charbel): reply-relay to a QID, or Owner Q&A.
+      // NEVER let an owner message fall through to the customer pipeline: a
+      // non-text owner message (voice note, image) used to slip past the
+      // kind==='text' guard and get classified as a lead, which is how Charbel
+      // ended up tagged HOT/SERIOUS/RESIDENTIAL (2026-07-05).
       if (ownerRouting.isFullOwner(msg.from)) {
         if (msg.replyToId) {
           const pending = findPendingByAlertId(msg.replyToId);
@@ -2461,6 +2625,32 @@ async function handleInbound(payload) {
           await handleOwnerNonQueryMessage(msg);
           continue;
         }
+        // Owner voice note: transcribe and treat as an Owner Q&A question.
+        if (msg.kind === 'audio' && msg.media?.id) {
+          try {
+            const dl = await downloadMedia(msg.media.id);
+            const trx = await transcribeAudio(dl.buffer, dl.mimeType);
+            if (trx.ok && trx.text) {
+              await handleOwnerNonQueryMessage({ ...msg, kind: 'text', body: trx.text });
+              continue;
+            }
+          } catch (err) {
+            logger.warn('handler.owner_voice.fail', { message: err.message });
+          }
+        }
+        // Any other owner media: persist for admin visibility, no reply, no
+        // classification, and absolutely no customer pipeline.
+        try {
+          const ownerContact = getOrCreateContact(msg.from, msg.profileName);
+          const ownerConv = getActiveConversation(ownerContact.id);
+          appendMessage(ownerConv.id, 'inbound', `[owner sent ${msg.kind || msg.type || 'media'}]`, {
+            whatsapp_message_id: msg.id,
+            intent: 'owner_media'
+          });
+        } catch (err) {
+          logger.warn('handler.owner_media_persist_fail', { message: err.message });
+        }
+        continue;
       }
 
       if (!ownerRouting.isFullOwner(msg.from)) {
@@ -2615,10 +2805,15 @@ function readBackContact(contactId) {
   return getDb().prepare('SELECT * FROM contacts WHERE id = ?').get(contactId) || {};
 }
 
-async function recoverOrphanedInbound(maxAgeMinutes = 10) {
+async function recoverOrphanedInbound(maxAgeMinutes = 10, opts = {}) {
   const { getDb } = require('../db/init');
   const db = getDb();
   const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
+  // minAgeMinutes: skip messages younger than this, so the periodic sweep never
+  // races a turn that is still inside the debounce window or mid-LLM. The boot
+  // call keeps 0 (nothing is processing at boot).
+  const minAgeMinutes = opts.minAgeMinutes || 0;
+  const youngest = new Date(Date.now() - minAgeMinutes * 60 * 1000).toISOString();
 
   const orphans = db.prepare(`
     SELECT m.id AS msg_id, m.conversation_id, m.body, m.timestamp, m.whatsapp_message_id,
@@ -2628,6 +2823,9 @@ async function recoverOrphanedInbound(maxAgeMinutes = 10) {
     JOIN contacts ct ON ct.id = c.contact_id
     WHERE m.direction = 'inbound'
       AND m.timestamp >= ?
+      AND m.timestamp <= ?
+      AND (m.intent IS NULL OR m.intent != 'reaction')
+      AND m.body NOT LIKE '[reacted:%'
       AND NOT EXISTS (
         SELECT 1 FROM messages m2
         WHERE m2.conversation_id = m.conversation_id
@@ -2636,7 +2834,8 @@ async function recoverOrphanedInbound(maxAgeMinutes = 10) {
       )
       AND c.human_handled = 0
     ORDER BY m.timestamp ASC
-  `).all(cutoff);
+    LIMIT 30
+  `).all(cutoff, youngest);
 
   if (!orphans.length) {
     logger.info('handler.recovery.no_orphans');
@@ -2995,6 +3194,9 @@ module.exports = {
   handleInbound,
   extractMessages,
   recoverOrphanedInbound,
+  scrubTeamContactLeadTags,
+  extractCustomerPhoneDigits,
+  chunkText,
   answerPendingForContact,
   autoReleaseStaleHumanConversations,
   routeStaleDeferredHandoffs,
