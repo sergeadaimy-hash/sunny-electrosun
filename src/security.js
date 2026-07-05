@@ -200,6 +200,17 @@ const STALL_PATTERNS = [
   /\b(a|the|our)\s+(specialists?|sales\s+managers?)\s+is\s+(checking|confirming|finalising|finalizing|reviewing|preparing|working\s+on|looking\s+into)/i,
   /\b(awaiting\s+(confirmation|feedback|response|approval)|pending\s+confirmation|consulting\s+with\s+(the\s+)?(team|specialist|sales\s+manager|supplier|engineer))/i,
   /\b(account\s+details\s+and\s+(final\s+)?figures|formal\s+documents\s+and\s+(final\s+)?figures|share\s+the\s+account|send\s+(you\s+)?the\s+account)/i,
+  // Uncertainty / "stuck" language (owner directive 2026-07-05: when Sunny is
+  // stuck on an unclear thing it must escalate, never leave the customer with a
+  // dead "I'm not sure"). These route through the same stall-guard escalation.
+  // The negative lookahead on "not sure/certain" excludes Sunny clarifying an
+  // ambiguous customer message ("I'm not sure I understand / what you mean /
+  // which model"), which is a legitimate one-question clarification, not a stall.
+  /\b(i['´’]?m|i\s+am|we['´’]?re|we\s+are)\s+not\s+(sure|certain)\b(?!\s+(i|we|what|which|whether|if|how|when|where|why|who)\b)/i,
+  /\b(i['´’]?m|i\s+am)\s+(a\s+bit\s+|somewhat\s+)?(unsure|uncertain)\b(?!\s+(i|we|what|which|whether|if|how|when|where|why|who)\b)/i,
+  /\b(i|we)\s+(can['´’]?t|cannot|could\s+not|couldn['´’]?t|am\s+not\s+able\s+to|are\s+not\s+able\s+to|['´’]?m\s+unable\s+to|are\s+unable\s+to)\s+(confirm|verify|say\s+for\s+(sure|certain)|be\s+sure|be\s+certain|provide\s+(that|the)|answer\s+that|tell\s+you\s+(that|the|for))/i,
+  /\b(i|we)\s+(don['´’]?t|do\s+not)\s+have\s+(that|the|this|those|enough)\s+(info|information|details?|answer|figure|data)\b/i,
+  /\b(that['´’]?s|this\s+is)\s+not\s+something\s+i\s+can\s+(confirm|answer|help\s+with|provide|verify)\b/i,
 ];
 
 function detectStallLanguage(replyText) {

@@ -2,6 +2,31 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-07-05: HOT lead stranded by gather-first (no owner/sales alert, no Sales Manager link)
+
+Owner reported a HOT lead (Franck, contact 3641, `+237 656 504 314`) where Sunny quoted a full ₦41.29M BOM, the customer replied with name + phone + "please share my details with the Sales Manager", and Sunny answered "Noted. Details have been passed on. The Sales Manager will reach out shortly." But NO owner/sales desk was alerted and NO Sales Manager wa.me link was shared.
+
+Ground truth (production API): the customer is a **Cameroon delivery/export** order (region never Abuja or Lagos). `contact.lead_temperature=HOT`, but `location=null`, `deferred_handoff=null`. Zero `pending_queries` rows reference him; zero Owner Chat alerts to Patrick/Charbel/Abuja/Lagos mention him. So nobody was ever notified, and the "Sales Manager will reach out" promise was a dead end.
+
+Root cause: `gatherFirst` (in `src/handler.js > processCustomerBatch`) was true for the turn. The classifier force-promoted the turn to HOT ("my name is..."), but `routing_region` was unknown (Cameroon) and `routing_category` was not tagged `big_project`, so `routingInfoSufficient()` returned false and gather-first fired to "ask Abuja or Lagos first". That single flag simultaneously (a) kept `escResult` null so **no owner alert fired**, (b) disabled the `HANDOFF_REPLY_RE` "any handoff promise must alert" backstop (guarded by `!gatherFirst`), and (c) blocked the Sales Manager link append (`isHotHandoffThisTurn` needs `!gatherFirst`). A foreign / delivery HOT lead that never names a Nigerian city loops into the void: the deferred-handoff resume never fires because `hasRoutingInfo` stays false.
+
+Fix (1 line + comment, tests green 146/146): added `!isHotEscalation` to the `gatherFirst` condition. A HOT commitment never waits for a city. When the region is unknown, `decideRecipient` already defaults the desk to Abuja (`abujaConfigured`, set on Railway), so a HOT lead routes to a real sales manager immediately, the alert fires, the handoff backstop runs, and the link is appended (pointing at the routed desk). Verified: before fix `gatherFirst=true -> isHot=false` (stranded); after fix `gatherFirst=false -> isHot=true -> recipient=abuja (region_unknown_default_abuja)`. New regression test in `test/owner_routing.test.js` ("Franck/Cameroon 2026-07-05"). NOT yet pushed (Serge pushes manually).
+
+### Same session, four hardened guarantees (owner ran ads in Cameroon/Niger/everywhere, so foreign HOT leads are expected)
+
+Owner directives after the root-cause fix: (1) route big orders to owners by BOM total; (2) never refer to the Sales Manager without sharing his link AND escalating in parallel; (3) no HOT-lead / handoff chat goes silent, always share a WhatsApp link of an owner or sales manager depending on the scale of the lead; (4) when Sunny is stuck on an unclear thing, escalate anyway, none should go with confusion. All shipped, tests 157/157.
+
+1. **Big-project-by-value routing (`src/handler.js`).** New `detectLargeOrderNgn(text)` / `isBigProjectByValue(text)` + `BIG_PROJECT_NGN_THRESHOLD` (env `BIG_PROJECT_NGN_THRESHOLD`, default ₦15M). Reads the largest Naira figure in the customer's text OR in Sunny's own recent BOM/quote (last 4 assistant turns). Only figures tied to ₦/NGN/naira/"million" count (never trips on SUN-50K, 720W, 16kWh, "3 m cable"). When it clears the threshold, the handler sets `classification.routing_category='big_project'` before routing, so `decideRecipient` sends it to the OWNERS (Patrick/Charbel round-robin) regardless of region, and `routingInfoSufficient` is true so gather-first never defers it. Verified: Franck's ₦41M BOM now routes to an owner, a ₦2.5M quote stays a regional-desk lead. New `test/big_project_value.test.js`.
+
+2. **Sales-Manager-referral invariant (`src/handler.js`, post-reply).** Any outbound that names "Sales Manager" or "specialist" now forces an escalation when none fired this turn (`source='sales_manager_referral'`, routed by the same rules so a big project reaches an owner), clears a stale gather-first deferral, and ALWAYS appends the direct line. This catches shapes the generic `HANDOFF_REPLY_RE` misses (e.g. "the Sales Manager is the right person to handle this", no action verb). The link append no longer requires `routedRecipientNumber` or `!gatherFirst`; `buildSpecialistLink` falls back to `SPECIALIST_DIRECT_LINK` if unresolved.
+
+3. **No silent handoff promises.** Removed the `!gatherFirst` guard from BOTH the HOT-handoff backstop and the generic `HANDOFF_REPLY_RE` backstop, so a reply that promises a team/Sales-Manager follow-up always fires an alert even mid-gather-first. Compliant gather-first replies ("Abuja or Lagos?") contain no handoff/Sales-Manager language (the context forbids it), so legit city-gathering still stays quiet; only a disobedient handoff-promise escalates.
+
+4. **Stuck / uncertain replies escalate (`src/security.js`).** Added uncertainty patterns to `STALL_PATTERNS` ("I'm not sure about...", "I can't confirm", "I don't have that information", "that's not something I can confirm"), with a negative lookahead so Sunny clarifying an ambiguous customer message ("I'm not sure I understand / what you mean / which model") is NOT flagged. These now route through the existing stall-guard escalate-and-regenerate path instead of sending the customer a dead "I'm not sure". New `test/stall_uncertainty.test.js`.
+
+Net effect: a HOT/serious/foreign lead can no longer end in silence or confusion, every handoff mention carries a link scaled to the lead (owner for a big project, Abuja/Lagos desk otherwise) with a parallel alert. NOT yet pushed at the time of writing (Serge pushes manually).
+
+
 ## 2026-06-27 (later still): Sunny offered a 10kW inverter we don't stock, traced to the system prompt
 
 Owner reported Sunny quoting `Deye SUN-10K-SG02LP1-EU-AM3-P (10kW, 1-phase) ... 2.35M NGN, available` to a customer who asked for "10kw". ElectroSun stocks no 10kW inverter.

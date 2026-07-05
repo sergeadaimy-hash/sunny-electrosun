@@ -112,6 +112,19 @@ test('bulk_order escalation counts as serious for routing', () => {
   assert.equal(isSeriousOrHot({ category: 'COLD', escalation_type: 'bulk_order' }), true);
 });
 
+test('force-promoted HOT with UNKNOWN region routes to a real desk (Franck/Cameroon 2026-07-05)', () => {
+  // A HOT commitment must never be stranded when the region is unknown (foreign
+  // / delivery lead that never names Abuja or Lagos). The handler now exempts a
+  // HOT lead from gather-first; decideRecipient must then still land it on a
+  // real sales desk (Abuja default) rather than the dead-end owner fallback,
+  // so the alert fires and the Sales Manager link is shared.
+  const lead = { category: 'COLD', lead_temperature: 'HOT', escalation_type: 'hot_lead', routing_category: 'unknown', routing_region: 'unknown' };
+  assert.equal(isSeriousOrHot(lead), true);
+  const d = decideRecipient({ ...lead, abujaConfigured: true });
+  assert.equal(d.label, 'abuja', 'region-unknown HOT lands on the Abuja desk, not nowhere');
+  assert.equal(d.reason, 'region_unknown_default_abuja');
+});
+
 // --- routingInfoSufficient (gather-first gate) -----------------------------
 
 test('sufficient: serious/hot big project', () => {

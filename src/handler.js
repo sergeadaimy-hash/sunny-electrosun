@@ -393,6 +393,44 @@ function detectBulkQuantity(text) {
   return Number.isFinite(n) && n >= 2 ? n : 0;
 }
 
+// Big-project-by-value detection (owner directive 2026-07-05). A large order
+// must route to the OWNERS (Patrick/Charbel), not a regional desk, regardless of
+// city. The classifier's routing_category=big_project tag is unreliable, so we
+// read the actual money: the largest Naira figure mentioned in the customer's
+// text OR in Sunny's own recent BOM/quote. Only figures explicitly tied to Naira
+// (₦ / NGN / naira) or the word "million" count, so this never trips on a SKU
+// number (SUN-50K), wattage (720W), or capacity (16kWh).
+const BIG_PROJECT_NGN_THRESHOLD = (() => {
+  const v = parseInt(process.env.BIG_PROJECT_NGN_THRESHOLD || '', 10);
+  return Number.isFinite(v) && v > 0 ? v : 15000000; // ₦15M (matches the large-order doctrine)
+})();
+// "41,292,000 NGN" / "₦41,292,000" / "NGN 5,700,000" (grouped or plain digits).
+const NGN_GROUPED_RE = /(?:₦|\bngn\b|\bnaira\b)\s*([0-9][0-9,]*(?:\.[0-9]+)?)|([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:₦|\bngn\b|\bnaira\b)/gi;
+// "41 million" / "41.29 million" / "₦41M" / "NGN 20 m" (M only when currency-adjacent).
+const NGN_MILLION_SPELLED_RE = /([0-9]+(?:\.[0-9]+)?)\s*million\b/gi;
+const NGN_MILLION_SUFFIX_RE = /(?:₦|\bngn\b|\bnaira\b)\s*([0-9]+(?:\.[0-9]+)?)\s*m\b|([0-9]+(?:\.[0-9]+)?)\s*m\s*(?:₦|\bngn\b|\bnaira\b)/gi;
+
+function detectLargeOrderNgn(text) {
+  const s = String(text || '');
+  let max = 0;
+  const bump = (raw, mult) => {
+    const n = parseFloat(String(raw).replace(/,/g, '')) * (mult || 1);
+    if (Number.isFinite(n) && n > max) max = n;
+  };
+  let m;
+  NGN_GROUPED_RE.lastIndex = 0;
+  while ((m = NGN_GROUPED_RE.exec(s)) !== null) bump(m[1] || m[2], 1);
+  NGN_MILLION_SPELLED_RE.lastIndex = 0;
+  while ((m = NGN_MILLION_SPELLED_RE.exec(s)) !== null) bump(m[1], 1000000);
+  NGN_MILLION_SUFFIX_RE.lastIndex = 0;
+  while ((m = NGN_MILLION_SUFFIX_RE.exec(s)) !== null) bump(m[1] || m[2], 1000000);
+  return max;
+}
+
+function isBigProjectByValue(text) {
+  return detectLargeOrderNgn(text) >= BIG_PROJECT_NGN_THRESHOLD;
+}
+
 // Bulk-order context: the customer named a product and a multi-unit quantity.
 // Sunny quotes the per-unit price from warehouse stock, then offers the Sales
 // Manager for the bulk price. The system appends the Sales Manager wa.me link
@@ -1655,6 +1693,30 @@ async function processCustomerBatch(entry) {
     });
   }
 
+  // Big-project-by-value routing (owner directive 2026-07-05). Read the actual
+  // money being discussed, the customer's stated budget AND the total of any BOM
+  // Sunny has already quoted in this conversation, and if it clears the
+  // big-project threshold (₦15M), tag routing_category=big_project so it routes
+  // to the OWNERS (Patrick/Charbel round-robin), never a regional desk, no matter
+  // the city. The LLM classifier's own routing_category tag is unreliable; the
+  // money is not. This is why Franck's ₦41M Cameroon BOM must reach an owner.
+  {
+    const assistantBlob = Array.isArray(priorHistory)
+      ? priorHistory.filter(m => m && m.role === 'assistant').slice(-4).map(m => String(m.content || '')).join('\n')
+      : '';
+    if (isBigProjectByValue(`${safeCombinedText}\n${assistantBlob}`)) {
+      if (classification.routing_category !== 'big_project') {
+        logger.info('handler.big_project_by_value_routed_to_owner', {
+          contactId: contact.id,
+          ngn: detectLargeOrderNgn(`${safeCombinedText}\n${assistantBlob}`),
+          threshold: BIG_PROJECT_NGN_THRESHOLD,
+          prior_routing_category: classification.routing_category
+        });
+      }
+      classification.routing_category = 'big_project';
+    }
+  }
+
   const isHotEscalation = !!(classification.needs_escalation && classification.escalation_type === 'hot_lead');
   // Casual-confirm gate ONLY applies to non-HOT messages. HOT was already vetted by
   // the classifier's HOT_TRIGGER_RE whitelist; a short "i want to pay" is not casual,
@@ -1741,10 +1803,23 @@ async function processCustomerBatch(entry) {
   // the Abuja desk (owner directive 2026-06-08). This stops a serious lead from
   // looping on "Abuja or Lagos?" forever and never reaching a desk.
   const alreadyAskedCity = !!(refreshedContact && refreshedContact.deferred_handoff);
+  // A HOT commitment NEVER waits for a city. A customer who used a commitment
+  // phrase (name/phone for the invoice, "send account", "I want to pay", "please
+  // share my details with the Sales Manager") is ready NOW; deferring that alert
+  // to ask "Abuja or Lagos?" strands the lead when the region is unknown, and a
+  // foreign / delivery lead (e.g. a Cameroon export) will never name a Nigerian
+  // city, so gather-first loops into the void: no owner/sales alert, no handoff
+  // backstop, no Sales Manager link. When the region is unknown, decideRecipient
+  // already defaults the desk to Abuja (abujaConfigured), so a HOT lead still
+  // routes to a real sales manager immediately. (SUN/Franck incident 2026-07-05:
+  // ₦41M Cameroon big project gave name + phone + "share my details", got
+  // "the Sales Manager will reach out shortly" but NOBODY was alerted and no
+  // link was shared.)
   const gatherFirst =
     classification.needs_escalation &&
     !customerIsCasualConfirm &&
     !escalationsDisabled() &&
+    !isHotEscalation &&
     !ownerRouting.routingInfoSufficient(classification) &&
     !alreadyAskedCity;
 
@@ -2101,7 +2176,7 @@ async function processCustomerBatch(entry) {
   // and no hot_lead alert has fired this turn, force one. This runs BEFORE the
   // generic backstop and is NOT satisfied by a silent_query follow-up ping
   // having fired earlier — a HOT signal outranks a silent_query follow-up.
-  if (replyMentionsHotHandoff && !escalationsDisabled() && !gatherFirst) {
+  if (replyMentionsHotHandoff && !escalationsDisabled()) {
     const hotAlertAlreadyFiredThisTurn = !!(
       escResult &&
       escResult.ownerNotified &&
@@ -2145,7 +2220,7 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  if (replyMentionsHandoff && !escalationsDisabled() && !gatherFirst) {
+  if (replyMentionsHandoff && !escalationsDisabled()) {
     const ownerAlreadyNotifiedThisTurn = !!(escResult && (escResult.ownerNotified || escResult.freshPendingId));
     if (!ownerAlreadyNotifiedThisTurn) {
       logger.info('handler.handoff_in_reply_owner_alert', {
@@ -2184,14 +2259,68 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  // Append the specialist (owner) wa.me link ONLY on HOT-lead handoff. The
-  // 2026-05-15 owner feedback: appending the link on silent_query/pricing
-  // replies (where Sunny is asking for the customer's number, or saying
-  // "the team will check") is spammy and confuses the customer about who's
-  // actually handling them. The link makes sense ONLY when the customer
-  // explicitly committed (sent_account / pay-now phrasing) and we are
-  // genuinely passing them to a specialist. Skip if the LLM already
-  // produced a wa.me link itself.
+  // STRICT INVARIANT (owner directive 2026-07-05): Sunny must NEVER refer the
+  // customer to the Sales Manager (or "a specialist") without BOTH (a) an
+  // owner/desk alert firing this turn and (b) his direct line appended below.
+  // The generic HANDOFF_REPLY_RE above misses shapes like "the Sales Manager is
+  // the right person to handle this" (no action verb), so this catches ANY
+  // mention of the Sales Manager / specialist and forces an escalation when none
+  // has fired yet, routed by the same rules (a big project reaches an owner).
+  // Runs regardless of gather-first: naming the Sales Manager IS a handoff, so
+  // the "ask the city first" deferral no longer applies. Closes the dead-end
+  // where Sunny promised a handoff but nobody was told (Franck 2026-07-05).
+  const replyRefersToSalesManager = /sales\s+manager|specialist/i.test(outboundText);
+  if (replyRefersToSalesManager && !escalationsDisabled()) {
+    const ownerAlreadyNotifiedThisTurn = !!(escResult && (escResult.ownerNotified || escResult.freshPendingId));
+    if (!ownerAlreadyNotifiedThisTurn) {
+      logger.warn('handler.sales_manager_referral_forced_escalation', {
+        contactId: contact.id,
+        had_expert_context: !!expertContext,
+        was_gather_first: gatherFirst,
+        reply_preview: outboundText.slice(0, 200)
+      });
+      const smEscType = (classification.escalation_type && classification.escalation_type !== 'none')
+        ? classification.escalation_type
+        : (isHot ? 'hot_lead' : 'silent_query');
+      const smClassification = { ...classification, needs_escalation: true, escalation_type: smEscType };
+      try {
+        const smEsc = await notifyOwnerForEscalation({
+          contact: refreshedContact,
+          classification: smClassification,
+          safeCombinedText,
+          lastMsg,
+          batchSize: msgs.length,
+          source: 'sales_manager_referral'
+        });
+        if (smEsc && (smEsc.ownerNotified || smEsc.freshPendingId)) {
+          classification.needs_escalation = true;
+          if (!classification.escalation_type || classification.escalation_type === 'none') {
+            classification.escalation_type = smEscType;
+          }
+          escResult = smEsc;
+          // We deferred this turn (gather-first) but then named the Sales
+          // Manager, so the deferral is stale: we HAVE alerted. Clear it so the
+          // resume path does not double-fire later.
+          if (gatherFirst && refreshedContact && refreshedContact.deferred_handoff) {
+            try {
+              updateContactFields(contact.id, { deferred_handoff: null, deferred_handoff_at: null });
+            } catch (e) {
+              logger.warn('handler.sales_manager_referral_deferred_clear_fail', { contactId: contact.id, message: e.message });
+            }
+            refreshedContact.deferred_handoff = null;
+          }
+        }
+      } catch (err) {
+        logger.warn('handler.sales_manager_referral_escalation_fail', { contactId: contact.id, message: err.message });
+      }
+    }
+  }
+
+  // Append the specialist (owner) wa.me link. HOT-lead / bulk / live-agent
+  // handoffs always carry it; since 2026-07-05 ANY reply that names the Sales
+  // Manager / specialist carries it too (the invariant above guarantees an
+  // escalation routed this turn, so the link points at the right desk). Skip
+  // only if the LLM already produced a wa.me link itself.
   const isHotHandoffThisTurn = !!(
     classification.needs_escalation &&
     classification.escalation_type === 'hot_lead' &&
@@ -2212,14 +2341,15 @@ async function processCustomerBatch(entry) {
     classification.escalation_type === 'live_agent' &&
     !gatherFirst
   );
+  // Recompute AFTER the Sales-Manager-referral invariant so the link points at
+  // whoever that forced escalation routed to (owner for a big project, Abuja /
+  // Lagos desk otherwise). Falls back to SPECIALIST_DIRECT_LINK if unresolved.
   const routedRecipientNumber = (escResult && escResult.recipientNumber) || null;
-  // Owner directive (2026-06-08): whenever Sunny REFERS the customer to the
-  // Sales Manager and an escalation actually routed this turn (so we know which
-  // desk owns it), append that desk's direct line. This generalizes the old
-  // HOT/bulk/live_agent-only behavior to silent_query, negotiation, etc., which
-  // is why Skyline / Donwills-type handoffs were missing the link.
-  const replyRefersToSalesManager = /sales\s+manager|specialist/i.test(outboundText);
-  const isReferralHandoffThisTurn = !!(replyRefersToSalesManager && routedRecipientNumber && !gatherFirst);
+  // Owner directive (2026-07-05): whenever Sunny NAMES the Sales Manager / a
+  // specialist, the customer MUST get a direct WhatsApp line, no matter the
+  // region or gather-first state. The invariant above already guaranteed the
+  // parallel escalation, so this simply always attaches the line on a mention.
+  const isReferralHandoffThisTurn = replyRefersToSalesManager;
   if ((isHotHandoffThisTurn || isBulkHandoffThisTurn || isLiveAgentHandoffThisTurn || isReferralHandoffThisTurn) && !linkAlreadyInText) {
     // Point the customer at the SAME person the owner alert was routed to
     // (Abuja / Lagos sales, Charbel, or Patrick). Falls back to
@@ -2872,6 +3002,9 @@ module.exports = {
   buildStallFallbackText,
   isPresenceOrImpatienceCheck,
   detectBulkQuantity,
+  detectLargeOrderNgn,
+  isBigProjectByValue,
+  BIG_PROJECT_NGN_THRESHOLD,
   isLiveAgentRequest,
   detectLeadSource
 };
