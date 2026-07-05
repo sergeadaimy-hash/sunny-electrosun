@@ -2,6 +2,19 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-07-05 (later): All models switched to Claude Sonnet 5
+
+Serge asked to switch ALL of Sunny's models to Sonnet 5 (`claude-sonnet-5`, released after the prior model split; sticker price identical to Sonnet 4.6 at $3/$15 per MTok, with Anthropic intro pricing of $2/$10 through 2026-08-31). This retires the 2026-05-09 split (Opus 4.7 on reply, Sonnet 4.6 on classifier/teacher/owner_qa) and the Sonnet 4.6 audit default. Changes, tests 157/157:
+
+1. **Env vars staged on Railway** with `railway variables --skip-deploys`: `MODEL_REPLY`, `MODEL_CLASSIFIER`, `MODEL_TEACHER`, `MODEL_OWNER_QA`, `MODEL_AUDIT` all = `claude-sonnet-5`. No redeploy was triggered; the vars go live together with the code on the next push, avoiding a window where old code runs Sonnet 5.
+2. **Thinking pinned off (`thinking: { type: 'disabled' }`) on all six `messages.create` calls** (classify, generateReply, generateReply asterisk-retry, owner_qa, teacher, audit). Reason: Sonnet 5 runs adaptive thinking by default when the param is omitted (Sonnet 4.6 ran thinking-off), which would spend the small max_tokens budgets (400/600/1200) on thinking and could truncate replies or prepend thinking blocks to `content`.
+3. **Text extraction hardened**: every `resp.content[0].text` became `resp.content.find(b => b.type === 'text').text` (classifier, owner_qa, teacher, audit; the reply path already used find). Belt and suspenders in case thinking blocks ever appear first.
+4. **Cost tracker knows Sonnet 5**: `src/cost_tracker.js` gained a `claude-sonnet-5` pricing row (300/1500/30/375 cents per MTok, same as Sonnet 4.6). Without it, `modelKey()` returned null and every Sonnet 5 call would be billed as 0 cents, silently disabling the `DAILY_LLM_BUDGET_USD` guardrail.
+5. **Code-level fallback defaults flipped** to `claude-sonnet-5` in `src/claude.js`, `src/owner_qa.js`, `src/knowledge.js`, `src/audit.js`, and `.env.example`, so "all of them" holds even if an env override is removed.
+
+Expected cost effect: the reply path drops from Opus rates ($15/$75) to Sonnet rates ($3/$15), roughly a 5x cut on the most expensive call site. Watch items after deploy: verify via `/api/brain` that the model env values read `claude-sonnet-5`, and spot-check a few live replies (Sonnet 5 follows instructions more literally than 4.6; the system.md rules should hold as-is, but re-baseline if tone shifts). NOT yet pushed at the time of writing (Serge pushes manually; vars staged and waiting).
+
+
 ## 2026-07-05: HOT lead stranded by gather-first (no owner/sales alert, no Sales Manager link)
 
 Owner reported a HOT lead (Franck, contact 3641, `+237 656 504 314`) where Sunny quoted a full ₦41.29M BOM, the customer replied with name + phone + "please share my details with the Sales Manager", and Sunny answered "Noted. Details have been passed on. The Sales Manager will reach out shortly." But NO owner/sales desk was alerted and NO Sales Manager wa.me link was shared.

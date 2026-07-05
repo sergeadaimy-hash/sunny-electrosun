@@ -10,7 +10,7 @@ const auditStore = require('./audit_store');
 const { sendMessage, sendTemplate } = require('./whatsapp');
 const { getOrCreateContact, getActiveConversation, appendMessage } = require('./memory');
 
-const MODEL_AUDIT = process.env.MODEL_AUDIT || 'claude-sonnet-4-6';
+const MODEL_AUDIT = process.env.MODEL_AUDIT || 'claude-sonnet-5';
 const AUDIT_MAX_CONVERSATIONS = parseInt(process.env.AUDIT_MAX_CONVERSATIONS || '60', 10);
 const ADMIN_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sunny-electrosun-production.up.railway.app').replace(/\/+$/, '');
 
@@ -338,11 +338,12 @@ async function auditOneConversation(conv, runId, rulesSystemBlocks) {
   const resp = await client().messages.create({
     model: MODEL_AUDIT,
     max_tokens: 1200,
+    thinking: { type: 'disabled' },
     system: rulesSystemBlocks,
     messages: [{ role: 'user', content: userBlock }]
   });
   if (resp.usage) recordUsage(MODEL_AUDIT, resp.usage, 'audit');
-  const text = resp.content?.[0]?.text || '';
+  const text = resp.content?.find(b => b.type === 'text')?.text || '';
   return parseAuditFindings(text, { runId, conversationId: conv.conversation_id, contactId: conv.contact_id });
 }
 

@@ -6,7 +6,7 @@ const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 const ownerRouting = require('./owner_routing');
 
-const MODEL = process.env.MODEL_OWNER_QA || 'claude-opus-4-7';
+const MODEL = process.env.MODEL_OWNER_QA || 'claude-sonnet-5';
 const promptStore = require('./prompt_store');
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;
@@ -205,11 +205,12 @@ async function answerOwnerQuestion(ownerContactId, question) {
     const resp = await client().messages.create({
       model: MODEL,
       max_tokens: 600,
+      thinking: { type: 'disabled' },
       system: [{ type: 'text', text: promptStore.get('owner_qa'), cache_control: { type: 'ephemeral', ttl: '1h' } }],
       messages: [{ role: 'user', content: userBlock }]
     });
     if (resp.usage) recordUsage(MODEL, resp.usage, 'owner_qa');
-    const text = resp.content?.[0]?.text?.trim() || '';
+    const text = resp.content?.find(b => b.type === 'text')?.text?.trim() || '';
     return text || "I have the data but no answer text came back. Try the admin dashboard for the full view.";
   } catch (err) {
     logger.error('owner_qa.error', { message: err.message });

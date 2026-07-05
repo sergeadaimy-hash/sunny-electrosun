@@ -277,8 +277,8 @@ function cleanupBomReply(text) {
   return { text: out, changed: out !== before, reasons };
 }
 
-const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-opus-4-7';
-const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-opus-4-7';
+const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-sonnet-5';
+const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-sonnet-5';
 
 const promptStore = require('./prompt_store');
 
@@ -383,6 +383,9 @@ async function classify(history, message) {
   const callOnce = () => withRetry(() => client().messages.create({
     model: MODEL_CLASSIFIER,
     max_tokens: 400,
+    // Sonnet 5 runs adaptive thinking when the param is omitted; that would eat
+    // the small max_tokens budget and prepend thinking blocks to content.
+    thinking: { type: 'disabled' },
     system: classifierSystem,
     messages: [{ role: 'user', content: userBlock }]
   }), 'classify');
@@ -394,7 +397,7 @@ async function classify(history, message) {
       const resp = await callOnce();
       lastResp = resp;
       if (resp.usage) recordUsage(MODEL_CLASSIFIER, resp.usage, 'classifier');
-      const text = resp.content?.[0]?.text || '';
+      const text = resp.content?.find(b => b.type === 'text')?.text || '';
       parsed = tryParseJson(text);
       if (parsed) break;
       logger.warn('claude.classify.parse_fail', { attempt: i + 1, text: text.slice(0, 200) });
@@ -678,6 +681,7 @@ async function generateReply(history, message, contact, attachments = [], option
     const resp = await withRetry(() => client().messages.create({
       model: MODEL_REPLY,
       max_tokens: 600,
+      thinking: { type: 'disabled' },
       system: systemBlocks,
       messages
     }), 'generateReply');
@@ -702,6 +706,7 @@ async function generateReply(history, message, contact, attachments = [], option
         const retry = await client().messages.create({
           model: MODEL_REPLY,
           max_tokens: 600,
+          thinking: { type: 'disabled' },
           system: systemBlocks,
           messages: retryMessages
         });

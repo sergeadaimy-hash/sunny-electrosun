@@ -4,6 +4,9 @@ const logger = require('./utils/logger');
 const PRICING_CENTS_PER_MTOK = {
   'claude-haiku-4-5':   { input: 80,   output: 400,  cache_read: 8,    cache_write: 100 },
   'claude-sonnet-4-6':  { input: 300,  output: 1500, cache_read: 30,   cache_write: 375 },
+  // Sonnet 5 sticker price equals Sonnet 4.6 (intro $2/$10 per MTok runs through
+  // 2026-08-31, so real bills come in lower until then; we count at sticker).
+  'claude-sonnet-5':    { input: 300,  output: 1500, cache_read: 30,   cache_write: 375 },
   'claude-opus-4-7':    { input: 1500, output: 7500, cache_read: 150,  cache_write: 1875 }
 };
 

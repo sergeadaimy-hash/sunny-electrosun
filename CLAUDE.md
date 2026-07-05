@@ -47,7 +47,7 @@ Snapshot of what is live and what is pending. For per-session "why we shipped th
 - `SPECIALIST_DIRECT_LINK=+234 704 132 8055` (brother's number, used for wa.me handoff link on HOT replies).
 - `DISABLE_NOTIFICATIONS=true` (kill switch ON: report crons don't register at boot). Customer pipeline + auto-release cron still active.
 - `OPENAI_API_KEY` FIXED + CONFIRMED 2026-05-29. New `sk-proj-` key (billing credit added) set on Railway, validated against OpenAI, and confirmed live: a real WhatsApp voice note was transcribed and Sunny answered the spoken question correctly. Note: key was pasted in chat, rotate later for hygiene.
-- Model assignments live on Railway (set 2026-05-09): `MODEL_REPLY=claude-opus-4-7` (customer-facing, where rule-following margin matters); `MODEL_CLASSIFIER`, `MODEL_TEACHER`, `MODEL_OWNER_QA` all set to `claude-sonnet-4-6` for ~50-60% cost reduction. Code-level fallback in `src/claude.js` / `src/knowledge.js` / `src/owner_qa.js` still defaults to `claude-opus-4-7` if any env override is removed.
+- Model assignments: ALL FIVE call sites run `claude-sonnet-5` (2026-07-05 switch, staged on Railway with `--skip-deploys`; live once the 2026-07-05 commit is pushed). `MODEL_REPLY`, `MODEL_CLASSIFIER`, `MODEL_TEACHER`, `MODEL_OWNER_QA`, `MODEL_AUDIT` all set to `claude-sonnet-5`; code-level fallbacks in `src/claude.js` / `src/knowledge.js` / `src/owner_qa.js` / `src/audit.js` also default to `claude-sonnet-5`. Sonnet 5 runs adaptive thinking when the `thinking` param is omitted, so every `messages.create` call now passes `thinking: { type: 'disabled' }` (keeps the small max_tokens budgets intact and keeps `content[0]` a text block). Text extraction hardened to `content.find(b => b.type === 'text')` everywhere. `src/cost_tracker.js` gained a `claude-sonnet-5` pricing row (same sticker as Sonnet 4.6: $3/$15 per MTok; Anthropic intro pricing $2/$10 runs through 2026-08-31 so real bills come in lower). Prior split (Opus reply + Sonnet 4.6 rest, 2026-05-09) is retired.
 - `DAILY_LLM_BUDGET_USD=20`.
 - `DISABLE_ESCALATIONS=false` (kill switch available, not engaged).
 - `HUMAN_AUTO_RELEASE_MINUTES=15` (default; tunable).
@@ -172,7 +172,7 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 |---|---|
 | `DISABLE_NOTIFICATIONS=true` | Report crons don't register at boot (no 2-hour, daily, or daily-learning reports). Customer pipeline unaffected. Logs `cron.all_schedules_skipped_at_boot` once. **Exceptions that always run:** the auto-release cron, AND (since 2026-06-08, R2) the `*/30` window-scan, which runs in `{silent:true}` mode: it still expires stale `pending_queries` (so they don't suppress fresh routed alerts or inflate the open-query count) but sends no owner reminders/alerts. |
 | `DISABLE_ESCALATIONS=true` | All escalations (hot_lead, silent_query) get demoted to normal Sonnet/Opus replies. Useful for testing without canned holding messages firing. |
-| `MODEL_CLASSIFIER`, `MODEL_REPLY`, `MODEL_TEACHER`, `MODEL_OWNER_QA` | Override the four Opus defaults selectively. E.g. `MODEL_REPLY=claude-sonnet-4-6` to step back if budget tightens. |
+| `MODEL_CLASSIFIER`, `MODEL_REPLY`, `MODEL_TEACHER`, `MODEL_OWNER_QA` | Override the model per call site. All set to `claude-sonnet-5` on Railway (2026-07-05), matching the code defaults. |
 | `MESSAGE_DEBOUNCE_MS` | Per-contact debounce window in ms (default 6000). When customer sends multiple messages back-to-back, classification + reply fires ONCE per window with combined input `[Customer sent N messages back to back]\nmsg1\nmsg2\nmsg3`. |
 | `DAILY_LLM_BUDGET_USD` | Soft daily cap (currently 20). `src/cost_tracker.js > isOverBudget` short-circuits classify and generateReply to fallback paths when daily spend exceeds it. |
 | `KNOWLEDGE_PROMPT_MAX_FACTS`, `KNOWLEDGE_PROMPT_BUDGET_CHARS` | Cap on how many active facts get injected into Sonnet/Opus prompt (default 500 facts, 30KB chars). |
@@ -205,7 +205,7 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 | `META_REGISTRATION_PIN` | Cloud API registration PIN (current: `271828`). Needed if Meta forces re-register of the phone number. |
 | `ELECTROLEADS_OPENER` | The fixed opener that the external ElectroLeads outreach agent pre-fills in its wa.me click-to-chat link (default `Hello Electrosun team, I'm reaching out for a quotation`). `detectLeadSource()` in `src/handler.js` normalizes (case/punctuation/whitespace) and matches it on a contact's inbound; on first match it sets `contacts.lead_source='electroleads'` (once, never overwritten). A plain wa.me link carries NO webhook referral metadata (that exists only for Click-to-WhatsApp Ads), so the opener text is the only available signal. Surfaced in admin Contacts ("Source" column + search) and the Excel export ("Lead source"). Change this value to retune detection without a code change. |
 | `ENABLE_NIGHTLY_AUDIT` | When true, registers the nightly self-improvement audit cron (`0 21 * * *` Africa/Lagos). Independent of `DISABLE_NOTIFICATIONS`. Default off. |
-| `MODEL_AUDIT` | Model for the nightly audit (default `claude-sonnet-4-6`; must be a prefix the cost tracker recognizes). |
+| `MODEL_AUDIT` | Model for the nightly audit (default `claude-sonnet-5`; must be a prefix the cost tracker recognizes). Set to `claude-sonnet-5` on Railway (2026-07-05). |
 | `AUDIT_MAX_CONVERSATIONS` | Max conversations audited per nightly run (default 60). |
 | `AUDIT_PING_WHATSAPP` | Recipient of the nightly audit "proposals waiting" ping. Defaults to `OWNER_WHATSAPP`. Set to a developer number while testing so the owner is not pinged; the owner's other alerts stay on `OWNER_WHATSAPP`. Currently the developer line (`966502392650`). |
 | `AUDIT_PING_TEMPLATE` / `AUDIT_PING_TEMPLATE_LANG` | Name + language of the approved Meta template used for the nightly ping (defaults `nightly_audit_ping_en` / `en`). `sendOwnerAuditPing` sends this template FIRST (window-independent, so it is not silently dropped outside the 24h window) and falls back to the free-form `buildOwnerAuditPing` text if the template send fails (which also covers the PENDING-approval period). Template id `1738387983968228`, submitted PENDING 2026-06-16 under the live WABA. Body vars: {{1}} total, {{2}} lessons, {{3}} facts, {{4}} code notes; static "Open admin" URL button. Reason: 2026-06-16 the free-form ping for run #1 (164 findings) was accepted by Meta but never delivered because the developer line was outside its 24h window. |
@@ -213,7 +213,7 @@ The block is ALSO documented in `src/prompts/system.md` ("Dynamic context blocks
 
 ### Models, costs, and budget
 
-- Code-level fallback default: `claude-opus-4-7` for all four call sites. Live Railway env (since 2026-05-09): only `MODEL_REPLY` runs Opus; classifier, teacher, and owner_qa run `claude-sonnet-4-6`.
+- Code-level fallback default: `claude-sonnet-5` for all five call sites (2026-07-05). Railway env matches: reply, classifier, teacher, owner_qa, and audit all on `claude-sonnet-5`. Every call passes `thinking: { type: 'disabled' }` (Sonnet 5 would otherwise run adaptive thinking by default and burn the small max_tokens budgets).
 - Cost reality on Opus: ~$0.025-$0.05 per message (vs ~$0.005 on Sonnet). At 500 messages/day that's $15-$25/day.
 - Opus pricing per million tokens (cents, in `src/cost_tracker.js`): in 1500 / out 7500 / cache_read 150 / cache_write 1875.
 - Sonnet pricing (kept for fallback): in 300 / out 1500 / cache_read 30 / cache_write 375.
@@ -282,7 +282,7 @@ Sunny is an AI-powered WhatsApp Account Manager for **ElectroSun**, a solar ener
 - **Framework**: Express.js.
 - **Database**: SQLite via `better-sqlite3` (synchronous, single file at `db/sunny.db` locally, `/data/sunny.db` on Railway).
 - **WhatsApp**: Meta WhatsApp Cloud API (official, NOT Twilio, NOT unofficial libs). Graph API version `v21.0`.
-- **LLM**: Anthropic Claude API. All four call sites (`src/claude.js > classify`, `generateReply`; `src/knowledge.js > extractKnowledge`; `src/owner_qa.js > answerOwnerQuestion`) default to `claude-opus-4-7`. Override via `MODEL_*` env vars. Prompt caching enabled on system blocks via `cache_control: { type: 'ephemeral', ttl: '1h' }` (1-hour TTL since 2026-05-30; see Models, costs, and budget).
+- **LLM**: Anthropic Claude API. All call sites (`src/claude.js > classify`, `generateReply`; `src/knowledge.js > extractKnowledge`; `src/owner_qa.js > answerOwnerQuestion`; `src/audit.js`) default to `claude-sonnet-5` (2026-07-05) with `thinking: { type: 'disabled' }`. Override via `MODEL_*` env vars. Prompt caching enabled on system blocks via `cache_control: { type: 'ephemeral', ttl: '1h' }` (1-hour TTL since 2026-05-30; see Models, costs, and budget).
 - **Voice transcription**: OpenAI Whisper (`whisper-1` default, `WHISPER_MODEL` override).
 - **Scheduler**: `node-cron`.
 - **Email fallback**: `nodemailer` (used only if owner's WhatsApp report fails).

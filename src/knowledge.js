@@ -5,7 +5,7 @@ const { getDb } = require('../db/init');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 
-const MODEL_TEACHER = process.env.MODEL_TEACHER || 'claude-opus-4-7';
+const MODEL_TEACHER = process.env.MODEL_TEACHER || 'claude-sonnet-5';
 const promptStore = require('./prompt_store');
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;
@@ -46,11 +46,12 @@ async function extractKnowledge(ownerMessage) {
     const resp = await client().messages.create({
       model: MODEL_TEACHER,
       max_tokens: 600,
+      thinking: { type: 'disabled' },
       system: [{ type: 'text', text: promptStore.get('teacher'), cache_control: { type: 'ephemeral', ttl: '1h' } }],
       messages: [{ role: 'user', content: userBlock }]
     });
     if (resp.usage) recordUsage(MODEL_TEACHER, resp.usage, 'teacher');
-    const text = resp.content?.[0]?.text || '';
+    const text = resp.content?.find(b => b.type === 'text')?.text || '';
     const parsed = tryParseJson(text);
     if (!parsed) {
       logger.warn('knowledge.extract.parse_fail', { text: text.slice(0, 200) });
