@@ -6,7 +6,7 @@ const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 const ownerRouting = require('./owner_routing');
 
-const MODEL = process.env.MODEL_OWNER_QA || 'claude-sonnet-5';
+const MODEL = process.env.MODEL_OWNER_QA || 'claude-sonnet-4-6';
 const promptStore = require('./prompt_store');
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;

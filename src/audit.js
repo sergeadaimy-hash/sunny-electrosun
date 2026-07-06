@@ -10,7 +10,7 @@ const auditStore = require('./audit_store');
 const { sendMessage, sendTemplate } = require('./whatsapp');
 const { getOrCreateContact, getActiveConversation, appendMessage } = require('./memory');
 
-const MODEL_AUDIT = process.env.MODEL_AUDIT || 'claude-sonnet-5';
+const MODEL_AUDIT = process.env.MODEL_AUDIT || 'claude-sonnet-4-6';
 const AUDIT_MAX_CONVERSATIONS = parseInt(process.env.AUDIT_MAX_CONVERSATIONS || '60', 10);
 const ADMIN_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://sunny-electrosun-production.up.railway.app').replace(/\/+$/, '');
 

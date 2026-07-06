@@ -277,8 +277,8 @@ function cleanupBomReply(text) {
   return { text: out, changed: out !== before, reasons };
 }
 
-const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-sonnet-5';
-const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-sonnet-5';
+const MODEL_CLASSIFIER = process.env.MODEL_CLASSIFIER || 'claude-sonnet-4-6';
+const MODEL_REPLY = process.env.MODEL_REPLY || 'claude-sonnet-4-6';
 
 const promptStore = require('./prompt_store');
 
@@ -382,9 +382,12 @@ async function classify(history, message) {
 
   const callOnce = () => withRetry(() => client().messages.create({
     model: MODEL_CLASSIFIER,
-    max_tokens: 400,
-    // Sonnet 5 runs adaptive thinking when the param is omitted; that would eat
-    // the small max_tokens budget and prepend thinking blocks to content.
+    // 1000, up from 400 on 2026-07-06: the classifier JSON was truncating
+    // mid-field on real traffic, and every truncation costs a paid retry
+    // (claude.classify.parse_fail attempt 1 then 2, then fallback).
+    max_tokens: 1000,
+    // Newer Sonnet models run adaptive thinking when the param is omitted; that
+    // would eat the max_tokens budget and prepend thinking blocks to content.
     thinking: { type: 'disabled' },
     system: classifierSystem,
     messages: [{ role: 'user', content: userBlock }]

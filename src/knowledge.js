@@ -5,7 +5,7 @@ const { getDb } = require('../db/init');
 const logger = require('./utils/logger');
 const { recordUsage, isOverBudget } = require('./cost_tracker');
 
-const MODEL_TEACHER = process.env.MODEL_TEACHER || 'claude-sonnet-5';
+const MODEL_TEACHER = process.env.MODEL_TEACHER || 'claude-sonnet-4-6';
 const promptStore = require('./prompt_store');
 
 const AnthropicCtor = Anthropic.Anthropic || Anthropic.default || Anthropic;

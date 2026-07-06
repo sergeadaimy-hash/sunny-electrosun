@@ -1940,6 +1940,9 @@ async function processCustomerBatch(entry) {
             message_preview: safeCombinedText.slice(0, 40),
             prior_outbound_preview: lastBody.slice(0, 80)
           });
+          // Close the turn in the DB so the orphan sweep does not re-queue
+          // this message every 5 minutes (2026-07-06 cost runaway).
+          persistSilentSkipMarker(conversation.id, '[silent skip: customer closed the chat politely, no reply needed]');
           return;
         }
       }
@@ -2805,6 +2808,32 @@ function readBackContact(contactId) {
   return getDb().prepare('SELECT * FROM contacts WHERE id = ?').get(contactId) || {};
 }
 
+// Persist a non-sent outbound marker on a turn where Sunny DELIBERATELY stays
+// silent (e.g. the warm-close casual-confirm skip). Without it the orphan sweep
+// sees "customer inbound with no outbound after it" and re-queues the same
+// message every 5 minutes for the whole lookback window, burning a classifier
+// call per pass (the 2026-07-06 cost runaway). The marker is never sent to the
+// customer; it only closes the turn in the DB.
+function persistSilentSkipMarker(conversationId, note) {
+  try {
+    return appendMessage(conversationId, 'outbound', note || '[silent skip: no reply needed]', {
+      intent: 'silent_skip'
+    });
+  } catch (err) {
+    logger.warn('handler.silent_skip_marker_fail', { conversationId, message: err.message });
+    return null;
+  }
+}
+
+// Backstop for any intentional-silence path we forget to mark: the sweep gives
+// each message at most this many re-queue attempts, then leaves it alone.
+const ORPHAN_RECOVERY_MAX_ATTEMPTS = parseInt(process.env.ORPHAN_RECOVERY_MAX_ATTEMPTS || '2', 10);
+const orphanRecoveryAttempts = new Map();
+
+function resetOrphanRecoveryAttempts() {
+  orphanRecoveryAttempts.clear();
+}
+
 async function recoverOrphanedInbound(maxAgeMinutes = 10, opts = {}) {
   const { getDb } = require('../db/init');
   const db = getDb();
@@ -2830,7 +2859,7 @@ async function recoverOrphanedInbound(maxAgeMinutes = 10, opts = {}) {
         SELECT 1 FROM messages m2
         WHERE m2.conversation_id = m.conversation_id
           AND m2.direction = 'outbound'
-          AND m2.timestamp > m.timestamp
+          AND m2.timestamp >= m.timestamp
       )
       AND c.human_handled = 0
     ORDER BY m.timestamp ASC
@@ -2852,28 +2881,48 @@ async function recoverOrphanedInbound(maxAgeMinutes = 10, opts = {}) {
     cutoff_minutes: maxAgeMinutes
   });
 
+  // opts.enqueue lets tests observe re-queues without firing the real
+  // debounce + classify pipeline. Production always uses the default.
+  const enqueue = typeof opts.enqueue === 'function' ? opts.enqueue : (o) => {
+    const synth = {
+      from: o.phone,
+      profileName: o.contact_name || null,
+      kind: 'text',
+      body: o.body || '',
+      id: o.whatsapp_message_id || `recovered:${o.msg_id}`,
+      replyToId: null,
+      media: null
+    };
+    const contact = getOrCreateContact(synth.from, synth.profileName);
+    const conversation = getActiveConversation(contact.id);
+    enqueueCustomerMessage(contact, conversation, synth, null, null, synth.body);
+  };
+
+  // Crude bound so the attempt map cannot grow forever; entries only matter
+  // within the sweep's lookback window anyway.
+  if (orphanRecoveryAttempts.size > 5000) orphanRecoveryAttempts.clear();
+
   let recovered = 0;
+  let capped = 0;
   for (const o of filtered) {
+    const attempts = orphanRecoveryAttempts.get(o.msg_id) || 0;
+    if (attempts >= ORPHAN_RECOVERY_MAX_ATTEMPTS) {
+      capped++;
+      continue;
+    }
     try {
-      const synth = {
-        from: o.phone,
-        profileName: o.contact_name || null,
-        kind: 'text',
-        body: o.body || '',
-        id: o.whatsapp_message_id || `recovered:${o.msg_id}`,
-        replyToId: null,
-        media: null
-      };
-      const contact = getOrCreateContact(synth.from, synth.profileName);
-      const conversation = getActiveConversation(contact.id);
-      enqueueCustomerMessage(contact, conversation, synth, null, null, synth.body);
+      orphanRecoveryAttempts.set(o.msg_id, attempts + 1);
+      enqueue(o);
       recovered++;
     } catch (err) {
       logger.error('handler.recovery.fail', { msgId: o.msg_id, message: err.message });
     }
   }
+  if (capped) {
+    logger.info('handler.recovery.attempts_capped', { capped, max_attempts: ORPHAN_RECOVERY_MAX_ATTEMPTS });
+  }
   logger.info('handler.recovery.done', { recovered });
-  return { recovered };
+  return { recovered, capped };
 }
 
 async function answerPendingForContact(contactId) {
@@ -2891,7 +2940,7 @@ async function answerPendingForContact(contactId) {
         SELECT 1 FROM messages m2
         WHERE m2.conversation_id = m.conversation_id
           AND m2.direction = 'outbound'
-          AND m2.timestamp > m.timestamp
+          AND m2.timestamp >= m.timestamp
       )
     ORDER BY m.timestamp DESC
     LIMIT 1
@@ -3194,6 +3243,8 @@ module.exports = {
   handleInbound,
   extractMessages,
   recoverOrphanedInbound,
+  persistSilentSkipMarker,
+  resetOrphanRecoveryAttempts,
   scrubTeamContactLeadTags,
   extractCustomerPhoneDigits,
   chunkText,

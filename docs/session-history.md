@@ -2,6 +2,16 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-07-06: Cost runaway diagnosed and fixed, Sonnet 4.6 revert
+
+Owner reported today's API spend at $32.28 with FEWER conversations than previous days (5-day baseline ~$21/day). Diagnosis from `/api/budget/today` + live logs: 1,166 classifier calls against only 444 inbound messages while reply calls were BELOW average (398 vs ~494), so something was re-classifying without replying.
+
+**Root cause 1: the 2026-07-05 orphan sweep fought the warm-close silence guard.** Customers ending a chat with "Ok"/"Alright"/"🙏🏼" after Sunny's "no problem, no rush" hit `casual_confirm_after_warm_close_skipped`, which correctly stays silent, so no outbound row was written, so `recoverOrphanedInbound(360, {minAgeMinutes:3})` on the `*/5` cron saw an "unanswered customer" and re-queued the exact same message every 5 minutes until it aged out of the 6h window (~72 classifier calls per stuck message; 5 messages stuck at once in the live logs, ~70% of all batch fires in the sampled window were sweep re-queues). Fixes, TDD, new `test/orphan_recovery.test.js`: (1) `persistSilentSkipMarker(conversationId, note)` writes a non-sent outbound row (`intent='silent_skip'`, no wamid) on deliberate-silence turns; wired into the warm-close skip; (2) per-message re-queue cap `ORPHAN_RECOVERY_MAX_ATTEMPTS` (default 2, in-memory map, `resetOrphanRecoveryAttempts()` for tests, logs `handler.recovery.attempts_capped`) as a backstop for any future silent path; (3) the sweep's "answered" check became `m2.timestamp >= m.timestamp` (same-millisecond outbound counts; also applied to `answerPendingForContact`); (4) `opts.enqueue` DI so tests observe re-queues without firing the real pipeline.
+
+**Root cause 2: Sonnet 5 classifier JSON truncating at `max_tokens: 400`.** ~23% of classify calls in the sampled window hit `claude.classify.parse_fail` with the JSON cut mid-field, each costing a paid retry (and sometimes still falling back). Fixed: classifier `max_tokens` 400 -> 1000.
+
+**Model revert (owner decision): all five call sites back to `claude-sonnet-4-6`.** Code defaults in `src/claude.js` (classifier + reply), `src/knowledge.js`, `src/owner_qa.js`, `src/audit.js`; Railway `MODEL_REPLY/CLASSIFIER/TEACHER/OWNER_QA/AUDIT` staged to `claude-sonnet-4-6` with `--skip-deploys` (live on this push). `thinking: { type: 'disabled' }` kept everywhere (valid on 4.6, guards adaptive-thinking defaults). `cost_tracker` already had the `claude-sonnet-4-6` pricing row. Tests 166/166.
+
 ## 2026-07-05 (evening): Solar Analyst silence, owner-as-HOT-lead, and the Owner Q&A upgrade
 
 Three owner reports in one sitting, all fixed, tests 161/161.
