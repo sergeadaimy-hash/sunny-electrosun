@@ -2,6 +2,19 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-07-11: Idle-chatter mute, Sunny stops replying to unproductive conversations
+
+Owner (Serge) sent screenshots of a conversation that never ends: a contact sending Arabic-script small talk ("صباح الخير كيف حالك"), emoji volleys (🌹🌹🌹🌹, 🤲, 👍), junk links (a TikTok share, a Facebook share, an adult site domain), and voice notes transcribing to "........". Every such turn ran the FULL paid pipeline (classifier call + reply call) and Sunny answered politely every time ("We reply in English only", "Take your time", "Good morning, Sir"), forever. Directive: these conversations should be stopped, Sunny should stop replying.
+
+Decisions taken with Serge (AskUserQuestion): ONE polite reply per junk streak, then silence (he stressed detection must be confident it is a spam conversation before muting); NO final closing line (silence is the point); bare junk links get NO reply at all, muted from the first message.
+
+**Shipped (TDD, tests 192/192):**
+- **`src/idle_chatter.js`** (new, pure, DB-free): `classifyLowValue(text)` returns `'bare_link'` (message is only URL/domain, under 4 word-chars around it), `'emoji_only'` (nothing left after stripping pictographs/punctuation), `'non_serviced_script'` (letters ≥2, under 30% Latin, NO digits, NO product token; the five serviced languages are all Latin script so English/Pidgin/Hausa/Yoruba/Igbo, and importantly FRENCH from the Cameroon/Niger ads, can never be flagged), `'unintelligible'` (dots/punctuation only, or the failed-transcription marker), or `null`. Voice-note transcripts are judged on the transcript body; image markers are never low-value. `assessIdleChatter({text, priorMessages, freeReplies})` counts the trailing streak of consecutive low-value inbound turns (outbound rows and reactions skipped; first substantive inbound breaks it) and mutes when the streak has already consumed the allowance (`IDLE_CHATTER_FREE_REPLIES`, default 1). Bare links mute unconditionally.
+- **`src/handler.js > maybeMuteIdleChatter(contact, conversation, currentBatchWamids, combinedText, attachments)`**: reads `getMessagesForConversation` minus the current batch rows, calls the core, and on mute writes the `silent_skip` marker (so the orphan sweep never re-queues the turn, the 2026-07-06 lesson) plus an `idle_chatter_muted` event and `handler.idle_chatter.muted` log. A turn with an image attachment is never muted. Fail-open on any error.
+- **Hook**: in `processCustomerBatch` right after batch truncation and BEFORE `runClassification`, so a muted turn costs ZERO LLM calls. Return is before topic-shift, greeting, welcome-card, datasheet, and escalation paths.
+- Self-resetting by design: any substantive message (product word, digit, Latin text, real question) resets the streak instantly and Sunny wakes up, and the 24h conversation rollover starts a fresh conversation anyway, so tomorrow's first greeting gets one fresh polite reply.
+- New tests: `test/idle_chatter.test.js` (20, pure core incl. every screenshot message and the French/Hausa/Yoruba/Pidgin false-positive candidates) + `test/idle_chatter_wiring.test.js` (6, temp-DB wiring incl. marker persistence and image-attachment bypass).
+
 ## 2026-07-06: Cost runaway diagnosed and fixed, Sonnet 4.6 revert
 
 Owner reported today's API spend at $32.28 with FEWER conversations than previous days (5-day baseline ~$21/day). Diagnosis from `/api/budget/today` + live logs: 1,166 classifier calls against only 444 inbound messages while reply calls were BELOW average (398 vs ~494), so something was re-classifying without replying.

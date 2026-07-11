@@ -29,6 +29,7 @@ const { transcribeAudio } = require('./transcribe');
 const security = require('./security');
 const { buildOwnerAlertText, buildOwnerAlertTemplateComponents } = require('./owner_alert');
 const ownerRouting = require('./owner_routing');
+const idleChatter = require('./idle_chatter');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
 
@@ -1420,6 +1421,18 @@ async function processCustomerBatch(entry) {
       contactId: contact.id,
       original_length: batchTrunc.original
     });
+  }
+
+  // Idle-chatter guard (owner directive 2026-07-11): unproductive turns
+  // (non-serviced-script small talk, emoji volleys, bare junk links, dot
+  // transcripts) get ONE polite reply per streak, then full silence. Bare junk
+  // links never get a reply at all. Runs BEFORE the classifier so a muted turn
+  // costs zero LLM calls. A substantive message instantly resets the streak,
+  // so a real lead who finally asks about solar always wakes Sunny up.
+  {
+    const currentWamids = msgs.map(m => m && m.id).filter(Boolean);
+    const chatterRes = maybeMuteIdleChatter(contact, conversation, currentWamids, safeCombinedText, attachments);
+    if (chatterRes.muted) return;
   }
 
   // Fix C: detect substantive topic shift in the new inbound and auto-resolve
@@ -2814,6 +2827,45 @@ function readBackContact(contactId) {
 // message every 5 minutes for the whole lookback window, burning a classifier
 // call per pass (the 2026-07-06 cost runaway). The marker is never sent to the
 // customer; it only closes the turn in the DB.
+// Idle-chatter mute (owner directive 2026-07-11): stop replying to
+// unproductive conversations. The pure detection lives in src/idle_chatter.js;
+// this wrapper reads the conversation's prior rows (excluding the current
+// batch, which is already persisted by the time the batch fires), and on mute
+// writes the silent_skip marker so the orphan sweep never re-queues the turn.
+// A turn carrying an image attachment is never muted: the customer may be
+// showing a roof, a load, or a product.
+function maybeMuteIdleChatter(contact, conversation, currentBatchWamids, combinedText, attachments) {
+  try {
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      return { muted: false, reason: null };
+    }
+    const currentIds = new Set((currentBatchWamids || []).filter(Boolean));
+    const priorMessages = getMessagesForConversation(conversation.id)
+      .filter(row => !currentIds.has(row.whatsapp_message_id));
+    const res = idleChatter.assessIdleChatter({ text: combinedText, priorMessages });
+    if (!res.mute) {
+      return { muted: false, reason: res.reason, priorStreak: res.priorStreak };
+    }
+    persistSilentSkipMarker(conversation.id, `[silent skip: unproductive conversation muted (${res.reason})]`);
+    logEvent(contact.id, 'idle_chatter_muted', {
+      reason: res.reason,
+      prior_streak: res.priorStreak,
+      message_preview: String(combinedText || '').slice(0, 80)
+    });
+    logger.info('handler.idle_chatter.muted', {
+      contactId: contact.id,
+      conversationId: conversation.id,
+      reason: res.reason,
+      prior_streak: res.priorStreak,
+      message_preview: String(combinedText || '').slice(0, 80)
+    });
+    return { muted: true, reason: res.reason, priorStreak: res.priorStreak };
+  } catch (err) {
+    logger.warn('handler.idle_chatter.check_fail', { message: err.message });
+    return { muted: false, reason: null };
+  }
+}
+
 function persistSilentSkipMarker(conversationId, note) {
   try {
     return appendMessage(conversationId, 'outbound', note || '[silent skip: no reply needed]', {
@@ -3244,6 +3296,7 @@ module.exports = {
   extractMessages,
   recoverOrphanedInbound,
   persistSilentSkipMarker,
+  maybeMuteIdleChatter,
   resetOrphanRecoveryAttempts,
   scrubTeamContactLeadTags,
   extractCustomerPhoneDigits,
