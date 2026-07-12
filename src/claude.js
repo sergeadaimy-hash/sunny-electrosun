@@ -383,9 +383,14 @@ async function describeInboundImage(attachment, caption) {
     logger.warn('claude.image_describe.budget_exceeded');
     return null;
   }
+  // MODEL_IMAGE_DESCRIBE lets the describer stay on a stronger vision model
+  // when MODEL_CLASSIFIER is stepped down (2026-07-12 Haiku classifier
+  // switch): descriptions feed owner alerts and classification, so their
+  // accuracy is held separately from classification cost.
+  const describeModel = process.env.MODEL_IMAGE_DESCRIBE || MODEL_CLASSIFIER;
   try {
     const resp = await withRetry(() => client().messages.create({
-      model: MODEL_CLASSIFIER,
+      model: describeModel,
       max_tokens: 200,
       thinking: { type: 'disabled' },
       system: [{ type: 'text', text: IMAGE_DESCRIBE_PROMPT }],
@@ -397,7 +402,7 @@ async function describeInboundImage(attachment, caption) {
         ]
       }]
     }), 'describeInboundImage');
-    if (resp.usage) recordUsage(MODEL_CLASSIFIER, resp.usage, 'classifier');
+    if (resp.usage) recordUsage(describeModel, resp.usage, 'classifier');
     const text = resp.content?.find(b => b.type === 'text')?.text?.trim() || '';
     return text ? text.replace(/\s+/g, ' ').slice(0, 400) : null;
   } catch (err) {

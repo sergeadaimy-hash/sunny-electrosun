@@ -2,6 +2,18 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-07-12 (later): Classifier switched to Haiku 4.5 (cost trial)
+
+Owner approved the biggest remaining cost lever from the token review. `MODEL_CLASSIFIER=claude-haiku-4-5-20251001` on Railway ($1/$5 per MTok vs Sonnet's $3/$15; the classifier ran 6,245 calls this month, expected saving ~$3-5/day). Reply, teacher, owner Q&A, and audit stay on `claude-sonnet-4-6`; code defaults stay Sonnet everywhere so unsetting the var is always a safe rollback.
+
+Why this is the low-risk switch: the classifier's dangerous failure modes are deterministic code, not model judgment. `HOT_TRIGGER_RE` force-promotes commitment phrases regardless of classifier output, HOT-without-commitment demotes, greetings/clarifications cannot escalate, and a parse failure falls back to a safe no-escalation default. Verified live before flipping: Haiku 4.5 accepts the exact call shape (`thinking: disabled`, 1h `cache_control`, `max_tokens` 1000), and `tryParseJson` already strips the code fences Haiku likes to emit.
+
+Shipped alongside (TDD, suite 219/219):
+- **Cost tracker Haiku row corrected** (`test/cost_pricing.test.js`): the tracker carried Haiku 3.5 rates ($0.80/$4.00); Haiku 4.5 bills $1.00/$5.00, cache read 0.1x, write 1.25x. Without this the daily budget guardrail and dashboard would under-report classifier spend.
+- **`MODEL_IMAGE_DESCRIBE` env** (defaults to `MODEL_CLASSIFIER`): the per-image vision description feeds owner alerts and classification, so it is pinned to `claude-sonnet-4-6` on Railway independently of the classifier trial. `describeInboundImage` also now records usage under the model that actually ran.
+
+Watch for 2-3 days: `claude.classify.parse_fail` rate, escalation routing quality, HOT leads still reaching owners. Rollback: `railway variables --set MODEL_CLASSIFIER=claude-sonnet-4-6`.
+
 ## 2026-07-12: Image-reading fix + security hardening sweep (deps, auth, backups, XSS)
 
 Second half of the 2026-07-11/12 session. Serge asked for (a) the safe subset of the token/security review implemented with zero risk to customer-facing behavior, and (b) a fix for "he's not reading images now". Five commits, suite 166 -> 215 tests.
