@@ -242,6 +242,52 @@ function logSecurityEvent(name, details) {
   logger.warn(`security.${name}`, details);
 }
 
+// API auth hardening (2026-07-12). safeKeyCompare hashes both sides so
+// timingSafeEqual gets equal-length buffers; the per-IP failure throttle caps
+// key-guessing. Only FAILED attempts count, so a legit admin behind the same
+// proxy IP as an attacker is never locked out; the attacker's guesses just
+// start returning 429.
+const crypto = require('crypto');
+const API_AUTH_MAX_FAILURES = parseInt(process.env.API_AUTH_MAX_FAILURES || '20', 10);
+const API_AUTH_WINDOW_MS = parseInt(process.env.API_AUTH_WINDOW_MS || '600000', 10);
+const API_AUTH_FAILURES = new Map();
+
+function safeKeyCompare(provided, expected) {
+  if (!provided || !expected) return false;
+  const a = crypto.createHash('sha256').update(String(provided)).digest();
+  const b = crypto.createHash('sha256').update(String(expected)).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+function recordApiAuthFailure(ip, nowMs) {
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const key = String(ip || 'unknown');
+  let rec = API_AUTH_FAILURES.get(key);
+  if (!rec || now - rec.first > API_AUTH_WINDOW_MS) {
+    rec = { first: now, count: 0 };
+    API_AUTH_FAILURES.set(key, rec);
+  }
+  rec.count += 1;
+  // Opportunistic cleanup so the map cannot grow without bound.
+  if (API_AUTH_FAILURES.size > 5000) {
+    for (const [k, r] of API_AUTH_FAILURES) {
+      if (now - r.first > API_AUTH_WINDOW_MS) API_AUTH_FAILURES.delete(k);
+    }
+  }
+  return rec.count;
+}
+
+function checkApiAuthThrottle(ip, nowMs) {
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const rec = API_AUTH_FAILURES.get(String(ip || 'unknown'));
+  if (!rec || now - rec.first > API_AUTH_WINDOW_MS) return { allowed: true, count: 0 };
+  return { allowed: rec.count < API_AUTH_MAX_FAILURES, count: rec.count };
+}
+
+function resetApiAuthThrottle() {
+  API_AUTH_FAILURES.clear();
+}
+
 module.exports = {
   checkRateLimit,
   truncateInbound,
@@ -257,6 +303,10 @@ module.exports = {
   detectStallLanguage,
   checkImageQuota,
   logSecurityEvent,
+  safeKeyCompare,
+  recordApiAuthFailure,
+  checkApiAuthThrottle,
+  resetApiAuthThrottle,
   RATE_LIMIT_PER_MINUTE,
   RATE_LIMIT_DAILY,
   MAX_SINGLE_MESSAGE_CHARS,

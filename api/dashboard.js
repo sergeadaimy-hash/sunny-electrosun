@@ -17,6 +17,7 @@ const { sendMessage } = require('../src/whatsapp');
 const { recoverOrphanedInbound, answerPendingForContact, retryFallbackReplies } = require('../src/handler');
 const datasheetsModule = require('../src/datasheets');
 const { getTodayStats, getBudgetCents, getMonthStats } = require('../src/cost_tracker');
+const security = require('../src/security');
 const {
   listKnowledge,
   setKnowledgeStatus,
@@ -89,13 +90,18 @@ router.use((req, res, next) => {
     return res.status(503).json({ error: 'API_KEY not configured on server' });
   }
 
-  if (apiKey === process.env.API_KEY) {
+  // Constant-time compares (2026-07-12); a valid key ALWAYS passes, so an
+  // attacker flooding bad guesses from a shared proxy IP can never lock the
+  // real admin out. Invalid keys are throttled per IP after the failure cap.
+  const clientIp = (req.get('x-forwarded-for') || '').split(',')[0].trim() || req.ip || 'unknown';
+
+  if (security.safeKeyCompare(apiKey, process.env.API_KEY)) {
     req.role = 'admin';
     return next();
   }
 
   const inboxKey = process.env.INBOX_API_KEY;
-  if (inboxKey && apiKey === inboxKey) {
+  if (inboxKey && security.safeKeyCompare(apiKey, inboxKey)) {
     req.role = 'inbox';
     // req.path strips the /api mount prefix and the query string.
     if (!inboxRoleAllows(req.method, req.path)) {
@@ -105,6 +111,13 @@ router.use((req, res, next) => {
     return next();
   }
 
+  const throttle = security.checkApiAuthThrottle(clientIp);
+  security.recordApiAuthFailure(clientIp);
+  if (!throttle.allowed) {
+    security.logSecurityEvent('api_auth_throttled', { ip: clientIp, failures: throttle.count });
+    return res.status(429).json({ error: 'too many attempts, try again later' });
+  }
+  logger.warn('api.invalid_key_attempt', { ip: clientIp });
   return res.status(401).json({ error: 'invalid api key' });
 });
 
