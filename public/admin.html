@@ -2427,9 +2427,9 @@ function renderContacts() {
 
 function contactRowHtml(c) {
   const tempPill = c.lead_temperature
-    ? '<span class="pill ' + c.lead_temperature.toLowerCase() + '">' + c.lead_temperature + '</span>'
+    ? '<span class="pill ' + escapeHtml(c.lead_temperature.toLowerCase()) + '">' + escapeHtml(c.lead_temperature) + '</span>'
     : '<span class="empty">-</span>';
-  const catPill = c.category ? '<span class="pill">' + c.category + '</span>' : '<span class="empty">-</span>';
+  const catPill = c.category ? '<span class="pill">' + escapeHtml(c.category) + '</span>' : '<span class="empty">-</span>';
   const cell = (v) => v ? escapeHtml(v) : '<span class="empty">-</span>';
   const srcPill = c.lead_source
     ? '<span class="pill src-' + escapeHtml(String(c.lead_source).toLowerCase()) + '">' + escapeHtml(c.lead_source) + '</span>'
@@ -2762,8 +2762,8 @@ function getInitials(name, phone) {
 }
 
 function convRowHtml(c) {
-  const tempPill = c.lead_temperature ? '<span class="pill ' + c.lead_temperature.toLowerCase() + '">' + c.lead_temperature + '</span>' : '';
-  const catPill = c.category ? '<span class="pill">' + c.category + '</span>' : '';
+  const tempPill = c.lead_temperature ? '<span class="pill ' + escapeHtml(c.lead_temperature.toLowerCase()) + '">' + escapeHtml(c.lead_temperature) + '</span>' : '';
+  const catPill = c.category ? '<span class="pill">' + escapeHtml(c.category) + '</span>' : '';
   const humanPill = c.human_handled ? '<span class="pill human">HUMAN</span>' : '';
   const pendingPill = (c.pending_queries_count || 0) > 0 ? '<span class="pill pending-q">' + c.pending_queries_count + ' Q</span>' : '';
   const direction = c.last_message_direction === 'outbound' ? '→ ' : '';
@@ -2856,9 +2856,9 @@ function renderConversationView(data, scrollToBottom) {
     ? (preservedScrollHeight - preservedScrollTop - preservedClientHeight) < 80
     : false;
 
-  const tempPill = contact?.lead_temperature ? '<span class="pill ' + contact.lead_temperature.toLowerCase() + '">' + contact.lead_temperature + '</span>' : '';
-  const catPill = contact?.category ? '<span class="pill">' + contact.category + '</span>' : '';
-  const clientPill = contact?.client_type ? '<span class="pill">' + contact.client_type + '</span>' : '';
+  const tempPill = contact?.lead_temperature ? '<span class="pill ' + escapeHtml(contact.lead_temperature.toLowerCase()) + '">' + escapeHtml(contact.lead_temperature) + '</span>' : '';
+  const catPill = contact?.category ? '<span class="pill">' + escapeHtml(contact.category) + '</span>' : '';
+  const clientPill = contact?.client_type ? '<span class="pill">' + escapeHtml(contact.client_type) + '</span>' : '';
   const humanPill = isHuman ? '<span class="pill human">HUMAN HANDLED</span>' : '';
 
   const handleBtn = isHuman
