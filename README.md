@@ -19,7 +19,7 @@ Sunny is an AI-powered WhatsApp Account Manager for **ElectroSun**, a solar ener
 - **Framework:** Express.js
 - **Database:** SQLite via `better-sqlite3` (single file)
 - **WhatsApp:** Meta WhatsApp Cloud API (Graph API v21.0)
-- **LLM:** Anthropic Claude API (reply path on Opus, classifier / owner Q&A / teacher on Sonnet)
+- **LLM:** Anthropic Claude API (classifier on Haiku 4.5; replies, owner Q&A, teacher, audit, and image descriptions on Sonnet 4.6)
 - **Voice transcription:** OpenAI Whisper
 - **Scheduler:** `node-cron`
 
