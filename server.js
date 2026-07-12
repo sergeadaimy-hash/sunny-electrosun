@@ -10,6 +10,7 @@ const { initDb, DB_PATH } = require('./db/init');
 const webhookRouter = require('./src/webhook');
 const dashboardRouter = require('./api/dashboard');
 const { recoverOrphanedInbound, autoReleaseStaleHumanConversations, routeStaleDeferredHandoffs, scrubTeamContactLeadTags } = require('./src/handler');
+const { runDbBackup } = require('./src/db_backup');
 const {
   generateHourlyReport,
   generateDailyReport,
@@ -228,6 +229,21 @@ if (require.main === module) {
     }
   });
   logger.info('cron.window_scan.registered', { interval: '*/30 * * * *', silent: notificationsDisabled() });
+
+  // Nightly DB backup (2026-07-12). ALWAYS registers, outside the
+  // DISABLE_NOTIFICATIONS gate: the old snapshotDb() lives on the silenced
+  // report cron, which left production with zero backups. Gzipped snapshot to
+  // /data/backups, newest DB_BACKUP_KEEP kept (default 14). 02:10 Lagos time,
+  // off the hour so it never contends with the 21:00/02:00-style report slots.
+  cron.schedule('10 2 * * *', async () => {
+    try {
+      const res = await runDbBackup();
+      if (!res.ok) logger.error('cron.db_backup.failed', res);
+    } catch (err) {
+      logger.error('cron.db_backup.error', { message: err.message });
+    }
+  }, { timezone: 'Africa/Lagos' });
+  logger.info('cron.db_backup.registered', { interval: '10 2 * * *', timezone: 'Africa/Lagos' });
 
   // Nightly self-improvement audit (2026-06-15). Gated by its OWN flag so it can
   // run even while DISABLE_NOTIFICATIONS=true (which silences the legacy reports).
