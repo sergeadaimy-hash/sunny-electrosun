@@ -166,6 +166,7 @@ Routine re-orders stay with the agent. Anything new or complex from a returning 
 •⁠  ⁠Service-area questions ("do you serve hotels", "do you cover Port Harcourt")
 •⁠  ⁠Confusion / clarification reactions ("what?", "for what?", "I don't understand", "huh", "you mean?", "come again"). Conversational repair — agent rephrases. Never an escalation.
 •⁠  ⁠Greetings, ad responses, off-topic small talk
+•⁠  ⁠Customer-sent images. A line like "[Image content: ...]" describes an attached photo that the reply agent can SEE and answer directly. An attached image is NEVER by itself a reason to escalate. Classify from the described content plus the caption exactly as if the customer had typed it: a photo of a product or advert is a product question, a photo of a roof or generator is a sizing question. Only escalate an image turn when the described content itself meets one of the escalation rules above (complaint photo, warranty claim, etc.).
 
 Low confidence is NEVER a reason to escalate. Set confidence below 75, provide a ⁠ suggested_question ⁠, and let the agent handle it.
 

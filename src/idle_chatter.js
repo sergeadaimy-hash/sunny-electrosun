@@ -22,7 +22,9 @@ const URL_RE = /(https?:\/\/\S+|www\.\S+|\b[\w-]+\.(?:com|net|org|info|io|me|co|
 
 const VOICE_PREFIX = '[voice note transcribed]:';
 const VOICE_FAIL_MARKER_RE = /^\[customer sent a voice note that could not be transcribed\]/i;
-const IMAGE_MARKER_RE = /^\[customer sent an image/i;
+// Matches both the classifier-input marker ("[Customer sent an image ...]")
+// and the persisted DB body shape ("[image] <caption>").
+const IMAGE_MARKER_RE = /^\[(customer sent an image|image\b)/i;
 
 function classifyLowValue(text) {
   let t = String(text || '').trim();

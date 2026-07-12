@@ -361,6 +361,51 @@ function formatHistoryAsText(history) {
   }).join('\n');
 }
 
+// Describe a customer-sent image so the CLASSIFIER (which is text-only) and
+// the owner alerts can see what the image shows (2026-07-11 image-reading
+// fix). Strictly descriptive: legible text is quoted verbatim, nothing is
+// guessed. The reply model still receives the raw image as a vision input;
+// this description only informs classification, routing, and history.
+// Returns a short plain-text description, or null on any failure (the
+// pipeline then falls back to the old "[Customer sent an image]" marker).
+const IMAGE_DESCRIBE_PROMPT = [
+  'You describe one customer-sent WhatsApp image for a solar equipment sales pipeline.',
+  'Reply with 1 to 2 factual sentences of plain text and nothing else. State what is visible:',
+  'equipment type, setting (roof, shop, screenshot, document, invoice), and quantities you can count.',
+  'Quote brand names, model numbers, and ratings ONLY if they are clearly legible in the image, exactly as written.',
+  'If the image is a screenshot of a product listing, an advert, or a document, say so and quote the key legible text.',
+  'Never guess a brand, model, or spec that is not clearly readable. Never add opinions, recommendations, or greetings.'
+].join(' ');
+
+async function describeInboundImage(attachment, caption) {
+  if (!attachment || !attachment.base64 || !attachment.mimeType) return null;
+  if (isOverBudget()) {
+    logger.warn('claude.image_describe.budget_exceeded');
+    return null;
+  }
+  try {
+    const resp = await withRetry(() => client().messages.create({
+      model: MODEL_CLASSIFIER,
+      max_tokens: 200,
+      thinking: { type: 'disabled' },
+      system: [{ type: 'text', text: IMAGE_DESCRIBE_PROMPT }],
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: attachment.mimeType, data: attachment.base64 } },
+          { type: 'text', text: caption ? `Customer caption: ${caption}` : 'No caption. Describe the image.' }
+        ]
+      }]
+    }), 'describeInboundImage');
+    if (resp.usage) recordUsage(MODEL_CLASSIFIER, resp.usage, 'classifier');
+    const text = resp.content?.find(b => b.type === 'text')?.text?.trim() || '';
+    return text ? text.replace(/\s+/g, ' ').slice(0, 400) : null;
+  } catch (err) {
+    logger.warn('claude.image_describe.fail', { message: err.message });
+    return null;
+  }
+}
+
 async function classify(history, message) {
   if (isOverBudget()) {
     logger.warn('claude.classify.budget_exceeded');
@@ -1202,4 +1247,4 @@ function buildKnownCustomerContext(contact, isCasualGreeting) {
   return `\n\n# Known about this customer\n${contextLines.join('\n')}${greetingNote}`;
 }
 
-module.exports = { classify, generateReply, detectDanglingFragment, buildKnownCustomerContext, detectFabricatedVariantFromItems };
+module.exports = { classify, generateReply, describeInboundImage, detectDanglingFragment, buildKnownCustomerContext, detectFabricatedVariantFromItems };

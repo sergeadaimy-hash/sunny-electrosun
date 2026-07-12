@@ -19,7 +19,7 @@ const {
   updateContactFields
 } = require('./memory');
 const { runClassification } = require('./classifier');
-const { generateReply } = require('./claude');
+const { generateReply, describeInboundImage } = require('./claude');
 const { sendMessage, sendTemplate, downloadMedia, uploadMediaToMeta, sendDocument, sendImage } = require('./whatsapp');
 const warehouse = require('./warehouse');
 const { DB_PATH } = require('../db/init');
@@ -453,7 +453,34 @@ function buildBulkOrderContext(quantity) {
   ].join('\n');
 }
 
-function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
+// Image body builders (2026-07-11 image-reading fix). The vision-model
+// description travels in both the persisted DB body (so admin and FUTURE
+// history turns know what the image showed) and the classifier input (so an
+// image turn classifies on real content instead of a blind marker).
+function buildImagePersistedBody(caption, description) {
+  const base = caption ? `[image] ${caption}` : '[image]';
+  return description ? `${base}\n[Image content: ${description}]` : base;
+}
+
+function buildImageCombinedPart(caption, description) {
+  const base = caption
+    ? `[Customer sent an image with caption]: ${caption}`
+    : '[Customer sent an image with no caption]';
+  return description ? `${base}\n[Image content: ${description}]` : base;
+}
+
+// Pending-query silence cooldown decision (extracted 2026-07-11). A turn that
+// carries a fresh image attachment is NEVER suppressed: the image is new
+// information, not a repeated "any update?" nag, and suppressing it was how a
+// customer's "I mean this one" + product photo got total silence.
+function shouldSuppressFollowupReply({ lastAssistantReplyAt, nowMs, silenceMs, hasImageAttachments }) {
+  if (hasImageAttachments) return false;
+  if (!lastAssistantReplyAt) return false;
+  const sinceLastReplyMs = (Number.isFinite(nowMs) ? nowMs : Date.now()) - new Date(lastAssistantReplyAt).getTime();
+  return Number.isFinite(sinceLastReplyMs) && sinceLastReplyMs < silenceMs;
+}
+
+function buildExpertContext({ openPending, escalationJustCreated, isHot, hasImage }) {
   if (isHot) {
     return [
       '# HOT lead handoff context (treat as authoritative)',
@@ -481,6 +508,9 @@ function buildExpertContext({ openPending, escalationJustCreated, isHot }) {
   lines.push('');
   lines.push('How to reply RIGHT NOW:');
   lines.push('- Read the customer\'s CURRENT message and respond to THAT.');
+  if (hasImage) {
+    lines.push('- The customer attached an image to THIS message; it is included with the message as a real image you can see. Look at it and respond to what it actually shows. If a brand or model is clearly legible, you may match it against the warehouse stock block and answer under the normal pricing rules. If it is not legible or not in stock, say what you can see and ask ONE clarifying question. NEVER guess a model number, capacity, or spec from an unclear photo.');
+  }
   lines.push('- ANSWER directly from the warehouse stock block and the owner-taught knowledge facts. Stock status (per Abuja and per Lagos), prices, and product options are in those blocks. Use them.');
   lines.push('- Do NOT say "the team will reach out", "the team will follow up", "the team is on it", "the Sales Manager will confirm", "the specialist will confirm", "we will share the figure shortly", "we will get back to you", or any variant. Those phrases are BANNED in this turn.');
   lines.push('- Do NOT echo back invented quantities, model numbers, prices, or order sizes (for example "100-unit order") that the customer has NOT actually said in their messages. If a prior outbound message of yours mentioned such a thing without the customer saying it, that was a mistake and you must NOT repeat it. Re-read the customer\'s actual messages to find what they actually want.');
@@ -1400,9 +1430,7 @@ async function processCustomerBatch(entry) {
 
   const combinedTextParts = msgs.map((m, i) => {
     if (m.kind === 'image') {
-      return m.body
-        ? `[Customer sent an image with caption]: ${m.body}`
-        : `[Customer sent an image with no caption]`;
+      return buildImageCombinedPart(m.body, m.imageDescription);
     }
     return m.body;
   });
@@ -2055,19 +2083,24 @@ async function processCustomerBatch(entry) {
   // PENDING_QUERY_REPLY_SILENCE_MS. The owner alert path still fires
   // (handled inside notifyOwnerForEscalation as a follow-up ping), the
   // customer just stops getting more "Could you share..." stalls.
-  if (currentOpen && currentOpen.last_assistant_reply_at) {
-    const sinceLastReplyMs = Date.now() - new Date(currentOpen.last_assistant_reply_at).getTime();
-    if (Number.isFinite(sinceLastReplyMs) && sinceLastReplyMs < PENDING_QUERY_REPLY_SILENCE_MS) {
+  const turnHasImages = Array.isArray(attachments) && attachments.length > 0;
+  if (currentOpen) {
+    const suppress = shouldSuppressFollowupReply({
+      lastAssistantReplyAt: currentOpen.last_assistant_reply_at,
+      nowMs: Date.now(),
+      silenceMs: PENDING_QUERY_REPLY_SILENCE_MS,
+      hasImageAttachments: turnHasImages
+    });
+    if (suppress) {
       logger.info('handler.followup_reply_suppressed_silence_cooldown', {
         contactId: contact.id,
         queryId: currentOpen.id,
-        since_last_reply_ms: sinceLastReplyMs,
         cooldown_ms: PENDING_QUERY_REPLY_SILENCE_MS
       });
       try {
         logEvent(contact.id, 'silent_query_followup_suppressed', {
           queryId: currentOpen.id,
-          since_last_reply_ms: sinceLastReplyMs
+          last_assistant_reply_at: currentOpen.last_assistant_reply_at
         });
       } catch (err) {
         logger.warn('handler.followup_suppress_log_fail', { message: err.message });
@@ -2135,13 +2168,15 @@ async function processCustomerBatch(entry) {
     expertContext = buildExpertContext({
       openPending: currentOpen,
       escalationJustCreated: !!(escResult && escResult.freshPendingId),
-      isHot: false
+      isHot: false,
+      hasImage: turnHasImages
     });
   } else if (escResult && escResult.escalationType === 'silent_query' && (escResult.freshPendingId || escResult.ownerNotified)) {
     expertContext = buildExpertContext({
       openPending: null,
       escalationJustCreated: true,
-      isHot: false
+      isHot: false,
+      hasImage: turnHasImages
     });
   }
 
@@ -2274,7 +2309,8 @@ async function processCustomerBatch(entry) {
           ? buildExpertContext({
               openPending: stallOpen,
               escalationJustCreated: !!stallEsc.freshPendingId,
-              isHot: false
+              isHot: false,
+              hasImage: turnHasImages
             })
           : null;
         if (stallContext) {
@@ -2715,6 +2751,21 @@ async function handleInbound(payload) {
             base64: dl.buffer.toString('base64')
           };
           logger.info('handler.image.saved', { mediaId: msg.media.id, path: savePath, sizeBytes: dl.buffer.length });
+          // Describe the image so the text-only classifier, the owner alerts,
+          // and future history turns can see what it shows (2026-07-11
+          // image-reading fix). Best-effort: on failure the pipeline falls
+          // back to the blind "[Customer sent an image]" marker.
+          try {
+            const desc = await describeInboundImage(imageAttachment, msg.body || '');
+            if (desc) {
+              msg.imageDescription = desc;
+              logger.info('handler.image.described', { mediaId: msg.media.id, description_preview: desc.slice(0, 120) });
+            } else {
+              logger.warn('handler.image.describe_empty', { mediaId: msg.media.id });
+            }
+          } catch (err) {
+            logger.warn('handler.image.describe_fail', { mediaId: msg.media.id, message: err.message });
+          }
         } catch (err) {
           logger.error('handler.image.download_fail', { mediaId: msg.media.id, message: err.message });
         }
@@ -2787,7 +2838,7 @@ async function handleInbound(payload) {
       }
 
       const persistedBody = msg.kind === 'image'
-        ? (msg.body ? `[image] ${msg.body}` : '[image]')
+        ? buildImagePersistedBody(msg.body, msg.imageDescription)
         : (audioTranscript ? `[voice note transcribed]: ${audioTranscript}` : msg.body);
 
       appendMessage(conversation.id, 'inbound', persistedBody, {
@@ -3297,6 +3348,10 @@ module.exports = {
   recoverOrphanedInbound,
   persistSilentSkipMarker,
   maybeMuteIdleChatter,
+  buildImagePersistedBody,
+  buildImageCombinedPart,
+  shouldSuppressFollowupReply,
+  buildExpertContext,
   resetOrphanRecoveryAttempts,
   scrubTeamContactLeadTags,
   extractCustomerPhoneDigits,
