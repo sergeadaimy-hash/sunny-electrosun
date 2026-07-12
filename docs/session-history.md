@@ -2,6 +2,14 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-07-12 (evening): Owner Q&A capability hallucination fix
+
+Serge's screenshots: in the Owner Q&A thread (developer line), Sunny claimed it could not send datasheets/photos automatically and asked for "a media library or file-matching endpoint to be wired in", also promising "I will fix it immediately". Both fast-paths have been LIVE since May; the flagged requests were items with NO file uploaded. Live coverage check: 18/27 items have datasheets, 17/27 have photos, and the gaps are the high-demand ones (Jinko 720W/620W and Longi 650W panels have neither; racks and PDUs missing too).
+
+Fix (TDD, suite 224/224): `buildMediaCoverageSummary(items)` in `src/owner_qa.js` (pure, exported, `test/owner_media_coverage.test.js`) feeds a `media_coverage` block into the snapshot: capability statement (auto-send is built and live, flagged requests = missing file, fix = upload in admin Warehouse Stock) plus counts and the exact item lists missing datasheets/photos (capped at 15). `owner_qa.md` gained a "What you can already do" section (datasheets, photos, image reading, voice notes, routing, welcome card; never claim these are missing) and two hard rules: never invent feature requests or capability gaps (answer developer-needs questions only from real snapshot gaps), and never promise to fix or change its own code.
+
+Owner action that actually closes the loop: upload datasheets/photos for the three panel models and the rack/PDU accessories in admin > Warehouse Stock.
+
 ## 2026-07-12 (later): Classifier switched to Haiku 4.5 (cost trial)
 
 Owner approved the biggest remaining cost lever from the token review. `MODEL_CLASSIFIER=claude-haiku-4-5-20251001` on Railway ($1/$5 per MTok vs Sonnet's $3/$15; the classifier ran 6,245 calls this month, expected saving ~$3-5/day). Reply, teacher, owner Q&A, and audit stay on `claude-sonnet-4-6`; code defaults stay Sonnet everywhere so unsetting the var is always a safe rollback.

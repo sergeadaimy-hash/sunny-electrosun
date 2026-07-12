@@ -48,6 +48,35 @@ function buildRoutingSummary(recipients) {
   return lines.join('\n');
 }
 
+// Media coverage block (2026-07-12). Sunny told the developer line that it
+// could not auto-send datasheets/photos and asked for "a media library
+// endpoint", when both fast-paths have been live since May. The flagged
+// requests were items with NO file uploaded (the three solar panels, racks,
+// PDUs). This factual block goes into the Owner Q&A snapshot so the model
+// reports the real gap (missing files, uploadable in admin > Warehouse Stock)
+// instead of inventing a missing feature.
+const MISSING_LIST_CAP = 15;
+
+function buildMediaCoverageSummary(items) {
+  const list = Array.isArray(items) ? items : [];
+  const label = (i) => [i.brand, i.model].filter(Boolean).join(' ').trim() || `item ${i.id}`;
+  const hasDatasheet = (i) => !!(i.datasheet_path || i.datasheet_filename);
+  const hasPhotos = (i) => Array.isArray(i.photos) && i.photos.length > 0;
+  const capList = (arr) => {
+    if (arr.length <= MISSING_LIST_CAP) return arr;
+    const extra = arr.length - (MISSING_LIST_CAP - 1);
+    return arr.slice(0, MISSING_LIST_CAP - 1).concat([`and ${extra} more`]);
+  };
+  return {
+    how_it_works: 'Sunny ALREADY auto-sends product datasheets (as PDF documents) and product photos to customers, matched by product name/model against Warehouse Stock. This capability is built and live; no new endpoint or media library is needed. When a datasheet or photo request gets flagged to the team instead of answered, the cause is that the matched item has NO file uploaded. Fix: upload the file in the admin dashboard under Warehouse Stock on that item.',
+    items_total: list.length,
+    items_with_datasheet: list.filter(hasDatasheet).length,
+    items_with_photos: list.filter(hasPhotos).length,
+    missing_datasheet: capList(list.filter(i => !hasDatasheet(i)).map(label)),
+    missing_photos: capList(list.filter(i => !hasPhotos(i)).map(label))
+  };
+}
+
 function buildOwnerSnapshot(ownerContactId) {
   const db = getDb();
   const todayStart = startOfTodayIso();
@@ -181,7 +210,15 @@ function buildOwnerSnapshot(ownerContactId) {
     recent_contacts: recentContactsRows,
     recent_escalations: recentEscalationsRows,
     owner_chat: ownerChat,
-    lead_routing: buildRoutingSummary(ownerRouting.configuredRecipients())
+    lead_routing: buildRoutingSummary(ownerRouting.configuredRecipients()),
+    media_coverage: (() => {
+      try {
+        return buildMediaCoverageSummary(require('./warehouse').listItems());
+      } catch (err) {
+        logger.warn('owner_qa.media_coverage_fail', { message: err.message });
+        return null;
+      }
+    })()
   };
 }
 
@@ -225,4 +262,4 @@ async function answerOwnerQuestion(ownerContactId, question, opts = {}) {
   }
 }
 
-module.exports = { buildOwnerSnapshot, answerOwnerQuestion, buildRoutingSummary };
+module.exports = { buildOwnerSnapshot, answerOwnerQuestion, buildRoutingSummary, buildMediaCoverageSummary };
