@@ -26,6 +26,21 @@ const VOICE_FAIL_MARKER_RE = /^\[customer sent a voice note that could not be tr
 // and the persisted DB body shape ("[image] <caption>").
 const IMAGE_MARKER_RE = /^\[(customer sent an image|image\b)/i;
 
+// Romanized-Arabic chatter (2026-07-15): Whisper is pinned to English, so an
+// Arabic voice note comes back as Latin transliteration ("Ya habibi, misal
+// kheir...") that the script-ratio check can never catch. Strong tokens are
+// distinctly Levantine/Gulf chatter words; weak tokens only count alongside
+// them. Common Nigerian loanwords (wallahi, alhamdulillah, salam alaikum) are
+// protected by requiring TWO strong hits plus a high token ratio, and by the
+// product/digit guard that runs first.
+const ROMANIZED_STRONG_RE = /^(habibi|habibti|habib|yalla|shukran|sukran|marhaba|ahlan|khalas|akhi|ukhti|hayati|albi|mishtaq\w*|walla|wallah\w*)$/;
+const ROMANIZED_WEAK_RE = /^(ya|ana|anta|enta|inta|kif|keef|kaif|kheir|khair|alik|aleik|alaik|shlonak|shu|wain|fi|mafi|tamam|misal|masa|sabah)$/;
+
+// Courtesy-only messages (thanks, greetings, affection) with nothing else.
+// These are normal from real customers, so they are only muted when the
+// conversation is already inside a junk streak (see assessIdleChatter).
+const COURTESY_PHRASE_RE = /\b(thank\s*(you|u)|thanks+|tanx|thank\s*god|you(\s*are|'?re)?\s*welcome|good\s*(morning|afternoon|evening|day|night)|how\s*are\s*(you|u|things)|how\s*far|i\s*(am|'?m)\s*(good|fine|okay|ok|great)|i\s*love\s*(you|u)(\s*so\s*much)?|god\s*bless(\s*you)?|well\s*done|take\s*care|good\s*?bye|bye+|hello+|hi+|hey+|ok(ay)?|alright|no\s*(problem|wahala)|you\s*too|same\s*to\s*you|so\s*much|very\s*much|sir|oga|boss|madam|ma|my\s*(dear|friend|brother|sister)|dear|please|abeg|and|also|too)\b/gi;
+
 function classifyLowValue(text) {
   let t = String(text || '').trim();
   if (!t) return null;
@@ -44,13 +59,26 @@ function classifyLowValue(text) {
     if (!t) return 'unintelligible';
   }
 
-  // Bare link: one or more URLs with nothing substantive around them.
-  const withoutUrls = t.replace(URL_RE, ' ');
-  if (withoutUrls !== t.replace(/\s+/g, ' ')) {
-    const leftoverWordChars = (withoutUrls.match(/[\p{L}\p{N}]/gu) || []).length;
+  // Messages carrying URLs: judge the text AROUND the links. A share-card
+  // (TikTok/Facebook boilerplate, chatter around a link) is a junk link even
+  // when the boilerplate itself is long; only genuinely substantive
+  // surrounding text saves it. (2026-07-15: an Arabic TikTok share slipped
+  // through because the URLs and "TikTok Lite" boilerplate inflated the
+  // Latin-letter ratio.)
+  const urls = t.match(URL_RE);
+  if (urls && urls.length) {
+    const remainder = t.replace(URL_RE, ' ').trim();
+    const leftoverWordChars = (remainder.match(/[\p{L}\p{N}]/gu) || []).length;
     if (leftoverWordChars < 4) return 'bare_link';
+    if (classifyBody(remainder)) return 'bare_link';
+    return null;
   }
 
+  return classifyBody(t);
+}
+
+// Classify URL-free message text. Returns a low-value kind or null.
+function classifyBody(t) {
   const hasPictographic = /\p{Extended_Pictographic}/u.test(t);
   const strippedOfSymbols = t.replace(/[\p{Extended_Pictographic}\p{P}\p{S}\p{Cf}\s️‍]/gu, '');
 
@@ -60,13 +88,32 @@ function classifyLowValue(text) {
   // Dots, dashes, stray punctuation ("........" transcripts).
   if (!strippedOfSymbols) return 'unintelligible';
 
-  // Non-serviced-script chatter: predominantly non-Latin letters, no digits,
-  // no product tokens. Serviced languages are all Latin script.
+  // Any digit or product/commerce token marks the message substantive.
+  if (/\d/.test(t) || PRODUCT_TOKEN_RE.test(t)) return null;
+
   const letters = t.match(/\p{L}/gu) || [];
-  if (letters.length >= 2 && !/\d/.test(t) && !PRODUCT_TOKEN_RE.test(t)) {
+
+  // Non-serviced-script chatter: predominantly non-Latin letters. Serviced
+  // languages are all Latin script (real ones score near 1.0, so 0.5 is safe).
+  if (letters.length >= 2) {
     const latinCount = letters.filter(ch => /\p{Script=Latin}/u.test(ch)).length;
-    if (latinCount / letters.length < 0.3) return 'non_serviced_script';
+    if (latinCount / letters.length < 0.5) return 'non_serviced_script';
   }
+
+  // Transliterated-Arabic chatter in Latin script.
+  const tokens = t.toLowerCase().split(/[^a-z']+/).filter(Boolean);
+  if (tokens.length >= 3) {
+    const strong = tokens.filter(w => ROMANIZED_STRONG_RE.test(w)).length;
+    const weak = tokens.filter(w => ROMANIZED_WEAK_RE.test(w)).length;
+    if (strong >= 2 && (strong + weak) / tokens.length >= 0.3) return 'non_serviced_script';
+  }
+
+  // Courtesy-only: strip courtesy phrases; if nothing meaningful remains, the
+  // message is pure politeness ("Thank you so much", "Good morning, how are
+  // you?"). Muted only inside an existing junk streak.
+  const withoutCourtesy = t.replace(COURTESY_PHRASE_RE, ' ');
+  const courtesyLeftover = (withoutCourtesy.match(/[\p{L}\p{N}]/gu) || []).length;
+  if (letters.length >= 2 && courtesyLeftover < 3) return 'courtesy';
 
   return null;
 }
@@ -86,15 +133,20 @@ function assessIdleChatter({ text, priorMessages, freeReplies } = {}) {
 
   // Count the trailing streak of consecutive low-value customer turns.
   // Outbound rows (including silent_skip markers) and reactions are skipped;
-  // the first substantive inbound breaks the streak.
+  // the first substantive inbound breaks the streak. Courtesy turns extend a
+  // streak (so "thank you" cannot reset a junk mute) but only hard junk
+  // (script/emoji/link/unintelligible) makes the streak dangerous.
   let priorStreak = 0;
+  let hardJunkInStreak = false;
   const rows = Array.isArray(priorMessages) ? priorMessages : [];
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i];
     if (!row || row.direction !== 'inbound') continue;
     if (isReactionRow(row)) continue;
-    if (classifyLowValue(row.body)) {
+    const kind = classifyLowValue(row.body);
+    if (kind) {
       priorStreak++;
+      if (kind !== 'courtesy') hardJunkInStreak = true;
     } else {
       break;
     }
@@ -105,7 +157,13 @@ function assessIdleChatter({ text, priorMessages, freeReplies } = {}) {
   // Junk links never earn a reply (owner decision 2026-07-11).
   if (reason === 'bare_link') return { mute: true, reason, priorStreak };
 
+  // Courtesy is normal from real customers (thanks after a quote, greetings).
+  // It is muted only when the conversation is already inside a junk streak.
   const allowance = Number.isFinite(freeReplies) ? freeReplies : IDLE_CHATTER_FREE_REPLIES;
+  if (reason === 'courtesy') {
+    return { mute: priorStreak >= allowance && hardJunkInStreak, reason, priorStreak };
+  }
+
   return { mute: priorStreak >= allowance, reason, priorStreak };
 }
 

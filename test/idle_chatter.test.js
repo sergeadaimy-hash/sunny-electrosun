@@ -53,10 +53,13 @@ test('punctuation-only and gibberish transcripts are low value', () => {
 test('normal English messages are NOT low value', () => {
   assert.equal(classifyLowValue('What is the warranty on Deye batteries?'), null);
   assert.equal(classifyLowValue('I need solar panels'), null);
-  assert.equal(classifyLowValue('hello'), null);
-  assert.equal(classifyLowValue('Good morning'), null);
-  assert.equal(classifyLowValue('ok'), null);
   assert.equal(classifyLowValue('how much'), null);
+});
+
+test('pure greetings classify as courtesy (never muted without a junk streak)', () => {
+  assert.equal(classifyLowValue('hello'), 'courtesy');
+  assert.equal(classifyLowValue('Good morning'), 'courtesy');
+  assert.equal(classifyLowValue('ok'), 'courtesy');
 });
 
 test('pidgin and serviced-language messages are NOT low value', () => {
@@ -160,4 +163,102 @@ test('freeReplies option is honored', () => {
   ];
   const res = assessIdleChatter({ text: '👍', priorMessages: prior, freeReplies: 3 });
   assert.equal(res.mute, false);
+});
+
+// 2026-07-15 leak regression: a live spam conversation kept getting replies
+// because three message shapes classified as substantive AND reset the streak:
+// (a) an Arabic TikTok share (URLs + "TikTok Lite" boilerplate pushed the
+// Latin ratio over the bar), (b) a courtesy voice note ("Thank you so much"),
+// (c) a transliterated-Arabic voice note ("Ya habibi, misal kheir...") which
+// Whisper, pinned to English, romanizes into Latin script.
+
+const TIKTOK_SHARE = 'شاهد مقطع الفيديو الخاص بـOneal! #TikTok https://vm.tiktok.com/ZSXhW7DfY/ تتم مشاركة هذا المنشور عبر TikTok Lite. نزل TikTok Lite للاستمتاع بمزيد من المنشورات: https://www.tiktok.com/tiktoklite';
+const TRANSLIT_VOICE = '[voice note transcribed]: Ya habibi, misal kheir, ya habibi, misal kheir. Anta kuhisa, ya habibi, kif haalik, al-umurik sahwa al-afiha. Ya habibi, anta tqib, ya habibi, mishtaqeer. Walla, ana mishtaqe alik, mishtaqe alik.';
+
+test('link share wrapped in non-serviced-script boilerplate is a bare link', () => {
+  assert.equal(classifyLowValue(TIKTOK_SHARE), 'bare_link');
+});
+
+test('link with genuinely substantive Latin text around it is NOT low value', () => {
+  assert.equal(classifyLowValue('Please check this datasheet https://example.com/deye.pdf and tell me the price'), null);
+  assert.equal(classifyLowValue('My address is here https://maps.app.goo.gl/abc, can you deliver 4 panels?'), null);
+});
+
+test('transliterated Arabic chatter in Latin script is low value', () => {
+  assert.equal(classifyLowValue(TRANSLIT_VOICE), 'non_serviced_script');
+  assert.equal(classifyLowValue('ya habibi kif haalik ya habibi mishtaqe alik walla'), 'non_serviced_script');
+});
+
+test('Nigerian usage of single Arabic loanwords is NOT flagged', () => {
+  assert.equal(classifyLowValue('Wallahi I go buy the inverter next week'), null);
+  assert.equal(classifyLowValue('Alhamdulillah, the panels arrived safely, thank you'), null);
+  assert.equal(classifyLowValue('Salam alaikum, I want to ask about solar for my shop'), null);
+});
+
+test('courtesy-only messages classify as courtesy', () => {
+  assert.equal(classifyLowValue('[voice note transcribed]: Thank you so much. Thank you.'), 'courtesy');
+  assert.equal(classifyLowValue('Good morning, how are you?'), 'courtesy');
+  assert.equal(classifyLowValue('ok thank you'), 'courtesy');
+});
+
+test('courtesy with real content stays substantive', () => {
+  assert.equal(classifyLowValue('Thank you, please send the proforma invoice'), null);
+  assert.equal(classifyLowValue('Good morning, do you deliver to Kano?'), null);
+});
+
+test('courtesy after a junk streak stays muted (does not reset the mute)', () => {
+  const prior = [
+    inbound('صباح الخير كيف حالك'),
+    outbound('Hello Sir, we reply in English only.'),
+    inbound(TIKTOK_SHARE),
+    outbound('[silent skip: unproductive conversation muted (bare_link)]', { intent: 'silent_skip' }),
+  ];
+  const res = assessIdleChatter({ text: '[voice note transcribed]: Thank you so much. Thank you.', priorMessages: prior });
+  assert.equal(res.mute, true);
+  assert.equal(res.reason, 'courtesy');
+});
+
+test('courtesy in a clean conversation is never muted', () => {
+  const prior = [
+    inbound('What is the price of the Deye 16kW?'),
+    outbound('The Deye SUN-16K is 3,000,000 NGN, Sir.'),
+  ];
+  const res = assessIdleChatter({ text: 'Thank you so much', priorMessages: prior });
+  assert.equal(res.mute, false);
+});
+
+test('greeting then greeting (no hard junk) is never muted', () => {
+  const prior = [
+    inbound('Hello'),
+    outbound('Welcome to Electro-Sun...'),
+  ];
+  const res = assessIdleChatter({ text: 'Good morning', priorMessages: prior });
+  assert.equal(res.mute, false);
+});
+
+test('transliterated voice chatter after a junk streak stays muted', () => {
+  const prior = [
+    inbound('صباح الخير كيف حالك'),
+    outbound('Hello Sir, we reply in English only.'),
+    inbound('يا قلب ان نخيك'),
+    outbound('[silent skip: unproductive conversation muted (non_serviced_script)]', { intent: 'silent_skip' }),
+  ];
+  const res = assessIdleChatter({ text: TRANSLIT_VOICE, priorMessages: prior });
+  assert.equal(res.mute, true);
+});
+
+test('full 2026-07-15 spam sequence never resets the streak', () => {
+  const prior = [
+    inbound('مرخين مصح الخيرا'),
+    outbound('Good morning, Sir. How can I help you today?'),
+    inbound('يا قلب ان نخيك'),
+    outbound('[silent skip]', { intent: 'silent_skip' }),
+    inbound('وسكرا كانيرا'),
+    outbound('[silent skip]', { intent: 'silent_skip' }),
+    inbound(TIKTOK_SHARE),
+  ];
+  const thanks = assessIdleChatter({ text: '[voice note transcribed]: Thank you so much. Thank you.', priorMessages: prior });
+  assert.equal(thanks.mute, true);
+  const habibi = assessIdleChatter({ text: TRANSLIT_VOICE, priorMessages: prior });
+  assert.equal(habibi.mute, true);
 });
