@@ -2,6 +2,16 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-07-15: Idle-chatter mute bypass closed (Jul 14 spam leak)
+
+Serge sent a screenshot of the same spam conversation the 2026-07-11 mute was built for: the thread muted twice, then woke up again and got three more replies. Systematic trace against the exact live messages found three holes in `classifyLowValue`, each of which not only earned a reply but RESET the mute streak:
+
+1. **Arabic TikTok share** ("...TikTok Lite... https://vm.tiktok.com/..."): the Latin-script ratio was computed on the full text, so the URLs and "TikTok Lite / Oneal" boilerplate pushed the ratio over the 0.3 bar and the message classified substantive. Fix: URLs are stripped first; a message whose non-URL remainder is itself low-value is a `bare_link` (zero replies, owner decision). Ratio threshold raised 0.3 -> 0.5 (serviced languages score near 1.0, so still safe).
+2. **Courtesy voice note** ("Thank you so much. Thank you."): pure English, classified substantive, reset the streak. Fix: new `courtesy` kind (thanks/greetings/affection with nothing else). It extends a junk streak instead of resetting it, but only mutes when the streak already contains hard junk, so a real customer's thanks after a quote (streak 0) is never touched. Pure greetings ("hello") now classify `courtesy` too; behavior in clean conversations is unchanged.
+3. **Transliterated-Arabic voice note** ("Ya habibi, misal kheir, kif haalik..."): Whisper is pinned to English, so Arabic speech comes back as Latin transliteration the script check can never catch. Fix: a strong/weak romanized-Arabic token lexicon (strong: habibi, mishtaq*, walla(h), yalla, shukran...; weak: ya, kif, kheir, alik...). Requires 2+ strong hits AND 30% token ratio, after the digit/product guard. Nigerian loanword usage ("Wallahi I need inverter", "Salam alaikum, do you have panels", "Alhamdulillah the panels arrived") verified safe by tests; salam/alaikum/inshallah are deliberately NOT strong tokens because Nigerian Muslim customers use them.
+
+Verified against real-customer samples in all five serviced languages plus mixed loanword messages (all pass through). Commit `cc18781`, tests 236/236 (12 new, including the full Jul 14 message sequence as a regression test). Deployed and confirmed live on Railway at 10:18 (`/version`).
+
 ## 2026-07-12 (evening): Owner Q&A capability hallucination fix
 
 Serge's screenshots: in the Owner Q&A thread (developer line), Sunny claimed it could not send datasheets/photos automatically and asked for "a media library or file-matching endpoint to be wired in", also promising "I will fix it immediately". Both fast-paths have been LIVE since May; the flagged requests were items with NO file uploaded. Live coverage check: 18/27 items have datasheets, 17/27 have photos, and the gaps are the high-demand ones (Jinko 720W/620W and Longi 650W panels have neither; racks and PDUs missing too).
