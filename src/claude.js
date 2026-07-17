@@ -9,6 +9,7 @@ const { getFactsText } = require('./facts');
 const { formatWarehouseForPrompt, formatDatasheetKnowledgeForPrompt, listItems: listWarehouseItems, extractSizeNumbers, itemPhase } = require('./warehouse');
 // datasheets retired from prompt 2026-05-10: now attached to warehouse items, looked up at send time
 const security = require('./security');
+const vault = require('./vault');
 const {
   validateAndFixHvBom,
   recordDropsForContact: recordHvDropsForContact,
@@ -331,6 +332,7 @@ const FALLBACK_CLASSIFICATION = {
   owner_followup_draft: null,
   routing_category: null,
   routing_region: null,
+  topic_tags: [],
   lead_data: {
     name: null, location: null, use_case: null, load_estimate: null, timeline: null,
     products_asked_about: null, brand_preference: null, budget_mentioned: null,
@@ -422,6 +424,13 @@ async function classify(history, message) {
   const classifierSystem = [
     { type: 'text', text: promptStore.get('classifier'), cache_control: { type: 'ephemeral', ttl: '1h' } }
   ];
+  // Vault topic tagging (2026-07-17). Built in code from vault/tag-map.json,
+  // NOT edited into classifier.md, so an owner prompt rewrite can never drop
+  // the field. Cached: it only changes when the tag map file changes.
+  const tagBlock = vault.buildClassifierTagBlock();
+  if (tagBlock) {
+    classifierSystem.push({ type: 'text', text: tagBlock, cache_control: { type: 'ephemeral', ttl: '1h' } });
+  }
   let warehouseSnap = '';
   try { warehouseSnap = formatWarehouseForPrompt(); } catch (err) {
     logger.warn('claude.classify.warehouse_load_fail', { message: err.message });
@@ -466,6 +475,7 @@ async function classify(history, message) {
 
   const out = { ...FALLBACK_CLASSIFICATION, ...parsed };
   out.lead_data = { ...FALLBACK_CLASSIFICATION.lead_data, ...(parsed.lead_data || {}) };
+  out.topic_tags = vault.sanitizeTags(parsed.topic_tags);
   if (typeof out.confidence !== 'number') out.confidence = 0;
   if (typeof out.needs_escalation !== 'boolean') {
     out.needs_escalation = out.confidence < 90;
@@ -645,6 +655,27 @@ async function generateReply(history, message, contact, attachments = [], option
   }
   if (warehouseBlock) {
     systemBlocks.push({ type: 'text', text: warehouseBlock, cache_control: { type: 'ephemeral', ttl: '1h' } });
+  }
+  // Knowledge vault injection (2026-07-17). Selective retrieval: only the
+  // topic files matching the classifier's topic_tags (or a keyword fallback
+  // on the message) are injected, hard-capped at ~1000 tokens. Deliberately
+  // UNCACHED: the reply call already uses all 4 cache breakpoints above, and
+  // per-message content must never join the shared cache prefix. Fail-open:
+  // buildKnowledgeBlock returns empty text on any vault error.
+  if (!isCasualGreeting) {
+    try {
+      const vaultBlock = vault.buildKnowledgeBlock(options.topicTags, message);
+      if (vaultBlock.text) {
+        systemBlocks.push({ type: 'text', text: vaultBlock.text });
+        logger.info('vault.injected', {
+          contactId: contact?.id,
+          tags: vaultBlock.tags,
+          est_tokens: vaultBlock.estTokens
+        });
+      }
+    } catch (err) {
+      logger.warn('vault.inject_fail', { message: err.message });
+    }
   }
   if (!isCasualGreeting) {
     let datasheetBlock = '';

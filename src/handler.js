@@ -2201,7 +2201,8 @@ async function processCustomerBatch(entry) {
   const reply = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
     expertContext: finalExpertContext,
     allowTrailingQuestion: customerIsGratitude,
-    datasheetRequestedButNotSent
+    datasheetRequestedButNotSent,
+    topicTags: classification.topic_tags
   });
   if (!reply.ok || !reply.text) {
     try {
@@ -2278,7 +2279,8 @@ async function processCustomerBatch(entry) {
         const gatherCtx = buildGatherFirstContext(classification);
         const reply2 = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
           expertContext: gatherCtx,
-          datasheetRequestedButNotSent
+          datasheetRequestedButNotSent,
+          topicTags: classification.topic_tags
         });
         reply.text = (reply2.ok && reply2.text)
           ? reply2.text
@@ -2316,7 +2318,8 @@ async function processCustomerBatch(entry) {
         if (stallContext) {
           const reply2 = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
             expertContext: stallContext,
-            datasheetRequestedButNotSent
+            datasheetRequestedButNotSent,
+            topicTags: classification.topic_tags
           });
           if (reply2.ok && reply2.text && !security.detectStallLanguage(reply2.text)) {
             reply.text = reply2.text;

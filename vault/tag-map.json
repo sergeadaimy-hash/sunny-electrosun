@@ -1,0 +1,68 @@
+{
+  "inverters": {
+    "file": "products/inverters.md",
+    "title": "Inverters",
+    "description": "questions about inverter models, sizes, single or three phase, hybrid systems, parallel setups",
+    "keywords": ["inverter", "inverters", "hybrid", "kva", "sun-", "phase", "parallel"]
+  },
+  "batteries": {
+    "file": "products/batteries.md",
+    "title": "Batteries and storage",
+    "description": "battery storage, kWh capacity, LV or HV packs, backup time, battery lifespan",
+    "keywords": ["battery", "batteries", "kwh", "bos-", "se-f", "se-g", "storage", "backup", "lithium"]
+  },
+  "panels": {
+    "file": "products/panels.md",
+    "title": "Solar panels",
+    "description": "solar panels, panel brands, wattage, panel counts, roof questions",
+    "keywords": ["panel", "panels", "jinko", "longi", "ja solar", "sungrow", "mono", "watt", "roof"]
+  },
+  "accessories": {
+    "file": "products/accessories.md",
+    "title": "Accessories and balance of system",
+    "description": "cables, racks, PDUs, control boxes, breakers, mounting hardware",
+    "keywords": ["cable", "cables", "rack", "racks", "pdu", "control box", "breaker", "mounting", "accessor"]
+  },
+  "warranty": {
+    "file": "policies/warranty.md",
+    "title": "Warranty policy",
+    "description": "warranty terms, guarantees, repairs, replacements, what is covered",
+    "keywords": ["warranty", "guarantee", "warrant", "replace", "repair", "spoil", "faulty", "damaged"]
+  },
+  "delivery": {
+    "file": "policies/delivery.md",
+    "title": "Delivery and pickup",
+    "description": "delivery options, shipping, waybill, pickup logistics, delivery timelines and coverage",
+    "keywords": ["delivery", "deliver", "shipping", "ship", "waybill", "transport", "pickup", "pick up", "courier"]
+  },
+  "payment_plans": {
+    "file": "policies/payment-plans.md",
+    "title": "Payment options",
+    "description": "installments, part payment, financing, accepted payment methods",
+    "keywords": ["installment", "instalment", "payment plan", "part payment", "credit", "finance", "financing", "pay small small", "transfer", "pos"]
+  },
+  "pricing_policy": {
+    "file": "policies/pricing.md",
+    "title": "Pricing and negotiation policy",
+    "description": "discount requests, negotiation, last price asks, price matching. Policy only, never actual prices",
+    "keywords": ["discount", "last price", "best price", "negotiat", "cheaper", "reduce", "lower the price", "price match"]
+  },
+  "objections": {
+    "file": "playbook/objections.md",
+    "title": "Handling objections",
+    "description": "customer doubts, competitor comparisons, trust concerns, too-expensive pushback",
+    "keywords": ["expensive", "too costly", "competitor", "cheaper elsewhere", "why should", "trust", "fake", "original", "scam"]
+  },
+  "escalation_rules": {
+    "file": "playbook/escalation-rules.md",
+    "title": "Escalation guidance",
+    "description": "situations where a human team member should take over the conversation",
+    "keywords": []
+  },
+  "language_notes": {
+    "file": "playbook/language-notes.md",
+    "title": "Language and tone notes",
+    "description": "phrasing and tone notes for Nigerian Pidgin, Hausa, Yoruba, and Igbo replies",
+    "keywords": []
+  }
+}

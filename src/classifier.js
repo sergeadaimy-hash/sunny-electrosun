@@ -123,6 +123,7 @@ async function runClassification(contact, history, message) {
       escalation_type: null,
       suggested_question: null,
       follow_up_in_days: null,
+      topic_tags: [],
       lead_data: {
         name: null, location: null, use_case: null, load_estimate: null,
         timeline: null, products_asked_about: null, brand_preference: null,
