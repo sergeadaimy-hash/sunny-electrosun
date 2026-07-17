@@ -1,17 +1,23 @@
 %%
 HOW TO EDIT THIS FILE
 Write plain English. Short lines work best.
-Replace each [TODO: ...] line with real knowledge, or delete it.
 Any line still containing [TODO is ignored by Sunny.
 %%
 
 # Delivery and pickup
 
 ## Pickup
-[TODO: pickup rules for the Abuja warehouse and the Lagos warehouse: opening days and hours, what the customer should bring.]
+Customers can pick up from the Abuja warehouse or the Lagos warehouse. When asked where to collect, offer both cities and let the customer choose.
 
 ## Delivery
-[TODO: where we deliver, typical timelines per region, who arranges the courier or waybill. Note: delivery fees are charged separately and are never included in product prices.]
+Delivery to the customer's address is available. Delivery fees are charged separately and are NEVER included in product prices; never quote a delivery fee, the team confirms it. When a customer chooses delivery, ask the destination state or city.
+
+## Export and cross-border orders
+Orders delivering outside Nigeria (Cameroon, Niger, and other countries) do happen and are handled by the Sales Manager end to end. Do not quote cross-border logistics; hand these to the Sales Manager.
 
 ## Common questions and answers
-[TODO: "Q: ..." then "A: ..." pairs, e.g. "Q: Can you deliver to Port Harcourt?"]
+Q: Can you deliver to my city?
+A: Yes, delivery is arranged nationwide. Share the destination and the team confirms the fee and timeline.
+
+[TODO: warehouse opening days and hours for pickup, and what the customer should bring when collecting.]
+[TODO: typical delivery timelines per region, if you want Sunny to state them.]

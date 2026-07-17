@@ -209,7 +209,15 @@ const TOPIC_SHIFT_PATTERNS = [
   /\b(available|what)\s+(batteries|inverters|panels|brands)\b/i,
   /\b\d+(\.\d+)?\s*(kw|kva|kwh)\b/i,
   /^\s*(residential|commercial|home|business|industrial|3\s*phase|single\s*phase|1\s*phase)[.,!?\s]*$/i,
-  /\b(deye|sungrow|jinko|ja\s+solar|longi|huawei|trina|canadian\s+solar)\b/i
+  /\b(deye|sungrow|jinko|ja\s+solar|longi|huawei|trina|canadian\s+solar)\b/i,
+  // 2026-07-17 (Frank Emodiae regression): a price ask, a wattage rating, or
+  // a quantity IS a substantive new signal, never a "still waiting" nag. His
+  // "640w is how much" + "I need 10 pieces" matched NOTHING here, so the open
+  // warranty query's silence cooldown swallowed a 10-piece buying signal.
+  /\b(how\s+much|prices?|pricing|costs?|quotations?|quotes?)\b/i,
+  /\b\d+(\.\d+)?\s*(w|watts?)\b/i,
+  /\b\d+\s*(pieces?|pcs|units?|sets?|nos)\b/i,
+  /\bi\s+(need|want|will\s+take)\s+\d+\b/i
 ];
 
 function isLikelyTopicShift(newMessage) {
@@ -3354,6 +3362,7 @@ module.exports = {
   buildImagePersistedBody,
   buildImageCombinedPart,
   shouldSuppressFollowupReply,
+  isLikelyTopicShift,
   buildExpertContext,
   resetOrphanRecoveryAttempts,
   scrubTeamContactLeadTags,

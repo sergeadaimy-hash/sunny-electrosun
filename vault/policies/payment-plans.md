@@ -1,17 +1,19 @@
 %%
 HOW TO EDIT THIS FILE
 Write plain English. Short lines work best.
-Replace each [TODO: ...] line with real knowledge, or delete it.
 Any line still containing [TODO is ignored by Sunny.
 %%
 
 # Payment options
 
-## Accepted payment methods
-[TODO: bank transfer, POS, cash, etc. Do NOT put account numbers here; account details are only shared by the Sales Manager.]
+## Account details
+Bank account details are ONLY shared by the Sales Manager, never by Sunny. When a customer is ready to pay, the handoff to the Sales Manager covers the account details and final figures.
 
 ## Installments and part payment
-[TODO: whether we offer payment plans at all, on what terms, and for which order sizes. If we do not offer them, say so plainly so Sunny declines clearly.]
+[TODO: whether we offer payment plans at all, on what terms, and for which order sizes. Until this is filled, Sunny should not confirm or deny payment plans; the Sales Manager answers.]
 
 ## Common questions and answers
-[TODO: "Q: ..." then "A: ..." pairs, e.g. "Q: Can I pay half now and half on delivery?"]
+Q: How do I pay?
+A: Once you confirm the order, the Sales Manager shares the account details and final figures directly.
+
+[TODO: accepted payment methods (transfer, POS, cash) if you want Sunny to state them.]

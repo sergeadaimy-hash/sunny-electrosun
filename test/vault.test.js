@@ -180,10 +180,20 @@ test('the real repo vault parses and every mapped file exists', () => {
       `mapped file exists for tag ${tag}: ${entry.file}`
     );
   }
-  // Placeholder files are all TODO right now, so the repo vault must inject
-  // NOTHING until the owner fills them in (zero token cost at ship time).
-  const block = vault.buildKnowledgeBlock(Object.keys(map).slice(0, 3), null, { dir: repoVault });
-  assert.strictEqual(block.text, '');
+  // The repo vault ships FILLED from existing agent knowledge (2026-07-17
+  // owner directive). Every mapped file must inject cleanly: no editor
+  // scaffolding, no TODO lines, and always within the token budget.
+  for (const tag of Object.keys(map)) {
+    const block = vault.buildKnowledgeBlock([tag], null, { dir: repoVault });
+    assert.ok(!block.text.includes('[TODO'), `no TODO leaks for tag ${tag}`);
+    assert.ok(!block.text.includes('%%'), `no %% scaffolding leaks for tag ${tag}`);
+    assert.ok(block.estTokens <= 1200, `tag ${tag} within budget (${block.estTokens})`);
+  }
+  // The core sales topics must carry real content now, not empty templates.
+  for (const tag of ['inverters', 'batteries', 'delivery', 'pricing_policy']) {
+    const block = vault.buildKnowledgeBlock([tag], null, { dir: repoVault });
+    assert.ok(block.text.length > 0, `tag ${tag} has real knowledge`);
+  }
 });
 
 test('classifier fallback shape carries topic_tags', () => {
