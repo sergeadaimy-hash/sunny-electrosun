@@ -15,6 +15,14 @@ What shipped (suite 251/251, 15 new tests in `test/vault.test.js`):
 
 Current live effect is ZERO until files are filled: all templates are still all-TODO, so `buildKnowledgeBlock` returns empty and only the small cached classifier tag block (~340 tokens, cached at 1h) is new. Obsidian is NOT required; the files are ordinary markdown edited with any text editor. Deliberately deferred (needs separate owner approval): carving locations/doctrine out of system.md into vault topics, and retiring the "Known about this customer" block.
 
+## 2026-07-19 (evening): Gather-first retired, silence inverted, links on info-gap handoffs, backlog drained
+
+Serge sent four more stranded conversations (Ali Tahir "Abuja." unanswered; Skseries "Please assist confirm please" + "Where is Ur office address" silenced; Engr "Lagos" unanswered; Seigbo from BENIN looped on city questions with no escalation) and demanded: when Sunny lacks information he must escalate to the Sales Managers immediately AND give the client their WhatsApp link.
+
+Shipped + deployed (`523125f`, tests 265/265): gather-first city-deferral REMOVED from both the classifier-escalation path and the stall guard (region-unknown routes to the Abuja desk immediately); pending-query silence inverted to pure-nags-only (`isPureNagMessage`) with `silent_skip` markers on suppressed nags; first alert per query appends the routed Sales Manager wa.me link to the customer reply; stall-guard escalations feed the same link logic. The nudge (`9b13062`) deployed in the same push.
+
+Aftermath verified in production: a 72h forced orphan recovery (`POST /api/recover-orphans?minutes=4320`) re-queued 7 stranded messages and ALL previously-silent customers got real replies at 20:18-20:19 (Skseries got the Lagos map pin + direct line; Seigbo got the warehouses answer; the warranty askers got the handoff WITH the direct line). At 20:20 the nudge cron's first live run sent the Abuja desk 10 reminders for queries unanswered 8-22h. Remaining human gap: the desk must actually answer alerts, and the business still owes warranty terms / payment plans / pickup hours for the vault.
+
 ## 2026-07-19: Unanswered-alert nudge (Frank follow-through gap)
 
 Post-deploy verification of the 07-17 fixes via the production API: Frank WAS answered at 13:15Z on the 17th (recovered reply with the Longi 640W per-unit price + bulk handoff + direct line; he replied "Ok" and got a warm close), and BOTH escalation alerts DID reach the Abuja Sales desk chat (12:15Z warranty, 13:15Z bulk pricing; visible in admin > Owner Chat > Abuja Sales). Serge's "he didnt send any escalation" turned out to be a routing-visibility misunderstanding (warranty/pricing route to the regional desk, not Patrick) plus the real gap: the desk human never answered the alert, so "let me confirm with the team" was never closed out.
