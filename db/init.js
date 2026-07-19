@@ -92,7 +92,10 @@ function applyMigrations(db) {
     ],
     pending_queries: [
       { name: 'expiring_warning_sent_at', type: 'TIMESTAMP' },
-      { name: 'last_assistant_reply_at', type: 'TIMESTAMP' }
+      { name: 'last_assistant_reply_at', type: 'TIMESTAMP' },
+      { name: 'alert_recipient_number', type: 'TEXT' },
+      { name: 'alert_recipient_label', type: 'TEXT' },
+      { name: 'nudge_sent_at', type: 'TIMESTAMP' }
     ],
     conversations: [
       { name: 'human_handled', type: 'INTEGER NOT NULL DEFAULT 0' },

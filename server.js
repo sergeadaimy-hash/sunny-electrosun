@@ -9,7 +9,7 @@ const logger = require('./src/utils/logger');
 const { initDb, DB_PATH } = require('./db/init');
 const webhookRouter = require('./src/webhook');
 const dashboardRouter = require('./api/dashboard');
-const { recoverOrphanedInbound, autoReleaseStaleHumanConversations, routeStaleDeferredHandoffs, scrubTeamContactLeadTags } = require('./src/handler');
+const { recoverOrphanedInbound, autoReleaseStaleHumanConversations, routeStaleDeferredHandoffs, nudgeUnansweredPendingQueries, scrubTeamContactLeadTags } = require('./src/handler');
 const { runDbBackup } = require('./src/db_backup');
 const {
   generateHourlyReport,
@@ -176,6 +176,7 @@ if (require.main === module) {
   // Runs regardless of DISABLE_NOTIFICATIONS because this is core inbox flow, not reporting.
   const autoReleaseMinutes = parseInt(process.env.HUMAN_AUTO_RELEASE_MINUTES || '15', 10);
   const staleHandoffMinutes = parseInt(process.env.STALE_HANDOFF_MINUTES || '5', 10);
+  const pendingNudgeMinutes = parseInt(process.env.PENDING_NUDGE_MINUTES || '120', 10);
   cron.schedule('*/5 * * * *', async () => {
     try {
       const res = await autoReleaseStaleHumanConversations(autoReleaseMinutes);
@@ -209,9 +210,22 @@ if (require.main === module) {
     } catch (err) {
       logger.error('cron.orphan_sweep.error', { message: err.message });
     }
+    // Unanswered-alert nudge (2026-07-19, Frank Emodiae): if the desk never
+    // answered an escalation alert, re-ping the SAME recipient once after
+    // PENDING_NUDGE_MINUTES. Always runs (alerts themselves fire under
+    // DISABLE_NOTIFICATIONS); off only when DISABLE_ESCALATIONS=true.
+    try {
+      const nud = await nudgeUnansweredPendingQueries(pendingNudgeMinutes);
+      if (nud.nudged > 0) {
+        logger.info('cron.pending_nudge.done', nud);
+      }
+    } catch (err) {
+      logger.error('cron.pending_nudge.error', { message: err.message });
+    }
   });
   logger.info('cron.auto_release.registered', { interval: '*/5 * * * *', threshold_minutes: autoReleaseMinutes });
   logger.info('cron.stale_deferred_sweep.registered', { interval: '*/5 * * * *', threshold_minutes: staleHandoffMinutes });
+  logger.info('cron.pending_nudge.registered', { interval: '*/5 * * * *', threshold_minutes: pendingNudgeMinutes });
 
   // Pending-query expiry runs ALWAYS (R2, 2026-06-08), even when
   // DISABLE_NOTIFICATIONS=true. When notifications are disabled it runs in

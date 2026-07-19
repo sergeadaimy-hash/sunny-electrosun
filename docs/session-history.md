@@ -15,6 +15,14 @@ What shipped (suite 251/251, 15 new tests in `test/vault.test.js`):
 
 Current live effect is ZERO until files are filled: all templates are still all-TODO, so `buildKnowledgeBlock` returns empty and only the small cached classifier tag block (~340 tokens, cached at 1h) is new. Obsidian is NOT required; the files are ordinary markdown edited with any text editor. Deliberately deferred (needs separate owner approval): carving locations/doctrine out of system.md into vault topics, and retiring the "Known about this customer" block.
 
+## 2026-07-19: Unanswered-alert nudge (Frank follow-through gap)
+
+Post-deploy verification of the 07-17 fixes via the production API: Frank WAS answered at 13:15Z on the 17th (recovered reply with the Longi 640W per-unit price + bulk handoff + direct line; he replied "Ok" and got a warm close), and BOTH escalation alerts DID reach the Abuja Sales desk chat (12:15Z warranty, 13:15Z bulk pricing; visible in admin > Owner Chat > Abuja Sales). Serge's "he didnt send any escalation" turned out to be a routing-visibility misunderstanding (warranty/pricing route to the regional desk, not Patrick) plus the real gap: the desk human never answered the alert, so "let me confirm with the team" was never closed out.
+
+Shipped (suite 263/263, 5 new tests in `test/pending_nudge.test.js`, real temp DB): **unanswered-alert nudge.** `pending_queries` gains `alert_recipient_number` / `alert_recipient_label` (stored at alert time by `notifyOwnerForEscalation`) and `nudge_sent_at`. `nudgeUnansweredPendingQueries(PENDING_NUDGE_MINUTES=120)` on the always-on `*/5` cron re-pings the SAME desk once per query with a REMINDER header, `[QID:N]`, waiting time, and the original question; template-first send (24h-window safe); reply-to mapping repointed at the nudge so the desk can answer the reminder directly; failed sends retry next sweep, successful ones never repeat; 10/run cap; off when `DISABLE_ESCALATIONS=true`. Idempotent migration in `db/init.js`.
+
+Still owed by the business: warranty terms, payment plans, pickup hours for the vault (the one class of question Sunny still cannot answer himself).
+
 ## 2026-07-17 (later): Vault pre-filled + Frank Emodiae silence fix (topic-shift gap)
 
 Serge's directives after the vault shipped: (1) "my brother will not fill anything, they should be filled by our agent knowledge", and (2) a screenshot: Frank Emodiae (contact 5049) asked "What is the warranty on LONGi solar panels?", got the welcome card + "Let me confirm the warranty terms with the team. Are you in Abuja or Lagos?", then sent "640w is how much" and "I need 10 pieces" at 15:16 and got TOTAL SILENCE.

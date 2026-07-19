@@ -10,6 +10,9 @@ const {
   logEvent,
   createPendingQuery,
   setPendingQueryAlertId,
+  setPendingQueryRecipient,
+  findPendingQueriesNeedingNudge,
+  markPendingQueryNudged,
   findPendingByAlertId,
   resolvePendingQuery,
   getOpenPendingQueryForContact,
@@ -1390,6 +1393,13 @@ async function notifyOwnerForEscalation({ contact, classification, safeCombinedT
   // reused on the HOT retry below (no double-flip).
   const routed = ownerRouting.resolveRecipient(contact, classification);
   const recipientPhone = routed.number || process.env.OWNER_WHATSAPP;
+
+  // Remember WHO was alerted on the pending row (2026-07-19) so the
+  // unanswered-alert nudge can re-ping the same desk instead of guessing.
+  if (freshPendingId && recipientPhone) {
+    try { setPendingQueryRecipient(freshPendingId, recipientPhone, routed.label || null); }
+    catch (err) { logger.warn('handler.escalation.set_recipient_fail', { message: err.message }); }
+  }
 
   let alertSendRes = await notifyOwnerEscalation(contact, safeCombinedText, classification, recipientPhone);
   // HOT alerts get one retry after a short delay if the first send fails. A
@@ -3345,6 +3355,86 @@ function isLiveAgentRequest(text) {
   return LIVE_AGENT_RE.test(t);
 }
 
+// Unanswered-alert nudge (2026-07-19, Frank Emodiae follow-through gap): the
+// Abuja desk received "customer is waiting on a warranty answer" and nobody
+// replied, so Sunny's "let me confirm with the team" was never closed out.
+// This sweep re-pings the SAME recipient the original alert went to (stored
+// on the pending row; Abuja desk / OWNER_WHATSAPP fallback for legacy rows)
+// once per query after PENDING_NUDGE_MINUTES with no team reply. One nudge
+// per query (nudge_sent_at), capped per run, template-first send so the 24h
+// window cannot eat it. Runs on the always-on */5 cron: escalation alerts
+// already fire under DISABLE_NOTIFICATIONS, so their reminder does too. Off
+// when DISABLE_ESCALATIONS=true. opts.send is injectable for tests.
+async function nudgeUnansweredPendingQueries(thresholdMinutes = 120, opts = {}) {
+  if (escalationsDisabled()) return { nudged: 0, skipped: 'escalations_disabled' };
+  const minutes = Math.max(1, parseInt(thresholdMinutes, 10) || 120);
+  const cutoffIso = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+  let rows = [];
+  try { rows = findPendingQueriesNeedingNudge(cutoffIso, 10); }
+  catch (err) {
+    logger.warn('handler.nudge.query_fail', { message: err.message });
+    return { nudged: 0 };
+  }
+  if (!rows.length) return { nudged: 0 };
+
+  const send = opts.send || sendOwnerAlert;
+  let nudged = 0;
+  for (const row of rows) {
+    const recipient = row.alert_recipient_number
+      || ownerRouting.numberForLabel('abuja')
+      || process.env.OWNER_WHATSAPP;
+    if (!recipient) continue;
+    const customer = { phone: row.customer_phone || '(unknown number)' };
+    const waitedMin = Math.max(1, Math.round((Date.now() - (parsePendingTimestamp(row.created_at) || Date.now())) / 60000));
+    const waitedText = waitedMin >= 60 ? `${Math.round(waitedMin / 60)}h` : `${waitedMin}m`;
+    const question = String(row.customer_message_text || '').slice(0, 180);
+    const nudgeClassification = {
+      owner_brief: `REMINDER [QID:${row.id}]: no team reply for ${waitedText}.\nCustomer asked: "${question}"`,
+      lead_data: { products_asked_about: row.customer_products || null }
+    };
+    const header = 'REMINDER, this customer query is still unanswered.';
+    const text = buildOwnerAlertText(customer, nudgeClassification, header, question);
+    const components = buildOwnerAlertTemplateComponents(customer, nudgeClassification, header, question);
+    let sendRes = null;
+    try { sendRes = await send(recipient, text, components); }
+    catch (err) {
+      logger.warn('handler.nudge.send_fail', { queryId: row.id, message: err.message });
+      continue;
+    }
+    if (!sendRes || !sendRes.ok) {
+      logger.warn('handler.nudge.send_not_ok', { queryId: row.id, error: sendRes && sendRes.error });
+      continue;
+    }
+    try { markPendingQueryNudged(row.id); }
+    catch (err) { logger.warn('handler.nudge.mark_fail', { queryId: row.id, message: err.message }); }
+    // Point the reply-to mapping at the nudge so the desk can answer the
+    // reminder directly and still resolve the right query.
+    if (sendRes.messageId) {
+      try { setPendingQueryAlertId(row.id, sendRes.messageId); } catch {}
+    }
+    try {
+      const ownerContact = getOrCreateContact(recipient, null);
+      const ownerConv = getActiveConversation(ownerContact.id);
+      appendMessage(ownerConv.id, 'outbound', text, {
+        whatsapp_message_id: sendRes.messageId,
+        intent: 'escalation_nudge',
+        language: 'english'
+      });
+    } catch (err) {
+      logger.warn('handler.nudge.persist_fail', { message: err.message });
+    }
+    try { logEvent(row.contact_id, 'pending_query_nudged', { queryId: row.id, recipient_tail: String(recipient).slice(-4), waited_minutes: waitedMin }); } catch {}
+    logger.info('handler.nudge.sent', {
+      queryId: row.id,
+      contactId: row.contact_id,
+      recipient_tail: String(recipient).slice(-4),
+      waited_minutes: waitedMin
+    });
+    nudged++;
+  }
+  return { nudged };
+}
+
 function buildStallFallbackText(contextText) {
   const PRICE_CTX_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|figure|amount|totals?|invoices?|proformas?|\d+\s*(?:units?|pcs|pieces?|panels?|sets?|modules?))\b/i;
   if (PRICE_CTX_RE.test(String(contextText || ''))) {
@@ -3371,6 +3461,7 @@ module.exports = {
   answerPendingForContact,
   autoReleaseStaleHumanConversations,
   routeStaleDeferredHandoffs,
+  nudgeUnansweredPendingQueries,
   retryFallbackReplies,
   buildStallFallbackText,
   isPresenceOrImpatienceCheck,

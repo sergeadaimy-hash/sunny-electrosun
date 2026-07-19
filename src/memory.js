@@ -152,6 +152,35 @@ function setPendingQueryAlertId(queryId, alertMessageId) {
   db.prepare('UPDATE pending_queries SET alert_message_id = ? WHERE id = ?').run(alertMessageId, queryId);
 }
 
+function setPendingQueryRecipient(queryId, number, label) {
+  if (!queryId || !number) return;
+  const db = getDb();
+  db.prepare('UPDATE pending_queries SET alert_recipient_number = ?, alert_recipient_label = ? WHERE id = ?')
+    .run(String(number), label ? String(label) : null, queryId);
+}
+
+// Rows for the unanswered-alert nudge (2026-07-19): still pending, never
+// nudged, alerted before the cutoff. Joined with contacts so the nudge text
+// can name the customer number without a second query.
+function findPendingQueriesNeedingNudge(cutoffIso, limit = 10) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT pq.*, c.phone AS customer_phone, c.products_asked_about AS customer_products
+    FROM pending_queries pq
+    LEFT JOIN contacts c ON c.id = pq.contact_id
+    WHERE pq.status = 'pending'
+      AND pq.nudge_sent_at IS NULL
+      AND pq.created_at <= ?
+    ORDER BY pq.created_at ASC
+    LIMIT ?
+  `).all(cutoffIso, limit);
+}
+
+function markPendingQueryNudged(queryId) {
+  const db = getDb();
+  db.prepare('UPDATE pending_queries SET nudge_sent_at = ? WHERE id = ?').run(nowIso(), queryId);
+}
+
 function findPendingByAlertId(alertMessageId) {
   if (!alertMessageId) return null;
   const db = getDb();
@@ -282,6 +311,9 @@ module.exports = {
   getMessageByWhatsappId,
   createPendingQuery,
   setPendingQueryAlertId,
+  setPendingQueryRecipient,
+  findPendingQueriesNeedingNudge,
+  markPendingQueryNudged,
   findPendingByAlertId,
   resolvePendingQuery,
   getOpenPendingQueryForContact,
