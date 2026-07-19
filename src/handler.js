@@ -223,6 +223,18 @@ const TOPIC_SHIFT_PATTERNS = [
   /\bi\s+(need|want|will\s+take)\s+\d+\b/i
 ];
 
+// Pure nag / ping: the ENTIRE message is a waiting-poke with no new content.
+// Only these may be silenced while a pending query is open (2026-07-19,
+// Skseries "Please assist confirm please" + "Where is Ur office address"
+// were swallowed by the old pattern-list approach; the rule is now inverted:
+// substantive messages ALWAYS get a reply, silence is the narrow exception).
+const PURE_NAG_RE = /^(when|where|how|how\s+far|how\s+long|hello|hi+|are\s+you\s+there|still\s+waiting|still\s+there|any\s+update|update|abeg|please|\?+)[?.\s!]*$/i;
+function isPureNagMessage(text) {
+  const t = String(text || '').trim();
+  if (!t) return true;
+  return PURE_NAG_RE.test(t);
+}
+
 function isLikelyTopicShift(newMessage) {
   const text = String(newMessage || '').trim();
   if (!text || text.length < 4) return false;
@@ -2037,13 +2049,16 @@ async function processCustomerBatch(entry) {
   // ₦41M Cameroon big project gave name + phone + "share my details", got
   // "the Sales Manager will reach out shortly" but NOBODY was alerted and no
   // link was shared.)
-  const gatherFirst =
-    classification.needs_escalation &&
-    !customerIsCasualConfirm &&
-    !escalationsDisabled() &&
-    !isHotEscalation &&
-    !ownerRouting.routingInfoSufficient(classification) &&
-    !alreadyAskedCity;
+  // 2026-07-19 owner directive (Ali Tahir / Skseries / Engr / Seigbo-Benin
+  // screenshots): an escalation NEVER waits for a city. The old gather-first
+  // defer held the alert until the customer named Abuja/Lagos, which left
+  // "let me confirm with the team" dangling with NO alert and NO link, and
+  // stranded foreign leads (Benin, Cameroon) who never have a Nigerian city.
+  // Now every escalation routes immediately (region-unknown -> Abuja desk
+  // default inside decideRecipient) and the customer gets the routed Sales
+  // Manager link in the same reply. Sunny may still ask the city as part of
+  // the reply text, but the alert no longer depends on the answer.
+  const gatherFirst = false;
 
   // If we are escalating because we already asked the city once (now defaulting
   // to Abuja), clear the deferred flag so it does not also re-fire later.
@@ -2109,7 +2124,12 @@ async function processCustomerBatch(entry) {
       silenceMs: PENDING_QUERY_REPLY_SILENCE_MS,
       hasImageAttachments: turnHasImages
     });
-    if (suppress) {
+    // 2026-07-19 inversion: silence is ONLY for pure nags ("any update?",
+    // "still waiting"). Anything with content, a city answer, an address
+    // ask, "please assist confirm", a price or quantity, gets a reply. The
+    // old behavior suppressed everything that missed a topic-shift pattern
+    // and silenced real buying signals (Frank, Skseries, Ali Tahir).
+    if (suppress && isPureNagMessage(safeCombinedText)) {
       logger.info('handler.followup_reply_suppressed_silence_cooldown', {
         contactId: contact.id,
         queryId: currentOpen.id,
@@ -2123,7 +2143,18 @@ async function processCustomerBatch(entry) {
       } catch (err) {
         logger.warn('handler.followup_suppress_log_fail', { message: err.message });
       }
+      // Deliberate silence: mark the turn answered so the orphan sweep does
+      // not re-queue the nag through classify every 5 minutes (2026-07-06
+      // cost-runaway lesson).
+      try { persistSilentSkipMarker(conversation.id, 'pure nag during pending-query cooldown'); } catch {}
       return;
+    }
+    if (suppress) {
+      logger.info('handler.followup_silence_overridden_substantive', {
+        contactId: contact.id,
+        queryId: currentOpen.id,
+        message_preview: safeCombinedText.slice(0, 120)
+      });
     }
   }
 
@@ -2279,43 +2310,20 @@ async function processCustomerBatch(entry) {
         reply.text = "Yes, I'm here. How can I help you with your solar needs?";
         logger.info('handler.stall_presence_check_reassured', { contactId: contact.id });
       }
-      // R1 (2026-06-08): not enough to route yet (region unknown and not a big
-      // project). Do NOT ping the owner from the stall path; ask the city
-      // first, mirroring the classifier escalation's gather-first guard.
-      // Without this, region-unknown stalls fall straight to the general owner
-      // (Patrick), violating "owners handle big projects only" (conv ken stone,
-      // Lanre routed to Patrick instead of a regional desk).
-      else if (!ownerRouting.routingInfoSufficient(classification)) {
-        try {
-          updateContactFields(contact.id, {
-            deferred_handoff: classification.escalation_type || 'silent_query',
-            deferred_handoff_at: new Date().toISOString()
-          });
-        } catch (err) {
-          logger.warn('handler.stall_gather_first_persist_fail', { message: err.message });
-        }
-        const gatherCtx = buildGatherFirstContext(classification);
-        const reply2 = await generateReply(priorHistory, replyMessage, refreshedContact, attachments, {
-          expertContext: gatherCtx,
-          datasheetRequestedButNotSent,
-          topicTags: classification.topic_tags
-        });
-        reply.text = (reply2.ok && reply2.text)
-          ? reply2.text
-          : 'Are you in Abuja or Lagos? That way the team can sort you out quickly.';
-        logger.info('handler.stall_gather_first_deferred', {
-          contactId: contact.id,
-          routing_region: classification.routing_region,
-          routing_category: classification.routing_category
-        });
-      }
-      // Enough to route: escalate to the routed recipient and regenerate.
+      // 2026-07-19: region-unknown stalls no longer defer on a city question.
+      // decideRecipient routes them to the Abuja desk default, same as the
+      // classifier escalation path, so a stalled reply ALWAYS produces an
+      // alert (the old R1 defer left "let me confirm with the team" hanging
+      // with nobody pinged; Ali Tahir / Engr / Seigbo-Benin screenshots).
       else {
         const stallClassification = {
           ...classification,
           needs_escalation: true,
           escalation_type: 'silent_query'
         };
+        // Feed the stall escalation into the shared link logic below so the
+        // customer gets the routed Sales Manager line on this handoff too
+        // (2026-07-19; assignment below after the call).
         const stallEsc = await notifyOwnerForEscalation({
           contact: refreshedContact,
           classification: stallClassification,
@@ -2324,6 +2332,7 @@ async function processCustomerBatch(entry) {
           batchSize: msgs.length,
           source: 'stall_guard'
         });
+        if (!escResult) escResult = stallEsc;
         const stallOpen = getOpenPendingQueryForContact(contact.id);
         const stallContext = (stallOpen || stallEsc.freshPendingId || stallEsc.ownerNotified)
           ? buildExpertContext({
@@ -2583,7 +2592,13 @@ async function processCustomerBatch(entry) {
   // region or gather-first state. The invariant above already guaranteed the
   // parallel escalation, so this simply always attaches the line on a mention.
   const isReferralHandoffThisTurn = replyRefersToSalesManager;
-  if ((isHotHandoffThisTurn || isBulkHandoffThisTurn || isLiveAgentHandoffThisTurn || isReferralHandoffThisTurn) && !linkAlreadyInText) {
+  // 2026-07-19 owner directive: when Sunny lacks the information and hands
+  // off ("let me confirm the warranty terms"), the customer gets the routed
+  // Sales Manager link in the SAME reply, not just an internal alert. Fires
+  // on the FIRST alert for a query (freshPendingId), not on follow-up pings,
+  // so repeat turns don't re-paste the link.
+  const isInfoGapHandoffThisTurn = !!(escResult && escResult.ownerNotified && escResult.freshPendingId);
+  if ((isHotHandoffThisTurn || isBulkHandoffThisTurn || isLiveAgentHandoffThisTurn || isReferralHandoffThisTurn || isInfoGapHandoffThisTurn) && !linkAlreadyInText) {
     // Point the customer at the SAME person the owner alert was routed to
     // (Abuja / Lagos sales, Charbel, or Patrick). Falls back to
     // SPECIALIST_DIRECT_LINK when no recipient was resolved this turn.
@@ -3453,6 +3468,7 @@ module.exports = {
   buildImageCombinedPart,
   shouldSuppressFollowupReply,
   isLikelyTopicShift,
+  isPureNagMessage,
   buildExpertContext,
   resetOrphanRecoveryAttempts,
   scrubTeamContactLeadTags,

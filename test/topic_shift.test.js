@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 
 process.env.DISABLE_NOTIFICATIONS = 'true';
-const { isLikelyTopicShift } = require('../src/handler');
+const { isLikelyTopicShift, isPureNagMessage } = require('../src/handler');
 
 // Regression for the 2026-07-17 Frank Emodiae silence: warranty question
 // opened a pending query, then "640w is how much" and "I need 10 pieces"
@@ -43,6 +43,29 @@ test('pure nags and pings still stay on the follow-up path', () => {
   assert.strictEqual(isLikelyTopicShift('when?'), false);
   assert.strictEqual(isLikelyTopicShift('hello'), false);
   assert.strictEqual(isLikelyTopicShift('are you there'), false);
+});
+
+// 2026-07-19 inversion (Skseries / Ali Tahir / Engr screenshots): while a
+// pending query is open, ONLY pure nags may be silenced. Everything with
+// content must reply.
+test('pure nags may be silenced', () => {
+  assert.strictEqual(isPureNagMessage('any update?'), true);
+  assert.strictEqual(isPureNagMessage('still waiting'), true);
+  assert.strictEqual(isPureNagMessage('hello'), true);
+  assert.strictEqual(isPureNagMessage('??'), true);
+  assert.strictEqual(isPureNagMessage('when?'), true);
+  assert.strictEqual(isPureNagMessage(''), true);
+});
+
+test('substantive messages are NEVER silenced (live regressions)', () => {
+  assert.strictEqual(isPureNagMessage('Please assist confirm please'), false);
+  assert.strictEqual(isPureNagMessage('Where is Ur office address'), false);
+  assert.strictEqual(isPureNagMessage('Abuja.'), false);
+  assert.strictEqual(isPureNagMessage('Lagos'), false);
+  assert.strictEqual(isPureNagMessage('640w is how much'), false);
+  assert.strictEqual(isPureNagMessage('I need 10 pieces'), false);
+  assert.strictEqual(isPureNagMessage('Comment on peut trouver'), false);
+  assert.strictEqual(isPureNagMessage('Dorothé depuis le Bénin'), false);
 });
 
 test('short or empty messages are never topic shifts', () => {
