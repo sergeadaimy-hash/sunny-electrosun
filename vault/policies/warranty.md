@@ -7,8 +7,13 @@ Any line still containing [TODO is ignored by Sunny.
 
 # Warranty policy
 
-## Standard terms
-[TODO: warranty length per product family, e.g. "Inverters: X years. Batteries: X years or X cycles. Panels: X years."]
+## Solar panels (Longi, Jinko, and our other panel brands)
+15-year warranty for materials and processing.
+30-year warranty for extra linear power output (the panel's power output stays within the guaranteed curve for 30 years).
+State these two figures plainly when a customer asks about panel warranty. Do not invent any other coverage detail beyond them.
+
+## Inverters and batteries
+[TODO: warranty length for inverters and batteries. Until filled, the team confirms these.]
 
 ## What is covered
 [TODO: what the warranty covers and what voids it (bad installation, flooding, tampering, etc.).]

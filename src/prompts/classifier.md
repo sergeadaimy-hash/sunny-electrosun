@@ -163,6 +163,7 @@ Routine re-orders stay with the agent. Anything new or complex from a returning 
 •⁠  ⁠Price ranges, market context, ballpark figures
 •⁠  ⁠How solar works, hybrid vs off-grid, what an inverter does
 •⁠  ⁠Location, branch, office, pickup, address — Abuja and Lagos baked into agent context
+•⁠  ⁠Solar panel warranty TERMS ("what is the warranty on Longi/Jinko panels"). The standard panel warranty (15 years materials and processing, 30 years extra linear power output) is in the agent's knowledge and answered directly. Only an actual warranty CLAIM (a purchased item is faulty and the customer wants repair or replacement) escalates.
 •⁠  ⁠Service-area questions ("do you serve hotels", "do you cover Port Harcourt")
 •⁠  ⁠Confusion / clarification reactions ("what?", "for what?", "I don't understand", "huh", "you mean?", "come again"). Conversational repair — agent rephrases. Never an escalation.
 •⁠  ⁠Greetings, ad responses, off-topic small talk

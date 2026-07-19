@@ -124,7 +124,22 @@ function stripTodos(content) {
     return t && !/^#{1,6}\s/.test(t) && t !== '#';
   });
   if (!meaningful) return '';
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // Drop headings whose entire section became empty after the TODO strip, so
+  // a partially-filled file doesn't inject bare "## Inverters and batteries"
+  // headers with nothing under them.
+  const kept = [];
+  for (let i = 0; i < lines.length; i++) {
+    const isHeading = /^#{1,6}\s/.test(lines[i].trim());
+    if (!isHeading) { kept.push(lines[i]); continue; }
+    let hasBody = false;
+    for (let j = i + 1; j < lines.length; j++) {
+      const t = lines[j].trim();
+      if (/^#{1,6}\s/.test(t)) break;
+      if (t) { hasBody = true; break; }
+    }
+    if (hasBody) kept.push(lines[i]);
+  }
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // Cut at the last line break before maxChars so we never ship half a
