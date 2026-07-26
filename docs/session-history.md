@@ -2,6 +2,20 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-07-26: Sales Manager follow-up check-in
+
+Two changes this session. First, a data fix: the warehouse price of the Deye **SE-F16** 16kWh battery (item id 14, live DB) was updated 2,500,000 -> **2,385,000 NGN** via the admin API on production.
+
+Second, a new feature Serge asked for: after Sunny hands a customer to the Sales Manager, follow up a few hours later to check it was sorted. Owner decisions during design (spec at `docs/superpowers/specs/2026-07-26-sales-manager-followup-design.md`): delay **3 hours** (originally said 6, revised); **night guard** holds any send outside 08:00-21:00 Africa/Lagos to the next morning; **skip if the customer is still actively chatting**; trigger on **any** Sales Manager handoff (HOT, referral, bulk, live-agent, info-gap "let me confirm"); **English-only** message consistent with the canned-line policy.
+
+What shipped (suite 289/289, 24 new tests across `test/sales_followup*.test.js`, TDD):
+- **`sales_followups` table** (`db/schema.sql` + idempotent `CREATE TABLE IF NOT EXISTS` in `db/init.js`): one row per handoff, on the durable volume so scheduled check-ins survive restarts. Columns: contact/conversation ids, `handoff_message_id`, `handoff_at`, `due_at`, `status` (pending/sent/skipped_reengaged/superseded/expired), `language`, `sent_at`, `sent_message_id`, timestamps.
+- **`src/sales_followup.js`**: pure helpers (`computeDueAt`, `isWithinSendWindow` using an `Intl` Africa/Lagos hour, `isSubstantiveReengagement` where a bare "ok/thanks/emoji" is NOT re-engagement but a digit/question/real words is, `shouldExpire`, `FOLLOWUP_TEXT`); store fns; `maybeScheduleSalesFollowup` (called on the handoff turn, re-arms any earlier pending row for the contact via `supersedeOpenFollowupsForContact`); and `runSalesFollowups` (the cron drain).
+- **Trigger** in `src/handler.js > processCustomerBatch`: right after the "Direct line to the Sales Manager" line is appended and the reply sent, a `salesManagerHandoffThisTurn` flag drives a best-effort `maybeScheduleSalesFollowup` (try/catch, never breaks the reply). due_at = now + `SALES_FOLLOWUP_DELAY_MINUTES` (180).
+- **Drain** on the always-on `*/5` cron (`server.js`), so it works despite `DISABLE_NOTIFICATIONS=true`. Per due row: night-hold (leave pending); expire if older than `SALES_FOLLOWUP_MAX_AGE_MINUTES` (1440) or the conversation rolled over / last inbound >24h old (keeps the send inside the WhatsApp free-form window); skip if `human_handled` or the customer re-engaged substantively; else send the fixed English check-in (`intent='sales_followup'`, `sales_followup_sent` event), capped 20/run. Off when `DISABLE_SALES_FOLLOWUP=true` or `DISABLE_ESCALATIONS=true`.
+- The customer's reply flows through the normal pipeline: "no one called me" re-alerts the desk automatically; "all sorted" warm-closes. No special-casing.
+- Env vars added to `.env.example` and CLAUDE.md (delay, send-window start/end, max-age, per-run cap, kill switch). Not yet pushed; Serge pushes manually. Not yet set on Railway (defaults are the intended values, so the feature is live on next deploy with no env change; `DISABLE_SALES_FOLLOWUP=true` is the instant off switch).
+
 ## 2026-07-17: Knowledge vault (selective topic retrieval)
 
 Serge asked for a markdown knowledge vault so business knowledge stops accumulating in `system.md` and each reply only receives the topic files relevant to that message. Scope was explicitly narrowed by him mid-design: NO per-customer memory files, NO idle summarizer, NO contact migration (the contacts table profile is enough customer memory); the vault is topics and knowledge only.

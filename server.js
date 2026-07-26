@@ -9,7 +9,7 @@ const logger = require('./src/utils/logger');
 const { initDb, DB_PATH } = require('./db/init');
 const webhookRouter = require('./src/webhook');
 const dashboardRouter = require('./api/dashboard');
-const { recoverOrphanedInbound, autoReleaseStaleHumanConversations, routeStaleDeferredHandoffs, nudgeUnansweredPendingQueries, scrubTeamContactLeadTags } = require('./src/handler');
+const { recoverOrphanedInbound, autoReleaseStaleHumanConversations, routeStaleDeferredHandoffs, nudgeUnansweredPendingQueries, runSalesFollowups, scrubTeamContactLeadTags } = require('./src/handler');
 const { runDbBackup } = require('./src/db_backup');
 const {
   generateHourlyReport,
@@ -222,10 +222,22 @@ if (require.main === module) {
     } catch (err) {
       logger.error('cron.pending_nudge.error', { message: err.message });
     }
+    // Sales Manager follow-up check-in (2026-07-26): a few hours after Sunny
+    // hands a customer to the Sales Manager, ask if it was sorted. Always runs
+    // (rides the same always-on cron); night guard + kill switches inside.
+    try {
+      const fol = await runSalesFollowups();
+      if (fol.sent > 0) {
+        logger.info('cron.sales_followup.done', fol);
+      }
+    } catch (err) {
+      logger.error('cron.sales_followup.error', { message: err.message });
+    }
   });
   logger.info('cron.auto_release.registered', { interval: '*/5 * * * *', threshold_minutes: autoReleaseMinutes });
   logger.info('cron.stale_deferred_sweep.registered', { interval: '*/5 * * * *', threshold_minutes: staleHandoffMinutes });
   logger.info('cron.pending_nudge.registered', { interval: '*/5 * * * *', threshold_minutes: pendingNudgeMinutes });
+  logger.info('cron.sales_followup.registered', { interval: '*/5 * * * *' });
 
   // Pending-query expiry runs ALWAYS (R2, 2026-06-08), even when
   // DISABLE_NOTIFICATIONS=true. When notifications are disabled it runs in

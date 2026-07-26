@@ -145,6 +145,28 @@ function applyMigrations(db) {
       updated_at TEXT
     );
   `);
+
+  // Sales Manager follow-up check-ins (2026-07-26). One row per handoff; the
+  // */5 cron drains due rows and sends the customer a check-in. Lives on the
+  // durable volume so scheduled follow-ups survive restarts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sales_followups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER,
+      conversation_id INTEGER,
+      handoff_message_id TEXT,
+      handoff_at TEXT,
+      due_at TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      language TEXT,
+      sent_at TEXT,
+      sent_message_id TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_sales_followups_status_due ON sales_followups(status, due_at);
+    CREATE INDEX IF NOT EXISTS idx_sales_followups_contact ON sales_followups(contact_id);
+  `);
 }
 
 let instance = null;

@@ -33,6 +33,7 @@ const security = require('./security');
 const { buildOwnerAlertText, buildOwnerAlertTemplateComponents } = require('./owner_alert');
 const ownerRouting = require('./owner_routing');
 const idleChatter = require('./idle_chatter');
+const salesFollowup = require('./sales_followup');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_PATH), 'media');
 
@@ -2598,6 +2599,10 @@ async function processCustomerBatch(entry) {
   // on the FIRST alert for a query (freshPendingId), not on follow-up pings,
   // so repeat turns don't re-paste the link.
   const isInfoGapHandoffThisTurn = !!(escResult && escResult.ownerNotified && escResult.freshPendingId);
+  // Whether Sunny actually told the customer the Sales Manager will handle it
+  // this turn (link appended). Drives the 3h "did the Sales Manager sort it?"
+  // follow-up scheduled after the reply is sent.
+  let salesManagerHandoffThisTurn = false;
   if ((isHotHandoffThisTurn || isBulkHandoffThisTurn || isLiveAgentHandoffThisTurn || isReferralHandoffThisTurn || isInfoGapHandoffThisTurn) && !linkAlreadyInText) {
     // Point the customer at the SAME person the owner alert was routed to
     // (Abuja / Lagos sales, Charbel, or Patrick). Falls back to
@@ -2605,6 +2610,7 @@ async function processCustomerBatch(entry) {
     const link = buildSpecialistLink(safeCombinedText, routedRecipientNumber);
     if (link) {
       outboundText = `${outboundText}\n\nDirect line to the Sales Manager: ${link}`;
+      salesManagerHandoffThisTurn = true;
     }
   }
 
@@ -2614,6 +2620,24 @@ async function processCustomerBatch(entry) {
     intent: isHot ? 'hot_lead_handoff' : (expertContext ? 'silent_query_followup' : classification.intent),
     language: classification.language
   });
+  // Schedule the Sales Manager follow-up check-in (2026-07-26). Best-effort:
+  // any failure here must never break the customer reply we just sent.
+  if (salesManagerHandoffThisTurn) {
+    try {
+      const scheduledId = salesFollowup.maybeScheduleSalesFollowup({
+        handoffHappened: true,
+        contactId: contact.id,
+        conversationId: conversation.id,
+        handoffMessageId: sendRes.messageId,
+        language: classification.language
+      });
+      if (scheduledId) {
+        logger.info('handler.sales_followup.scheduled', { contactId: contact.id, followupId: scheduledId });
+      }
+    } catch (err) {
+      logger.warn('handler.sales_followup.schedule_fail', { contactId: contact.id, message: err.message });
+    }
+  }
   // Touch the open pending_query's last_assistant_reply_at so that subsequent
   // inbounds within PENDING_QUERY_REPLY_SILENCE_MS get suppressed by the
   // reply-once-on-follow-up guard above. Covers two cases:
@@ -3478,6 +3502,7 @@ module.exports = {
   autoReleaseStaleHumanConversations,
   routeStaleDeferredHandoffs,
   nudgeUnansweredPendingQueries,
+  runSalesFollowups: salesFollowup.runSalesFollowups,
   retryFallbackReplies,
   buildStallFallbackText,
   isPresenceOrImpatienceCheck,
