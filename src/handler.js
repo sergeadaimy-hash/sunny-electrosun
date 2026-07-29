@@ -44,8 +44,8 @@ function extForMime(mime) {
   return 'bin';
 }
 
-const HOT_LEAD_REPLY = "Noted. To proceed, you can continue directly with our specialist on WhatsApp. They have the formal documents and final figures.";
-const SILENT_QUERY_REPLY = "Noted. The team will get back to you shortly. In the meantime, you can also reach our specialist on WhatsApp.";
+const HOT_LEAD_REPLY = "Noted. The sales manager will continue with you directly on WhatsApp and share the formal documents and final figures.";
+const SILENT_QUERY_REPLY = "Noted. The sales manager can help you directly from here so you're not waiting on us.";
 const UNSUPPORTED_REPLY = "This number receives text messages only. Please type your question and the team will respond.";
 
 const FALLBACK_DEDUP_MINUTES = parseInt(process.env.FALLBACK_DEDUP_MINUTES || '15', 10);
@@ -1082,20 +1082,70 @@ async function processCustomerBatch(entry) {
   const isHot = isHotEscalation;
   const currentOpen = isHot ? null : getOrAutoResolveStalePending(contact.id);
 
-  // Reply-once-on-follow-up suppression. If a pending_queries row is open
-  // AND we've already produced an assistant reply on a prior turn while it
-  // was open, suppress further LLM-generated replies for
-  // PENDING_QUERY_REPLY_SILENCE_MS. The owner alert path still fires
-  // (handled inside notifyOwnerForEscalation as a follow-up ping), the
-  // customer just stops getting more "Could you share..." stalls.
+  // Reply-once-on-follow-up cooldown. If a pending_queries row is open and
+  // we already replied on a prior turn while it was open, suppress further
+  // LLM-generated replies for PENDING_QUERY_REPLY_SILENCE_MS. Owner directive
+  // 2026-07-29: NEVER leave the customer in complete silence. When the
+  // cooldown fires, send ONE minimal sales-manager referral message so the
+  // customer has a live human path forward, then hold silent for the rest of
+  // the window. Skip the referral if we already gave them a wa.me link in a
+  // recent outbound (avoids stacking links).
   if (currentOpen && currentOpen.last_assistant_reply_at) {
     const sinceLastReplyMs = Date.now() - new Date(currentOpen.last_assistant_reply_at).getTime();
     if (Number.isFinite(sinceLastReplyMs) && sinceLastReplyMs < PENDING_QUERY_REPLY_SILENCE_MS) {
+      let lastOutboundHasLink = false;
+      try {
+        const { getDb } = require('../db/init');
+        const db = getDb();
+        const recent = db.prepare(
+          `SELECT body FROM messages
+             WHERE direction = 'outbound'
+               AND conversation_id IN (SELECT id FROM conversations WHERE contact_id = ?)
+             ORDER BY id DESC LIMIT 1`
+        ).get(contact.id);
+        if (recent && /https?:\/\/wa\.me\//i.test(String(recent.body || ''))) {
+          lastOutboundHasLink = true;
+        }
+      } catch (err) {
+        logger.warn('handler.cooldown_link_check_fail', { message: err.message });
+      }
+      if (!lastOutboundHasLink) {
+        const link = buildSpecialistLink(safeCombinedText);
+        if (link) {
+          const referralText = `The sales manager can help you here directly, so you're not waiting: ${link}`;
+          try {
+            const sendRes = await sendMessage(lastMsg.from, referralText);
+            appendMessage(conversation.id, 'outbound', referralText, {
+              whatsapp_message_id: sendRes.messageId,
+              intent: 'sales_manager_referral',
+              language: classification.language
+            });
+            logger.info('handler.silence_cooldown_referral_sent', {
+              contactId: contact.id,
+              queryId: currentOpen.id
+            });
+            try {
+              logEvent(contact.id, 'silence_cooldown_referral_sent', {
+                queryId: currentOpen.id
+              });
+            } catch (err) {
+              logger.warn('handler.silence_cooldown_referral_log_fail', { message: err.message });
+            }
+          } catch (err) {
+            logger.warn('handler.silence_cooldown_referral_send_fail', {
+              contactId: contact.id,
+              message: err.message
+            });
+          }
+          return;
+        }
+      }
       logger.info('handler.followup_reply_suppressed_silence_cooldown', {
         contactId: contact.id,
         queryId: currentOpen.id,
         since_last_reply_ms: sinceLastReplyMs,
-        cooldown_ms: PENDING_QUERY_REPLY_SILENCE_MS
+        cooldown_ms: PENDING_QUERY_REPLY_SILENCE_MS,
+        last_outbound_had_link: lastOutboundHasLink
       });
       try {
         logEvent(contact.id, 'silent_query_followup_suppressed', {
@@ -1430,18 +1480,35 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  // Append the specialist (owner) wa.me link on HOT-lead handoff OR when the
-  // city-handoff guard fired this turn. The 2026-05-15 owner feedback still
-  // holds for silent_query/pricing replies (spammy, drop the link there).
-  // City-handoff is different: the customer already got asked once, the reply
-  // is a warm "the sales manager will help you directly from here", so the
-  // link belongs. Skip if the LLM already produced a wa.me link itself.
+  // Append the sales-manager wa.me link on ANY escalating handoff this turn:
+  // hot_lead, silent_query, or the city-handoff guard. Owner directive
+  // 2026-07-29 supersedes the earlier 2026-05-15 restriction (which had
+  // dropped the link from silent_query replies as spammy). Reality: some
+  // leads were sitting with no live human path, so the link now fires on
+  // every escalation state. Dealer_pricing keeps its own dedicated flow
+  // (dealer team, not sales team) and stays unlinked. If the LLM already
+  // produced a wa.me link itself, we do not stack another.
   const isHotHandoffThisTurn = !!(
     classification.needs_escalation &&
     classification.escalation_type === 'hot_lead'
   );
+  const isSilentQueryHandoffThisTurn = !!(
+    classification.needs_escalation &&
+    classification.escalation_type === 'silent_query'
+  );
+  const isReplyHandoffThisTurn = !!(escResult && escResult.ownerNotified && escResult.escalationType === 'silent_query');
   const isSalesHandoffThisTurn = needsCityHandoff;
-  if ((isHotHandoffThisTurn || isSalesHandoffThisTurn) && !linkAlreadyInText) {
+  const isDealerPricingThisTurn = !!(
+    classification.needs_escalation &&
+    classification.escalation_type === 'dealer_pricing'
+  );
+  const shouldAppendSalesLink = !isDealerPricingThisTurn && (
+    isHotHandoffThisTurn ||
+    isSilentQueryHandoffThisTurn ||
+    isReplyHandoffThisTurn ||
+    isSalesHandoffThisTurn
+  );
+  if (shouldAppendSalesLink && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);
     if (link) {
       outboundText = `${outboundText}\n\nDirect line to the sales manager: ${link}`;
