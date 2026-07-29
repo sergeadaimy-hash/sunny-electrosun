@@ -214,6 +214,50 @@ function buildSpecialistLink(customerMessage) {
   return `https://wa.me/${num}?text=${encodeURIComponent(prefilled)}`;
 }
 
+// City-handoff detector. Fires when Sunny's prior outbound asked for the
+// customer's city or state, and the customer's current message does NOT
+// include a Nigerian city / state AND does NOT pivot to a new substantive
+// product ask. Owner directive 2026-07-29: after one unanswered city ask,
+// hand off to the sales manager rather than re-ask or go silent.
+const CITY_ASK_RE = /\b(which\s+(city|state|location)|what\s+(city|state|location)|your\s+(city|state|location)|where\s+(in\s+nigeria|are\s+you\s+(located|based)|will\s+(this|it|the\s+system)\s+be)|lagos\s+or\s+abuja|abuja\s+or\s+lagos|which\s+part\s+of\s+nigeria)\b/i;
+const NIGERIAN_CITY_RE = /\b(lagos|abuja|kano|ibadan|port\s*harcourt|onitsha|enugu|kaduna|jos|benin\s*city|calabar|owerri|uyo|warri|asaba|awka|makurdi|ilorin|osogbo|akure|abeokuta|sokoto|maiduguri|bauchi|gombe|yola|damaturu|jalingo|dutse|birnin\s*kebbi|lokoja|minna|lafia|katsina|umuahia|abakaliki|nnewi|aba|zaria|wuse|garki|maitama|ikeja|lekki|ajah|surulere|ikoyi|apapa|oshodi|yaba|festac|magodo|gbagada|isolo|ojo|badagry|epe|ibafo|sagamu|ilishan|otta|mowe|kubwa|karu|nyanya|gwarinpa|asokoro|utako|mpape|jabi|kuje|bwari|fct|delta|rivers|oyo|ogun|edo|imo|anambra|akwa\s*ibom|cross\s*river|kwara|kogi|niger|plateau|nasarawa|taraba|adamawa|borno|yobe|kebbi|zamfara|jigawa|ebonyi|ondo|osun|ekiti|abia|bayelsa|benue|enugu\s*state|kaduna\s*state|kano\s*state|lagos\s*state|rivers\s*state)\b/i;
+// Pivot detector. Bare "price"/"cost" alone doesn't count, because that's
+// often the customer re-asking the original question rather than moving to a
+// new topic. Require a specific size (with unit), brand, SKU, product noun,
+// or phase to treat the reply as a genuine topic pivot.
+const NEW_PRODUCT_ASK_RE = /\b(\d+\s*(kw|kva|kwh|kilowatt)|inverter|battery|panels?|solar|deye|sungrow|jinko|longi|ja\s*solar|huawei|pylontech|byd|bos-[abg]|se-f\d|se-g\d|hybrid|off[-\s]?grid|\bhv\b|\blv\b|3\s*phase|single\s*phase|proforma|invoice|quotation)\b/i;
+
+function detectCityHandoffNeeded(priorHistory, currentText) {
+  const trimmed = String(currentText || '').trim();
+  if (trimmed.length < 2) return false;
+  const lastAssistant = Array.isArray(priorHistory)
+    ? priorHistory.filter(m => m && m.role === 'assistant').slice(-1)[0]
+    : null;
+  if (!lastAssistant) return false;
+  const priorText = String(lastAssistant.content || '');
+  if (!CITY_ASK_RE.test(priorText)) return false;
+  if (NIGERIAN_CITY_RE.test(trimmed)) return false;
+  // Customer pivoted to a new substantive product/price ask, let normal reply
+  // path handle it. Sunny can still re-ask city on that reply if it matters.
+  if (NEW_PRODUCT_ASK_RE.test(trimmed)) return false;
+  return true;
+}
+
+function buildSalesHandoffContext() {
+  return [
+    '# Sales-manager handoff context (treat as authoritative)',
+    'On the previous turn you asked the customer for their city or state (needed for stock, pickup, or delivery). Their current reply does NOT include a Nigerian city or state.',
+    '',
+    'Voice rules in this state:',
+    '- Do NOT ask for the city again. One ask is the limit; if it wasn\'t answered, hand off.',
+    '- Acknowledge briefly, then hand them to the sales manager who can help directly. Say "the sales manager will reach out" or "the sales manager can help you directly from here".',
+    '- Use third person ("the sales manager", "the team"). No first-person stalls ("I will check", "let me confirm").',
+    '- Do NOT include any URL or phone number; the system appends the specialist WhatsApp link automatically.',
+    '- Two sentences max.',
+    '- Match the customer\'s language if non-English.'
+  ].join('\n');
+}
+
 function pickHoldingReply(escalationType, customerMessage) {
   const base = escalationType === 'hot_lead' ? HOT_LEAD_REPLY : SILENT_QUERY_REPLY;
   const link = buildSpecialistLink(customerMessage);
@@ -1066,6 +1110,23 @@ async function processCustomerBatch(entry) {
   }
 
   const customerIsGratitude = customerIsCasualConfirm && isGratitudeMessage(safeCombinedText);
+  const needsCityHandoff = !isHot
+    && !customerIsCasualConfirm
+    && !(classification.needs_escalation && classification.escalation_type === 'dealer_pricing')
+    && detectCityHandoffNeeded(priorHistory, safeCombinedText);
+  if (needsCityHandoff) {
+    logger.info('handler.city_handoff_triggered', {
+      contactId: contact.id,
+      message_preview: safeCombinedText.slice(0, 80)
+    });
+    try {
+      logEvent(contact.id, 'city_handoff_triggered', {
+        message_preview: safeCombinedText.slice(0, 120)
+      });
+    } catch (err) {
+      logger.warn('handler.city_handoff_log_fail', { message: err.message });
+    }
+  }
   let expertContext = null;
   if (isHot) {
     expertContext = buildExpertContext({ isHot: true });
@@ -1074,6 +1135,8 @@ async function processCustomerBatch(entry) {
     classification.escalation_type === 'dealer_pricing'
   ) {
     expertContext = buildDealerPricingContext();
+  } else if (needsCityHandoff) {
+    expertContext = buildSalesHandoffContext();
   } else if (customerIsGratitude) {
     expertContext = [
       '# Gratitude context (treat as authoritative)',
@@ -1367,22 +1430,21 @@ async function processCustomerBatch(entry) {
     }
   }
 
-  // Append the specialist (owner) wa.me link ONLY on HOT-lead handoff. The
-  // 2026-05-15 owner feedback: appending the link on silent_query/pricing
-  // replies (where Sunny is asking for the customer's number, or saying
-  // "the team will check") is spammy and confuses the customer about who's
-  // actually handling them. The link makes sense ONLY when the customer
-  // explicitly committed (sent_account / pay-now phrasing) and we are
-  // genuinely passing them to a specialist. Skip if the LLM already
-  // produced a wa.me link itself.
+  // Append the specialist (owner) wa.me link on HOT-lead handoff OR when the
+  // city-handoff guard fired this turn. The 2026-05-15 owner feedback still
+  // holds for silent_query/pricing replies (spammy, drop the link there).
+  // City-handoff is different: the customer already got asked once, the reply
+  // is a warm "the sales manager will help you directly from here", so the
+  // link belongs. Skip if the LLM already produced a wa.me link itself.
   const isHotHandoffThisTurn = !!(
     classification.needs_escalation &&
     classification.escalation_type === 'hot_lead'
   );
-  if (isHotHandoffThisTurn && !linkAlreadyInText) {
+  const isSalesHandoffThisTurn = needsCityHandoff;
+  if ((isHotHandoffThisTurn || isSalesHandoffThisTurn) && !linkAlreadyInText) {
     const link = buildSpecialistLink(safeCombinedText);
     if (link) {
-      outboundText = `${outboundText}\n\nDirect line to the specialist: ${link}`;
+      outboundText = `${outboundText}\n\nDirect line to the sales manager: ${link}`;
     }
   }
 
