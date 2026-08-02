@@ -116,11 +116,28 @@ const PROMPT_LEAK_MARKERS = [
   'needs_escalation',
   'cache_control',
   'anthropic api',
+  // 2026-08-01 audit: four replies shipped Sunny's own scratchpad to the
+  // customer (conv 6447 twice, 6572, 6778). The model narrated the injected
+  // context blocks and its own plan before answering. Every marker below is
+  // lifted verbatim from a message a real customer received.
+  'per the reply language rules',
+  'per the reply rules',
+  'the customer is asking',
+  'the customer asked in',
+  'from the conversation state',
+  'per the rules, i',
+  "i should offer",
+  "i should reply",
+  "i should quote",
+  "i'll offer the",
+  'let me answer correctly',
 ];
 
+// Curly apostrophes are normalized so a marker written with a straight quote
+// still matches text the model produced with a typographic one.
 function detectPromptLeak(replyText) {
   if (!replyText) return null;
-  const lower = String(replyText).toLowerCase();
+  const lower = String(replyText).toLowerCase().replace(/[‘’ʼ]/g, "'");
   const found = PROMPT_LEAK_MARKERS.filter(m => lower.includes(m));
   return found.length ? found : null;
 }

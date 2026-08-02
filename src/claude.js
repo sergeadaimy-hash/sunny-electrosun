@@ -810,12 +810,11 @@ async function generateReply(history, message, contact, attachments = [], option
     // ("I need up to 34 units", "buy 10 panels"), they want the price. Without
     // this, the strip below nuked the quote and Sunny looped on a generic
     // "could you share more about your project" (Lanre Ajeigbe screenshot).
-    const PRICE_ASK_RE = /\b(how\s+much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|totals?|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoices?|proformas?|how\s+many\s+naira|configure|configuration|sizing|recommend(ation)?|complete\s+system|full\s+system|required|bundle|kit|boq|bom|estimate|estimation|spec(s|ification)?s?|buy|purchase|order|\d+\s*(?:units?|pcs|pieces?|panels?|nos?|sets?|modules?|inverters?|batteries|kits?|qty)|up\s+to\s+\d+)\b/i;
-    const currentAsked = PRICE_ASK_RE.test(String(message || ''));
+    const currentAsked = isPriceAsk(message);
     let priorAsked = false;
     if (Array.isArray(history)) {
       const lastSixUser = history.filter(m => m && m.role === 'user').slice(-6);
-      priorAsked = lastSixUser.some(m => PRICE_ASK_RE.test(String(m.content || '')));
+      priorAsked = lastSixUser.some(m => isPriceAsk(m.content));
     }
     const customerAskedPrice = currentAsked || priorAsked;
     if (text && !customerAskedPrice) {
@@ -1218,6 +1217,34 @@ async function generateReply(history, message, contact, attachments = [], option
   }
 }
 
+// --- Price-ask detection ----------------------------------------------------
+//
+// Drives the price-dump guard: when this returns false and the reply contains a
+// price, the price is stripped. The 2026-08-01 audit found 53 replies collapsed
+// into the generic "Could you share more about your project" deflection because
+// the old word-list missed the way customers actually shop. "I'm looking for
+// 20 kva 3 phase inverter" and "deye 16kwh lithium battery" name a product AND a
+// size, which IS a price ask on a distributor counter, but carried none of the
+// listed words. So a size token next to a product word now counts on its own.
+//
+// French price words are included because the Benin / Niger / Chad / Cameroon
+// ads bring in "Prix" and "Coutera combien" as the whole message.
+// "how much" arrives as "How.much", "howmuch" and "how  much" in live threads.
+const PRICE_WORD_RE = /\b(how\s*[.,]?\s*much|prices?|pricing|costs?|naira|ngn|quotations?|quotes?|rates?|totals?|sum|altogether|all\s+together|grand\s+total|in\s+total|final\s+amount|invoices?|proformas?|how\s+many\s+naira|configure|configuration|sizing|recommend(ation)?|complete\s+system|full\s+system|required|bundle|kit|boq|bom|estimate|estimation|spec(s|ification)?s?|buy|purchase|order|prix|combien|co[uû]te?ra?|tarif|montant|\d+\s*(?:units?|pcs|pieces?|panels?|nos?|sets?|modules?|inverters?|batteries|kits?|qty)|up\s+to\s+\d+)\b/i;
+// A capacity/rating figure: "20 kva", "16kwh", "8kw", "10kwt", "590w", "48v".
+// On a solar counter this IS the product, so it counts on its own: "16kva set"
+// and "And 590w" were both answered with the generic deflection before this.
+// The unit is what makes it safe; a bare number never matches.
+// The alternation is ordered longest-first so "kwts" is not consumed as "kw".
+const SIZE_TOKEN_RE = /\b\d+(?:[.,]\d+)?\s*(?:kilowatts?|kilovolts?|watts?|kwts?|kwhs?|kvas?|kwps?|kwas?|kws?|vas?|ah|wp|w|v)\b/i;
+
+function isPriceAsk(text) {
+  const s = String(text || '');
+  if (!s.trim()) return false;
+  if (PRICE_WORD_RE.test(s)) return true;
+  return SIZE_TOKEN_RE.test(s);
+}
+
 // Detects a dangling/garbled fragment left behind after the price-dump guard
 // strips a price from a reply. Returns the matched kind (string) or null.
 // ONLY meaningful on text that has already had a price stripped: callers run it
@@ -1253,6 +1280,14 @@ function detectDanglingFragment(stripped) {
   //     followed by a modal/verb, which only happens when a price between them
   //     was stripped. Valid English almost never has "at would/will/...".
   if (/\b(?:at|for)\s+(?:would|will|could|should|do|does)\b/i.test(s)) return 'prep_orphan';
+  // (j) NEW (2026-08-01): a line that ENDS on a price-introducing connector,
+  //     with nothing after it. Seven live replies shipped like this, e.g.
+  //     "SUN-8K-SG05LP1-EU-SM2-P (8kW, 1-phase hybrid, available) at" and
+  //     "Here are the prices for". The earlier rules all require the connector
+  //     to sit next to punctuation, so a bare end-of-line slipped through.
+  //     A trailing "?" or any other punctuation after the word means the
+  //     sentence is intact ("Which size are you sizing for?").
+  if (/\b(?:at|for|of|is|are|costs?|prices?|pricing)[ \t]*(?:\n|$)/i.test(s)) return 'connector_eol';
   return null;
 }
 
@@ -1283,4 +1318,4 @@ function buildKnownCustomerContext(contact, isCasualGreeting) {
   return `\n\n# Known about this customer\n${contextLines.join('\n')}${greetingNote}`;
 }
 
-module.exports = { classify, generateReply, describeInboundImage, detectDanglingFragment, buildKnownCustomerContext, detectFabricatedVariantFromItems };
+module.exports = { classify, generateReply, describeInboundImage, isPriceAsk, detectDanglingFragment, buildKnownCustomerContext, detectFabricatedVariantFromItems };

@@ -40,12 +40,32 @@ function buildRoutingSummary(recipients) {
   const hasLagos = list.some(r => r.label === 'lagos');
   const lines = [];
   lines.push('Lead routing IS configured and active. Never tell the owner that routing is missing or that he must configure it.');
-  lines.push('How it works: when a lead escalates, Sunny forwards it automatically. Big projects go to the owners (Patrick/Charbel, alternating). Every other escalation goes to the regional sales desk by city: an Abuja lead alerts the Abuja sales line, a Lagos lead alerts the Lagos sales line. The alert reaches that desk on its own WhatsApp number (not only this owner chat).');
-  lines.push('If a lead has not yet given its city, Sunny asks "Abuja or Lagos?" first, so a lead with no city has NOT been forwarded yet, that is expected.');
+  lines.push('How it works: when a lead escalates, Sunny forwards it IMMEDIATELY, in the same turn. Big projects go to the owners (Patrick/Charbel, alternating). Every other escalation goes to the regional sales desk by city: an Abuja lead alerts the Abuja sales line, a Lagos lead alerts the Lagos sales line. The alert reaches that desk on its own WhatsApp number (not only this owner chat).');
+  if (hasAbuja && hasLagos) {
+    lines.push('When the city is unknown (very common, the ads run in Cameroon, Niger, Chad and Benin too), the lead is STILL forwarded right away without waiting for a city, and those leads alternate between the Abuja and Lagos desks so the load is split evenly between them.');
+  } else {
+    lines.push('When the city is unknown, the lead is STILL forwarded right away without waiting for a city; it goes to whichever sales desk is configured.');
+  }
+  lines.push('Sunny NEVER holds a lead back waiting for the customer to name a city. That behaviour was removed on 2026-07-19. If the owner asks why a lead was not forwarded, do not blame a missing city.');
   lines.push('Configured sales desks: ' + (deskNames.length ? deskNames.join(', ') : 'none set yet') + '.');
   if (!hasAbuja) lines.push('NOTE: the Abuja sales number (SALES_ABUJA_WHATSAPP) is NOT set, so Abuja leads currently fall back to the owner until it is added in the admin dashboard.');
   if (!hasLagos) lines.push('NOTE: the Lagos sales number (SALES_LAGOS_WHATSAPP) is NOT set, so Lagos leads currently fall back to the owner until it is added in the admin dashboard.');
   return lines.join('\n');
+}
+
+// Per-desk alert counts (2026-08-01). On 2026-07-29 Patrick asked "how many
+// leads for charbel / patrick / abuja sales / lagos sales?" and Sunny answered
+// that it had no breakdown by desk. It does: every pending_queries row has
+// carried alert_recipient_label since 2026-07-19. Pure so it is testable.
+function buildDeskAlertBreakdown(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const out = { total: list.length, unrecorded: 0 };
+  for (const r of list) {
+    const label = r && r.alert_recipient_label;
+    if (!label) { out.unrecorded += 1; continue; }
+    out[label] = (out[label] || 0) + 1;
+  }
+  return out;
 }
 
 // Media coverage block (2026-07-12). Sunny told the developer line that it
@@ -211,6 +231,19 @@ function buildOwnerSnapshot(ownerContactId) {
     recent_escalations: recentEscalationsRows,
     owner_chat: ownerChat,
     lead_routing: buildRoutingSummary(ownerRouting.configuredRecipients()),
+    // Today's alerts split by which desk received them. Answers "how many leads
+    // for charbel / patrick / abuja sales / lagos sales?" with real numbers.
+    alerts_by_desk_today: (() => {
+      try {
+        const rows = db.prepare(
+          `SELECT alert_recipient_label FROM pending_queries WHERE created_at >= ?`
+        ).all(todayStart);
+        return buildDeskAlertBreakdown(rows);
+      } catch (err) {
+        logger.warn('owner_qa.desk_breakdown_fail', { message: err.message });
+        return null;
+      }
+    })(),
     media_coverage: (() => {
       try {
         return buildMediaCoverageSummary(require('./warehouse').listItems());
@@ -262,4 +295,4 @@ async function answerOwnerQuestion(ownerContactId, question, opts = {}) {
   }
 }
 
-module.exports = { buildOwnerSnapshot, answerOwnerQuestion, buildRoutingSummary, buildMediaCoverageSummary };
+module.exports = { buildOwnerSnapshot, answerOwnerQuestion, buildRoutingSummary, buildMediaCoverageSummary, buildDeskAlertBreakdown };

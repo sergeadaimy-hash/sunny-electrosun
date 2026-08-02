@@ -83,11 +83,15 @@ test('region unknown (non-big) is a last-resort owner fallback (gather-first sho
   assert.equal(d.reason, 'region_unknown_fallback');
 });
 
-test('region unknown defaults to the Abuja desk when Abuja is configured (owner directive 2026-06-08)', () => {
-  // Owner directive: a city-unknown lead should go to Abuja, not the owner.
+test('region unknown goes to a real sales desk, never the owner (owner directive 2026-06-08)', () => {
+  // Owner directive: a city-unknown lead should reach a sales manager, not the
+  // owner. SUPERSEDED IN PART on 2026-07-29 ("let them go to any sales
+  // manager"): with both desks configured these now alternate, see the rotation
+  // tests in audit_fixes_2026-08-01.test.js. With only Abuja set it still lands
+  // on Abuja.
   const d = decideRecipient({ category: 'SERIOUS', escalation_type: 'silent_query', routing_category: 'unknown', abujaConfigured: true });
   assert.equal(d.label, 'abuja');
-  assert.equal(d.reason, 'region_unknown_default_abuja');
+  assert.equal(d.reason, 'region_unknown_only_abuja');
 });
 
 test('region unknown still falls back to owner when Abuja is NOT configured', () => {
@@ -120,9 +124,15 @@ test('force-promoted HOT with UNKNOWN region routes to a real desk (Franck/Camer
   // so the alert fires and the Sales Manager link is shared.
   const lead = { category: 'COLD', lead_temperature: 'HOT', escalation_type: 'hot_lead', routing_category: 'unknown', routing_region: 'unknown' };
   assert.equal(isSeriousOrHot(lead), true);
-  const d = decideRecipient({ ...lead, abujaConfigured: true });
-  assert.equal(d.label, 'abuja', 'region-unknown HOT lands on the Abuja desk, not nowhere');
-  assert.equal(d.reason, 'region_unknown_default_abuja');
+
+  const abujaOnly = decideRecipient({ ...lead, abujaConfigured: true });
+  assert.equal(abujaOnly.label, 'abuja', 'region-unknown HOT lands on the Abuja desk, not nowhere');
+
+  // With both desks live it alternates (2026-07-29 owner directive), but the
+  // invariant that matters is unchanged: it always lands on a real sales desk.
+  const bothDesks = decideRecipient({ ...lead, abujaConfigured: true, lagosConfigured: true, lastRegionalDesk: 'abuja' });
+  assert.equal(bothDesks.label, 'lagos');
+  assert.ok(['abuja', 'lagos'].includes(bothDesks.label), 'never the owner dead-end');
 });
 
 // --- routingInfoSufficient (gather-first gate) -----------------------------

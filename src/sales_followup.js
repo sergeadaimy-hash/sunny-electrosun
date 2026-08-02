@@ -126,6 +126,26 @@ function supersedeOpenFollowupsForContact(contactId) {
   return info.changes;
 }
 
+// When this contact last actually RECEIVED a check-in, or null if never.
+function getLastSentFollowupAt(contactId) {
+  const row = db().prepare(
+    `SELECT sent_at FROM sales_followups
+      WHERE contact_id = ? AND status = 'sent' AND sent_at IS NOT NULL
+      ORDER BY sent_at DESC LIMIT 1`
+  ).get(contactId);
+  return row ? row.sent_at : null;
+}
+
+// Pure: is a fresh check-in still inside the cooldown after the last one?
+function isWithinFollowupCooldown(lastSentAtIso, nowIso2, cooldownHours) {
+  if (!lastSentAtIso) return false;
+  const last = new Date(lastSentAtIso).getTime();
+  const now = new Date(nowIso2).getTime();
+  if (!Number.isFinite(last) || !Number.isFinite(now)) return false;
+  const hours = Number.isFinite(cooldownHours) ? cooldownHours : 24;
+  return now - last < hours * 60 * 60 * 1000;
+}
+
 function markFollowupSent(id, messageId, sentAtIso) {
   db().prepare(
     `UPDATE sales_followups
@@ -180,6 +200,20 @@ function maybeScheduleSalesFollowup({ handoffHappened, contactId, conversationId
   if (isTrue(process.env.DISABLE_ESCALATIONS)) return null;
   if (!contactId) return null;
   const handoffAt = (now ? new Date(now) : new Date()).toISOString();
+
+  // One check-in per contact per cooldown window. Superseding only touched
+  // PENDING rows, so a second handoff after the first check-in had already been
+  // SENT scheduled another one: 12 of 63 recipients got two or three, and conv
+  // 6999 got the identical "Did the Sales Manager reach out?" at 07:00 and
+  // again at 10:25 (2026-08-01 audit).
+  const cooldownHours = envInt('SALES_FOLLOWUP_COOLDOWN_HOURS', 24);
+  let lastSentAt = null;
+  try { lastSentAt = getLastSentFollowupAt(contactId); } catch (err) { lastSentAt = null; }
+  if (isWithinFollowupCooldown(lastSentAt, handoffAt, cooldownHours)) {
+    logger.info('sales_followup.suppressed_cooldown', { contactId, last_sent_at: lastSentAt, cooldown_hours: cooldownHours });
+    return null;
+  }
+
   const delay = Number.isFinite(delayMinutes) ? delayMinutes : envInt('SALES_FOLLOWUP_DELAY_MINUTES', 180);
   const dueAt = computeDueAt(handoffAt, delay);
   supersedeOpenFollowupsForContact(contactId);
@@ -292,5 +326,7 @@ module.exports = {
   getInboundBodiesAfter,
   getLastInboundAt,
   maybeScheduleSalesFollowup,
-  runSalesFollowups
+  runSalesFollowups,
+  getLastSentFollowupAt,
+  isWithinFollowupCooldown
 };

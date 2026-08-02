@@ -216,44 +216,71 @@ function decideRecipient(input) {
   // the general owner (gather-first should have asked the city first).
   const region = normalizeRegion(classification);
   const known = cat === 'daily_sales' ? 'daily' : 'region';
-  if (region === 'abuja') return { label: 'abuja', flipTo: null, stickySet: null, reason: `${known}_abuja` };
-  if (region === 'lagos') return { label: 'lagos', flipTo: null, stickySet: null, reason: `${known}_lagos` };
-  // Region unknown and not a big project. Owner directive (2026-06-08): default
-  // a city-unknown lead to the Abuja desk rather than the owner, so it reaches a
-  // sales manager instead of waiting forever or piling on Patrick. Only fall
-  // back to the owner if the Abuja desk number is not configured.
-  if (input && input.abujaConfigured) {
-    return { label: 'abuja', flipTo: null, stickySet: null, reason: 'region_unknown_default_abuja' };
+  if (region === 'abuja') return { label: 'abuja', flipTo: null, flipRegionalTo: null, stickySet: null, reason: `${known}_abuja` };
+  if (region === 'lagos') return { label: 'lagos', flipTo: null, flipRegionalTo: null, stickySet: null, reason: `${known}_lagos` };
+
+  // Region unknown and not a big project. Owner directive (2026-06-08): never
+  // hold a lead waiting for a city, send it to a sales desk immediately.
+  // Owner directive (2026-07-29, developer line): "Why lagos sales is not
+  // receiving a lot of escalations? Let them go to any sales manager." The old
+  // rule sent EVERY city-unknown lead to Abuja, which is why the 2026-08-01
+  // audit measured 205 alerts to Abuja against 41 to Lagos. City-unknown leads
+  // now alternate between the two desks, so the load splits evenly. A lead
+  // whose city IS known still goes to its own desk (above) and never disturbs
+  // the rotation.
+  const abujaOn = !!(input && input.abujaConfigured);
+  const lagosOn = !!(input && input.lagosConfigured);
+  if (abujaOn && lagosOn) {
+    const next = input.lastRegionalDesk === 'abuja' ? 'lagos' : 'abuja';
+    return { label: next, flipTo: null, flipRegionalTo: next, stickySet: null, reason: `region_unknown_rotated_${next}` };
   }
-  return { label: 'owner', flipTo: null, stickySet: null, reason: 'region_unknown_fallback' };
+  if (abujaOn) return { label: 'abuja', flipTo: null, flipRegionalTo: null, stickySet: null, reason: 'region_unknown_only_abuja' };
+  if (lagosOn) return { label: 'lagos', flipTo: null, flipRegionalTo: null, stickySet: null, reason: 'region_unknown_only_lagos' };
+  return { label: 'owner', flipTo: null, flipRegionalTo: null, stickySet: null, reason: 'region_unknown_fallback' };
 }
 
 // --- DB-backed state -------------------------------------------------------
 
-function getLastAssignee() {
+function getRoutingState(key) {
   try {
     const { getDb } = require('../db/init');
-    const row = getDb()
-      .prepare("SELECT value FROM routing_state WHERE key = 'last_big_project_assignee'")
-      .get();
+    const row = getDb().prepare('SELECT value FROM routing_state WHERE key = ?').get(key);
     return row && row.value ? row.value : null;
   } catch (err) {
-    logger.warn('owner_routing.get_last_assignee_fail', { message: err.message });
+    logger.warn('owner_routing.get_state_fail', { message: err.message, key });
     return null;
   }
 }
 
-function setLastAssignee(value) {
+function setRoutingState(key, value) {
   try {
     const { getDb } = require('../db/init');
     getDb()
       .prepare(`INSERT INTO routing_state (key, value, updated_at)
-                VALUES ('last_big_project_assignee', ?, ?)
+                VALUES (?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
-      .run(value, new Date().toISOString());
+      .run(key, value, new Date().toISOString());
   } catch (err) {
-    logger.warn('owner_routing.set_last_assignee_fail', { message: err.message, value });
+    logger.warn('owner_routing.set_state_fail', { message: err.message, key, value });
   }
+}
+
+function getLastAssignee() {
+  return getRoutingState('last_big_project_assignee');
+}
+
+function setLastAssignee(value) {
+  setRoutingState('last_big_project_assignee', value);
+}
+
+// Which regional desk took the LAST city-unknown lead, so the next one goes to
+// the other desk. Survives container restarts because it lives in the DB.
+function getLastRegionalDesk() {
+  return getRoutingState('last_regional_desk');
+}
+
+function setLastRegionalDesk(value) {
+  setRoutingState('last_regional_desk', value);
 }
 
 // Resolve the actual recipient number for an escalation, applying and
@@ -271,10 +298,15 @@ function resolveRecipient(contact, classification) {
     routing_region: classification && classification.routing_region,
     stickyOwner,
     lastAssignee,
-    abujaConfigured: !!numberForLabel('abuja'),
+    lastRegionalDesk: getLastRegionalDesk(),
+    // Read the env vars directly, NOT numberForLabel(), which falls back to
+    // OWNER_WHATSAPP and so reported every desk as "configured".
+    abujaConfigured: !!process.env.SALES_ABUJA_WHATSAPP,
+    lagosConfigured: !!process.env.SALES_LAGOS_WHATSAPP,
   });
 
   if (decision.flipTo) setLastAssignee(decision.flipTo);
+  if (decision.flipRegionalTo) setLastRegionalDesk(decision.flipRegionalTo);
 
   if (decision.stickySet && stickyOwner !== decision.stickySet) {
     try {
@@ -310,4 +342,6 @@ module.exports = {
   resolveRecipient,
   getLastAssignee,
   setLastAssignee,
+  getLastRegionalDesk,
+  setLastRegionalDesk,
 };

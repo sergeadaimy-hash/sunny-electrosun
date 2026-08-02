@@ -107,13 +107,44 @@ const PRODUCT_KEYWORDS_RE = /\b(kw|kva|kwh|panel|panels|battery|batteries|invert
 // Sunny. Reply should be warm ("you're most welcome", "anytime") + a soft
 // offer to keep helping, NOT the bare 6-word ack used for "ok"/"noted".
 const GRATITUDE_RE = /\b(thanks?|thank\s*you|thnx|tnx|ty|thx|tysm|appreciate(d|s)?|much\s+appreciated|grateful|gracias|merci|shukran|🙏|❤️)\b/i;
+// Every word that can appear in a message which carries NO information beyond
+// "I heard you". Used by the catch-all below: a message is casual only when
+// EVERY word in it is filler. Replaces the old "under 30 chars and no product
+// keyword" rule, which the 2026-08-01 audit caught swallowing real content:
+// "I live in Port Harcourt", "May I have u name", "Hello good evening" and
+// "And 590w" were all treated as polite closers and answered with silence.
+const FILLER_WORDS = new Set([
+  'ok', 'okay', 'okey', 'okk', 'oky', 'k', 'kk', 'alright', 'aight', 'noted', 'got', 'it',
+  'sure', 'fine', 'cool', 'nice', 'great', 'perfect', 'lovely', 'excellent',
+  'thanks', 'thank', 'thanx', 'thnx', 'tnx', 'ty', 'thx', 'tysm', 'you', 'u',
+  'appreciate', 'appreciated', 'appreciate it', 'cheers', 'grateful',
+  'no', 'problem', 'np', 'wahala', 'done', 'gotcha', 'sounds', 'good', 'sg',
+  'all', 'yep', 'yup', 'yes', 'yeah', 'yea', 'yh', 'then', 'a', 'lot', 'much',
+  'hmm', 'hmmm', 'interesting', 'wow', 'really', 'i', 'see', 'oh', 'ohh', 'aha',
+  'ahaa', 'ahh', 'right', 'sir', 'ma', 'boss', 'thing', 'and', 'so', 'well',
+  'roger', 'copy', 'understood', 'welcome', 'anytime',
+]);
+
+function isAllFillerWords(t) {
+  // Any digit means the customer said something concrete ("And 590w", "2 units").
+  if (/\d/.test(t)) return false;
+  const words = t
+    .toLowerCase()
+    .replace(/[^\p{L}\s]+/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return false;
+  return words.every(w => FILLER_WORDS.has(w));
+}
+
 function isCasualConfirmation(text) {
   const t = String(text || '').trim();
   if (!t) return false;
   if (t.length > 40) return false;
+  if (/\?/.test(t)) return false;
+  if (PRODUCT_KEYWORDS_RE.test(t)) return false;
   if (CASUAL_CONFIRM_RE.test(t)) return true;
-  if (t.length <= 30 && !/\?/.test(t) && !PRODUCT_KEYWORDS_RE.test(t)) return true;
-  return false;
+  return isAllFillerWords(t);
 }
 function isGratitudeMessage(text) {
   const t = String(text || '').trim();
@@ -547,6 +578,28 @@ function buildExpertContext({ openPending, escalationJustCreated, isHot, hasImag
 
 function pickUnsupportedReply() {
   return UNSUPPORTED_REPLY;
+}
+
+// A sticker is a gesture, not a question, exactly like an emoji reaction. One
+// live thread got the text-only nag five times in a row from stickers alone
+// (2026-08-01 audit), so stickers are now stored and answered with silence.
+const SILENT_UNSUPPORTED_TYPES = new Set(['sticker']);
+
+// A video is the opposite problem: the customer sent us real content we cannot
+// open. Telling them "this number receives text messages only" reads as a
+// brush-off, and one customer got it after sending footage of their own high
+// voltage installation for review.
+const VIDEO_UNSUPPORTED_REPLY =
+  "Videos don't come through on this line, Sir. Could you tell me what you'd like checked, or send a photo instead?";
+
+function shouldReplyToUnsupported(type, priorNagCount) {
+  if (SILENT_UNSUPPORTED_TYPES.has(String(type || '').toLowerCase())) return false;
+  return !(priorNagCount > 0);
+}
+
+function unsupportedReplyFor(type) {
+  if (String(type || '').toLowerCase() === 'video') return VIDEO_UNSUPPORTED_REPLY;
+  return pickUnsupportedReply();
 }
 
 function extractCallEvents(payload) {
@@ -1144,7 +1197,32 @@ async function handleUnsupported(msg) {
 
   logEvent(contact.id, 'unsupported_received', { type: msg.type, whatsappId: msg.id });
 
-  const reply = pickUnsupportedReply();
+  // How many times we have already nagged in THIS conversation. The nag is a
+  // one-off courtesy, not a response to every sticker (2026-08-01 audit).
+  let priorNagCount = 0;
+  try {
+    const { getDb } = require('../db/init');
+    const row = getDb().prepare(
+      `SELECT COUNT(*) AS n FROM messages
+        WHERE conversation_id = ? AND direction = 'outbound' AND intent = 'unsupported_reply'`
+    ).get(conversation.id);
+    priorNagCount = (row && row.n) || 0;
+  } catch (err) {
+    logger.warn('handler.unsupported.nag_count_fail', { message: err.message });
+  }
+
+  if (!shouldReplyToUnsupported(msg.type, priorNagCount)) {
+    logger.info('handler.unsupported.reply_suppressed', {
+      contactId: contact.id,
+      type: msg.type,
+      prior_nag_count: priorNagCount
+    });
+    // The inbound row above already closes the turn, so the orphan sweep will
+    // not re-queue this message.
+    return;
+  }
+
+  const reply = unsupportedReplyFor(msg.type);
   const sendRes = await sendMessage(msg.from, reply);
   appendMessage(conversation.id, 'outbound', reply, {
     whatsapp_message_id: sendRes.messageId,
@@ -1196,8 +1274,27 @@ async function handleSystemMessage(msg) {
   });
 }
 
-const MESSAGE_DEBOUNCE_MS = parseInt(process.env.MESSAGE_DEBOUNCE_MS || '6000', 10);
+// Raised 6000 -> 12000 on 2026-08-01. The audit measured the gap between a
+// customer's back-to-back messages at p50 8.9s and p90 12.6s, so a 6s window
+// split most bursts into two batches and Sunny answered twice. 122 of the 138
+// observed double replies came from exactly that.
+const MESSAGE_DEBOUNCE_MS = parseInt(process.env.MESSAGE_DEBOUNCE_MS || '12000', 10);
 const PENDING_INBOUND = new Map();
+
+// The other 16 double replies: a follow-up landed while the first batch was
+// still inside its LLM call, so the customer got a stale generic reply and then
+// the real answer 11s later (conv 7003 asked "How much is 20 kW?" and got
+// "Sure, which product or system size are you looking at?" first). When newer
+// messages are already queued, this batch's reply is out of date before it is
+// sent, so we drop it and let the newer batch answer with the full picture.
+// The newer batch's reply lands after the older inbound, so the orphan sweep
+// correctly counts that message as answered.
+function batchIsSuperseded(entry, pending = PENDING_INBOUND) {
+  const id = entry && entry.contact && entry.contact.id;
+  if (id === undefined || id === null) return false;
+  const queued = pending.get(id);
+  return !!(queued && Array.isArray(queued.msgs) && queued.msgs.length);
+}
 // B-#1 instrumentation (2026-06-08): observe the double/triple-reply pattern.
 // LOGGING ONLY, no behavior change. Each fired batch gets a sequence id and we
 // record the gap since the previous batch for the same contact. If a contact
@@ -2614,6 +2711,19 @@ async function processCustomerBatch(entry) {
     }
   }
 
+  // The customer kept typing while this turn was inside its LLM call, so this
+  // reply is already out of date. Drop it and let the newer batch answer with
+  // the full picture rather than sending a stale generic question followed by
+  // the real answer 11 seconds later (2026-08-01 audit, conv 7003).
+  if (batchIsSuperseded(entry)) {
+    logger.info('handler.batch.reply_superseded', {
+      contactId: contact.id,
+      batchId: entry.batchId,
+      dropped_preview: String(outboundText || '').slice(0, 80)
+    });
+    return;
+  }
+
   const sendRes = await sendMessage(lastMsg.from, outboundText);
   appendMessage(conversation.id, 'outbound', outboundText, {
     whatsapp_message_id: sendRes.messageId,
@@ -3511,5 +3621,10 @@ module.exports = {
   isBigProjectByValue,
   BIG_PROJECT_NGN_THRESHOLD,
   isLiveAgentRequest,
-  detectLeadSource
+  detectLeadSource,
+  isCasualConfirmation,
+  batchIsSuperseded,
+  shouldReplyToUnsupported,
+  unsupportedReplyFor,
+  DEBOUNCE_MS: MESSAGE_DEBOUNCE_MS
 };

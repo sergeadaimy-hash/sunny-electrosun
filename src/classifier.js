@@ -84,6 +84,30 @@ const CATEGORY_TO_TEMP = {
   LOST: 'LOST'
 };
 
+// lead_temperature is a HIGH-WATER MARK, not a reading of the latest message.
+//
+// Before 2026-08-01 it was overwritten every turn, so a customer who said "I
+// want to pay" (HOT) and then "ok thanks" two turns later dropped back to COLD.
+// The audit measured 639 of 647 contacts reading COLD, including all 19 whose
+// category was HOT, which made the column useless to the sales desk. `category`
+// already behaves as a peak, so temperature now matches it.
+//
+// The three terminal states (DISQUALIFIED / CLOSED / LOST) are verdicts, not
+// heat, so they override in both directions: a disqualified lead is never
+// re-heated by a later enthusiastic message, and a won deal stays CLOSED.
+const TEMP_RANK = { COLD: 1, WARM: 2, HOT: 3 };
+const TERMINAL_TEMPS = new Set(['DISQUALIFIED', 'CLOSED', 'LOST']);
+
+function mergeLeadTemperature(previous, next) {
+  const prev = previous ? String(previous).toUpperCase() : null;
+  const now = next ? String(next).toUpperCase() : null;
+  if (!now) return prev || null;
+  if (!prev) return now;
+  if (TERMINAL_TEMPS.has(now)) return now;
+  if (TERMINAL_TEMPS.has(prev)) return prev;
+  return (TEMP_RANK[now] || 0) >= (TEMP_RANK[prev] || 0) ? now : prev;
+}
+
 function normalizeClassifierShape(result) {
   if (!result || typeof result !== 'object') return result;
   // Already in the legacy shape (lead_temperature present, category is C*). Leave it.
@@ -245,7 +269,8 @@ async function runClassification(contact, history, message) {
   if (result.language && !contact.language) updates.language = result.language;
 
   if (result.lead_temperature) {
-    updates.lead_temperature = result.lead_temperature;
+    const merged = mergeLeadTemperature(contact.lead_temperature, result.lead_temperature);
+    if (merged && merged !== contact.lead_temperature) updates.lead_temperature = merged;
   }
 
   if (result.client_type && result.client_type !== 'unknown' && !contact.client_type) {
@@ -302,4 +327,4 @@ async function runClassification(contact, history, message) {
   return result;
 }
 
-module.exports = { runClassification, hasHotTrigger };
+module.exports = { runClassification, hasHotTrigger, mergeLeadTemperature };
