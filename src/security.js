@@ -305,6 +305,28 @@ function resetApiAuthThrottle() {
   API_AUTH_FAILURES.clear();
 }
 
+// Blocked contacts (2026-08-15). BLOCKED_NUMBERS is a comma, semicolon, or
+// whitespace separated list of phone numbers; each entry is normalized to bare
+// digits. A blocked sender is dropped at the very top of the inbound pipeline:
+// no persistence, no classification, no reply, zero LLM cost. Set on Railway
+// with `railway variables --set BLOCKED_NUMBERS=...` (takes effect on the next
+// deploy or restart). First use: a spam contact who fed Sunny gibberish, voice
+// notes, and phone-shop photos for days and got a polite reply every time.
+function parseBlockedNumbers(raw = process.env.BLOCKED_NUMBERS) {
+  return new Set(
+    String(raw || '')
+      .split(/[,;\n]+/)
+      .map(n => n.replace(/\D/g, ''))
+      .filter(Boolean)
+  );
+}
+
+function isBlockedNumber(phone, raw = process.env.BLOCKED_NUMBERS) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return false;
+  return parseBlockedNumbers(raw).has(digits);
+}
+
 module.exports = {
   checkRateLimit,
   truncateInbound,
@@ -324,6 +346,8 @@ module.exports = {
   recordApiAuthFailure,
   checkApiAuthThrottle,
   resetApiAuthThrottle,
+  parseBlockedNumbers,
+  isBlockedNumber,
   RATE_LIMIT_PER_MINUTE,
   RATE_LIMIT_DAILY,
   MAX_SINGLE_MESSAGE_CHARS,

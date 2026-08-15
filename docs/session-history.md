@@ -2,6 +2,16 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-08-15: BLOCKED_NUMBERS contact block
+
+Serge sent screenshots of Dan Ammadu (`2349159787464`, COLD + DISQUALIFIED) getting a polite reply from Sunny to every message across several days: single-token gibberish ("Gsitw", "Sufwicwo", "Audafof", "Axaixao"), untranscribable voice notes, and photos of Infinix/Tecno phones in a retail shop (not solar). The idle-chatter mute never held because image turns are exempt by design, transcribed voice notes count as text, and the 24h conversation rollover kept restoring the one-polite-reply allowance. Serge's directive: block him.
+
+Sunny had no block mechanism at all, so one was built (suite 333/333, TDD, `test/blocked_numbers.test.js`):
+- **`security.parseBlockedNumbers` / `security.isBlockedNumber`**: `BLOCKED_NUMBERS` env var, comma/semicolon/newline separated, each entry normalized to bare digits so "+234 915 978 7464" matches "2349159787464".
+- **Primary drop** at the very top of the `handleInbound` message loop, before idempotency: a blocked sender's message is dropped with no DB row, no media download, no classification, no reply. Logs `security.blocked_contact_dropped`.
+- **Backstop drop** at the top of `processCustomerBatch` for messages that reach the batch path without passing `handleInbound` (the orphan sweep re-queues inbound rows persisted BEFORE the block was set). Writes a `[silent skip: blocked contact]` marker so the sweep stops seeing those rows as unanswered.
+- `BLOCKED_NUMBERS=2349159787464` staged on Railway with `--skip-deploys`; goes live with the code deploy.
+
 ## 2026-07-26: Sales Manager follow-up check-in
 
 Two changes this session. First, a data fix: the warehouse price of the Deye **SE-F16** 16kWh battery (item id 14, live DB) was updated 2,500,000 -> **2,385,000 NGN** via the admin API on production.

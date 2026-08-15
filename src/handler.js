@@ -1552,6 +1552,20 @@ async function processCustomerBatch(entry) {
   const { msgs, contact, conversation, attachments, persistedBodies } = entry;
   if (!msgs.length) return;
 
+  // Blocked contacts (2026-08-15): backstop for messages that reach the batch
+  // path without passing handleInbound (orphan-sweep re-queues of rows that
+  // were persisted before the block was set). Marker written so the sweep
+  // stops seeing them as unanswered.
+  if (security.isBlockedNumber(contact.phone)) {
+    security.logSecurityEvent('blocked_contact_dropped', {
+      contactId: contact.id,
+      phone: contact.phone,
+      path: 'batch'
+    });
+    try { persistSilentSkipMarker(conversation.id, '[silent skip: blocked contact]'); } catch {}
+    return;
+  }
+
   const lastMsg = msgs[msgs.length - 1];
   const refreshedContact = { ...contact, ...readBackContact(contact.id) };
   const priorHistory = getRecentHistory(contact.id, 50);
@@ -2798,6 +2812,16 @@ async function handleInbound(payload) {
 
   for (const msg of messages) {
     try {
+      // Blocked contacts (2026-08-15): drop before anything else. No DB row,
+      // no media download, no reply. The sender sees nothing.
+      if (security.isBlockedNumber(msg.from)) {
+        security.logSecurityEvent('blocked_contact_dropped', {
+          phone: msg.from,
+          kind: msg.kind || msg.type
+        });
+        continue;
+      }
+
       if (msg.id) {
         const existing = getMessageByWhatsappId(msg.id);
         if (existing) {
