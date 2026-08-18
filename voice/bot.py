@@ -28,7 +28,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.services.anthropic.llm import AnthropicLLMService
-from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.cartesia.tts import CartesiaTTSService, GenerationConfig
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
@@ -44,6 +44,20 @@ MODEL_VOICE = os.getenv("MODEL_VOICE", "claude-sonnet-4-6")
 # default). Pick a better fit in the Cartesia playground and set
 # CARTESIA_VOICE_ID on the service.
 CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022ece01c121")
+
+# Speaking speed multiplier, valid range 0.6 (slow) to 1.5 (fast). Unset = 1.0.
+CARTESIA_SPEED = os.getenv("CARTESIA_SPEED", "").strip()
+
+
+def _tts_settings():
+    kwargs = {"voice": CARTESIA_VOICE_ID}
+    if CARTESIA_SPEED:
+        try:
+            speed = min(1.5, max(0.6, float(CARTESIA_SPEED)))
+            kwargs["generation_config"] = GenerationConfig(speed=speed)
+        except ValueError:
+            logger.warning(f"Ignoring invalid CARTESIA_SPEED: {CARTESIA_SPEED}")
+    return CartesiaTTSService.Settings(**kwargs)
 
 # Where transcripts are posted at call end (Sunny's Node service).
 SUNNY_BASE_URL = os.getenv(
@@ -128,9 +142,7 @@ async def run_bot(webrtc_connection, caller=None, call_id=None):
 
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
-        settings=CartesiaTTSService.Settings(
-            voice=CARTESIA_VOICE_ID,
-        ),
+        settings=_tts_settings(),
     )
 
     # System prompt lives in the context so it is provider agnostic.
