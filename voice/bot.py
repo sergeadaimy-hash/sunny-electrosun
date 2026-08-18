@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -47,6 +48,11 @@ CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022e
 
 # Speaking speed multiplier, valid range 0.6 (slow) to 1.5 (fast). Unset = 1.0.
 CARTESIA_SPEED = os.getenv("CARTESIA_SPEED", "").strip()
+
+# How long a silence must last before Sunny treats the customer's turn as
+# finished and starts replying. Lower = snappier replies but more risk of
+# cutting off a slow speaker mid-sentence. Pipecat's default is 0.8.
+VAD_STOP_SECS = float(os.getenv("VAD_STOP_SECS", "0.5"))
 
 
 def _tts_settings():
@@ -153,7 +159,9 @@ async def run_bot(webrtc_connection, caller=None, call_id=None):
     context = LLMContext(messages=[{"role": "system", "content": SYSTEM_PROMPT}])
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS)),
+        ),
     )
 
     pipeline = Pipeline(
