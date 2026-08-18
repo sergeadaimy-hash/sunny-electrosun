@@ -138,6 +138,17 @@ app.post('/voice-transcript', (req, res) => {
       ended_at,
       transcript: messages
     });
+    // Same escalation guarantees as text (2026-08-18): a caller who commits to
+    // pay or asks for (or is promised) the Sales Manager triggers the normal
+    // routed desk alert + customer follow-up link. First insert only, so Meta
+    // retries and duplicate posts cannot double-alert. Fire and forget: the
+    // sidecar's HTTP call must not wait on Meta sends.
+    if (saved && saved.just_created) {
+      const { handleVoiceCallEscalation } = require('./src/handler');
+      handleVoiceCallEscalation(saved).catch(err =>
+        logger.error('voice_transcript.escalation_fail', { message: err.message, callRowId: saved.id })
+      );
+    }
     return res.json({ ok: true, id: saved ? saved.id : null });
   } catch (err) {
     logger.error('voice_transcript.store_fail', { message: err.message });

@@ -140,7 +140,11 @@ function recordVoiceCall({ phone, wa_call_id, status, started_at, ended_at, tran
     duration_seconds: duration,
     status: st
   });
-  return getVoiceCallById(id);
+  const saved = getVoiceCallById(id);
+  // Lets the caller (server.js) run one-shot side effects (escalation
+  // assessment) only on the first insert, never on Meta-retry upserts.
+  if (saved) saved.just_created = !existing;
+  return saved;
 }
 
 function listVoiceCalls({ limit = 50, offset = 0 } = {}) {

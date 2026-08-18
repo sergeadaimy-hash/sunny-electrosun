@@ -21,7 +21,7 @@ const {
   getMessagesForConversation,
   updateContactFields
 } = require('./memory');
-const { runClassification } = require('./classifier');
+const { runClassification, hasHotTrigger } = require('./classifier');
 const { generateReply, describeInboundImage } = require('./claude');
 const { sendMessage, sendTemplate, downloadMedia, uploadMediaToMeta, sendDocument, sendImage } = require('./whatsapp');
 const warehouse = require('./warehouse');
@@ -373,6 +373,138 @@ function buildSpecialistLink(customerMessage, overrideNumber) {
     ? `Hi, I was speaking with Electro-Sun and want to proceed: "${topic}"`
     : 'Hi, I was speaking with Electro-Sun and want to proceed.';
   return `https://wa.me/${num}?text=${encodeURIComponent(prefilled)}`;
+}
+
+// Voice-call escalation bridge (2026-08-18). A finished call's transcript is
+// assessed with the SAME triggers as the text pipeline: a payment commitment
+// (hasHotTrigger) escalates HOT; a caller asking for the Sales Manager, or
+// Sunny PROMISING one on the call (the never-silent invariant, extended to
+// voice), escalates live_agent/silent_query. The escalation reuses
+// notifyOwnerForEscalation end to end, so routing (Abuja/Lagos/owners),
+// throttles, pending queries, and the alert template all behave exactly like
+// a text escalation. Best effort: runs after the transcript is stored.
+const VOICE_SM_REQUEST_RE = /\b(sales\s*manager|specialist|live\s*agent|(speak|talk|connect)\w*\s+(to|with|me\s+(to|with))\s+(a\s+)?(human|person|someone|manager|agent))\b/i;
+const VOICE_SM_PROMISE_RE = /\bsales\s*manager\b/i;
+
+function assessVoiceCallEscalation(turns) {
+  const list = Array.isArray(turns) ? turns : [];
+  const userTurns = list.filter(t => t && t.role === 'user' && t.content);
+  const assistantTurns = list.filter(t => t && t.role === 'assistant' && t.content);
+  const userText = userTurns.map(t => t.content).join('\n');
+  const assistantText = assistantTurns.map(t => t.content).join('\n');
+  if (!userText.trim()) return { shouldEscalate: false, reason: 'no_user_turns' };
+
+  const isHot = hasHotTrigger(userText);
+  const asked = VOICE_SM_REQUEST_RE.test(userText);
+  const promised = VOICE_SM_PROMISE_RE.test(assistantText);
+  if (!isHot && !asked && !promised) {
+    return { shouldEscalate: false, reason: 'no_trigger' };
+  }
+
+  const region = /\babuja\b/i.test(userText)
+    ? 'abuja'
+    : (/\blagos\b/i.test(userText)
+      ? 'lagos'
+      : (/\babuja\b/i.test(assistantText + userText) ? 'abuja' : (/\blagos\b/i.test(assistantText + userText) ? 'lagos' : 'unknown')));
+
+  const escalationType = isHot ? 'hot_lead' : (asked ? 'live_agent' : 'silent_query');
+  const substantive = userTurns
+    .map(t => t.content.trim())
+    .filter(c => c.length > 12 && !VOICE_SM_REQUEST_RE.test(c));
+  const quote = (substantive[0] || userTurns[0].content).replace(/\s+/g, ' ').slice(0, 180);
+  const brief = `PHONE CALL to Sunny (full transcript in the admin Calls tab). Customer said: "${quote}". ${isHot ? 'Ready to pay; needs the account details.' : 'Asked for the Sales Manager; expects a WhatsApp follow-up.'}`;
+
+  return {
+    shouldEscalate: true,
+    escalationType,
+    region,
+    userText,
+    lastUserTurn: userTurns[userTurns.length - 1].content,
+    brief
+  };
+}
+
+async function handleVoiceCallEscalation(callRow) {
+  if (String(process.env.DISABLE_ESCALATIONS) === 'true') return { escalated: false, reason: 'escalations_disabled' };
+  if (!callRow || !callRow.contact_id) return { escalated: false, reason: 'no_contact' };
+  const assessment = assessVoiceCallEscalation(callRow.transcript);
+  if (!assessment.shouldEscalate) return { escalated: false, reason: assessment.reason };
+
+  const contact = getContactById(callRow.contact_id);
+  if (!contact) return { escalated: false, reason: 'contact_missing' };
+
+  const classification = {
+    intent: 'voice_call',
+    needs_escalation: true,
+    escalation_type: assessment.escalationType,
+    lead_temperature: assessment.escalationType === 'hot_lead' ? 'HOT' : 'WARM',
+    routing_region: assessment.region,
+    routing_category: 'daily_sales',
+    owner_brief: assessment.brief,
+    owner_followup_draft: 'Hello Sir, this is the Sales Manager from Electro-Sun following up on your phone call. How can I help you further?'
+  };
+
+  const escResult = await notifyOwnerForEscalation({
+    contact,
+    classification,
+    safeCombinedText: assessment.userText.slice(0, 1500),
+    lastMsg: { body: assessment.lastUserTurn },
+    batchSize: 1,
+    source: 'voice_call'
+  });
+
+  // Customer-side follow-up text with the routed Sales Manager direct line,
+  // mirroring the HOT handoff on text. A voice call may not have opened the
+  // 24h free-form window, so a Meta rejection here is logged, not fatal: the
+  // desk alert (template send, window-independent) already carries the number.
+  let followupSent = false;
+  if (escResult && escResult.ownerNotified) {
+    try {
+      const link = buildSpecialistLink(assessment.lastUserTurn, escResult.recipientNumber);
+      if (link) {
+        const txt = `Following up on your call, Sir.\n\nDirect line to the Sales Manager: ${link}`;
+        const sendRes = await sendMessage(contact.phone, txt);
+        const conversation = getActiveConversation(contact.id);
+        appendMessage(conversation.id, 'outbound', txt, {
+          whatsapp_message_id: sendRes && sendRes.messageId,
+          intent: 'voice_call_handoff',
+          language: 'english'
+        });
+        followupSent = true;
+        try {
+          salesFollowup.maybeScheduleSalesFollowup({
+            handoffHappened: true,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            handoffMessageId: sendRes && sendRes.messageId,
+            language: 'english'
+          });
+        } catch {}
+      }
+    } catch (err) {
+      logger.warn('handler.voice_call.followup_text_fail', {
+        contactId: contact.id,
+        message: err.message
+      });
+    }
+  }
+
+  logger.info('handler.voice_call.escalation', {
+    contactId: contact.id,
+    callRowId: callRow.id,
+    escalation_type: assessment.escalationType,
+    region: assessment.region,
+    owner_notified: !!(escResult && escResult.ownerNotified),
+    recipient_label: escResult && escResult.recipientLabel,
+    followup_text_sent: followupSent
+  });
+  return {
+    escalated: true,
+    escalationType: assessment.escalationType,
+    ownerNotified: !!(escResult && escResult.ownerNotified),
+    recipientLabel: escResult && escResult.recipientLabel,
+    followupSent
+  };
 }
 
 function pickHoldingReply(escalationType, customerMessage) {
@@ -3709,5 +3841,7 @@ module.exports = {
   unsupportedReplyFor,
   voiceServiceUrl,
   forwardCallsToVoiceService,
+  assessVoiceCallEscalation,
+  handleVoiceCallEscalation,
   DEBOUNCE_MS: MESSAGE_DEBOUNCE_MS
 };
