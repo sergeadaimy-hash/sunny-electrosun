@@ -676,6 +676,44 @@ async function handleAlertOnlyMessage(msg) {
   }
 }
 
+// WhatsApp voice calls -> Pipecat voice sidecar (Phase 1, 2026-08-18).
+// When VOICE_SERVICE_URL is set, the raw `calls` webhook payload is forwarded
+// to the Python voice service (voice/ folder in this repo), which answers the
+// call over WebRTC and talks to the customer. Unset URL = feature off (kill
+// switch): the legacy "text only" autoreply below keeps running. A failed
+// forward also falls back to the autoreply, so a down sidecar never regresses
+// below today's behavior. Blocked numbers are dropped before either path.
+function voiceServiceUrl() {
+  const raw = String(process.env.VOICE_SERVICE_URL || '').trim();
+  return raw ? raw.replace(/\/+$/, '') : null;
+}
+
+async function forwardCallsToVoiceService(payload, opts = {}) {
+  const base = opts.url !== undefined ? opts.url : voiceServiceUrl();
+  if (!base) return { forwarded: false, reason: 'disabled' };
+  const fetchImpl = opts.fetchImpl || fetch;
+  const controller = new AbortController();
+  const timeoutMs = Number(process.env.VOICE_FORWARD_TIMEOUT_MS || 10000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${base}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Voice-Secret': process.env.VOICE_SERVICE_SECRET || ''
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    if (!res.ok) return { forwarded: false, reason: `status_${res.status}` };
+    return { forwarded: true };
+  } catch (err) {
+    return { forwarded: false, reason: err.message || 'fetch_failed' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function handleCallEvent(call) {
   if (!call.from) return;
   const lastSent = CALL_AUTOREPLY_RECENT.get(call.from) || 0;
@@ -2799,9 +2837,28 @@ async function handleInbound(payload) {
   logDeliveryStatuses(payload);
 
   try {
-    const calls = extractCallEvents(payload);
-    for (const call of calls) {
-      await handleCallEvent(call);
+    const calls = extractCallEvents(payload).filter(call => {
+      if (call.from && security.isBlockedNumber(call.from)) {
+        security.logSecurityEvent('blocked_contact_dropped', { phone: call.from, kind: 'call' });
+        return false;
+      }
+      return true;
+    });
+    if (calls.length) {
+      const fw = await forwardCallsToVoiceService(payload);
+      if (fw.forwarded) {
+        logger.info('handler.call.forwarded_to_voice_service', {
+          count: calls.length,
+          call_ids: calls.map(c => c.id)
+        });
+      } else {
+        if (fw.reason !== 'disabled') {
+          logger.warn('handler.call.voice_forward_failed_fallback_autoreply', { reason: fw.reason });
+        }
+        for (const call of calls) {
+          await handleCallEvent(call);
+        }
+      }
     }
   } catch (err) {
     logger.warn('handler.call_event.error', { message: err.message });
@@ -3650,5 +3707,7 @@ module.exports = {
   batchIsSuperseded,
   shouldReplyToUnsupported,
   unsupportedReplyFor,
+  voiceServiceUrl,
+  forwardCallsToVoiceService,
   DEBOUNCE_MS: MESSAGE_DEBOUNCE_MS
 };

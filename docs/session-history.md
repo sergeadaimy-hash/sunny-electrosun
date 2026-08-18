@@ -2,6 +2,18 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-08-18: WhatsApp voice calls, Phase 1 scaffold (Pipecat sidecar)
+
+Serge asked to build real WhatsApp VOICE CALLS for Sunny using [Pipecat](https://github.com/pipecat-ai/pipecat), with the call knowledge based on Sunny's knowledge. Decisions taken this session: vendor accounts approved (Deepgram STT + Cartesia TTS; LLM stays Claude on the existing Anthropic key), the voice service lives in a `voice/` folder inside the Sunny repo (not a separate repo), and it targets the current production number (+234 913 055 4747), not a Meta test number.
+
+Architecture: Pipecat is Python, so the voice agent is a SIDECAR service, not code inside the Node app. Meta keeps delivering all webhooks (messages + calls) to Sunny's `/webhook`; Sunny forwards raw `calls` payloads to the sidecar, which does the Calling API handshake (pre_accept / accept with SDP answer) via Pipecat's `WhatsAppClient` + `SmallWebRTCTransport` and runs one cascaded pipeline per call: Deepgram STT -> Claude (`claude-sonnet-4-6`) -> Cartesia TTS, Silero VAD for turn taking.
+
+Shipped (tests 338/338):
+- **`voice/` folder**: `server.py` (FastAPI; shared-secret check on forwarded payloads via constant-time compare; Meta verify handshake kept for a direct debug mode; `/health`), `bot.py` (per-call pipeline, greeting on connect), `prompt.py` (Phase 1 hardcoded voice prompt: "Sir", short spoken sentences, HARD no-prices/no-specs rule, defer every figure to a WhatsApp chat follow-up), `pyproject.toml`, `Dockerfile` (python:3.12-slim, deployable as a second Railway service with root directory `voice/`), `env.example`, `README.md` (full Meta + Railway setup checklist).
+- **Node forwarding hook** in `src/handler.js`: `voiceServiceUrl()` + `forwardCallsToVoiceService(payload, opts)` (10s timeout via `VOICE_FORWARD_TIMEOUT_MS`, `X-Voice-Secret` header). The calls branch of `handleInbound` now filters BLOCKED_NUMBERS call events (dropped entirely), forwards when `VOICE_SERVICE_URL` is set, and falls back to the legacy "this number isn't monitored for voice calls" autoreply when the feature is off OR the forward fails. Unset `VOICE_SERVICE_URL` is the kill switch. Tests: `test/voice_forward.test.js` (5 tests, injected fetch).
+
+NOT yet done (later phases): Phase 0 Meta setup (enable "Allow voice calls" on the number, subscribe the `calls` webhook field), the two vendor keys, the Railway voice service itself, Phase 2 knowledge bridge (`GET /api/voice-context` serving Sunny's composed prompt: system rules + warehouse stock + playbook/facts + caller history), Phase 3 transcript write-back + classifier + escalations, Phase 4 cost tracking in the admin budget panel. KNOWN RISK to prove first: WebRTC media is UDP; Railway has no inbound UDP and ICE must succeed over outbound flows; if audio will not hold, move only the sidecar to Fly.io / Pipecat Cloud / a VPS.
+
 ## 2026-08-15: BLOCKED_NUMBERS contact block
 
 Serge sent screenshots of Dan Ammadu (`2349159787464`, COLD + DISQUALIFIED) getting a polite reply from Sunny to every message across several days: single-token gibberish ("Gsitw", "Sufwicwo", "Audafof", "Axaixao"), untranscribable voice notes, and photos of Infinix/Tecno phones in a retail shop (not solar). The idle-chatter mute never held because image turns are exempt by design, transcribed voice notes count as text, and the 24h conversation rollover kept restoring the one-polite-reply allowance. Serge's directive: block him.
