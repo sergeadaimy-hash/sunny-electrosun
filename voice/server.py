@@ -139,12 +139,22 @@ async def whatsapp_webhook(
 
     caller, call_id = _extract_caller(body)
 
-    async def connection_callback(connection: SmallWebRTCConnection):
+    async def connection_callback(connection: SmallWebRTCConnection, call=None):
+        # Newer Pipecat passes the WhatsAppConnectCall as a second argument;
+        # prefer its caller/id over our own payload parse when present.
+        c_phone, c_id = caller, call_id
+        if call is not None:
+            try:
+                raw = call.model_dump(by_alias=True) if hasattr(call, "model_dump") else call.dict(by_alias=True)
+                c_phone = raw.get("from") or c_phone
+                c_id = raw.get("id") or c_id
+            except Exception:
+                pass
         logger.info(
             f"Call answered, starting bot for connection {connection.pc_id} "
-            f"(caller tail ...{str(caller or '')[-4:]}, call {call_id})"
+            f"(caller tail ...{str(c_phone or '')[-4:]}, call {c_id})"
         )
-        background_tasks.add_task(run_bot, connection, caller=caller, call_id=call_id)
+        background_tasks.add_task(run_bot, connection, caller=c_phone, call_id=c_id)
 
     try:
         await whatsapp_client.handle_webhook_request(body, connection_callback)

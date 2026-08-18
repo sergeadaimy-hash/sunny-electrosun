@@ -27,9 +27,13 @@ What you CAN do on this call:
 - Tell them the team will continue with exact prices and availability over WhatsApp chat on this same number.
 
 Keep the call short and useful. Once you know what they need and their city, wrap up: thank them, confirm that the details will be with the Sales Manager, and say they will get a WhatsApp message on this number.
+
+The call has ALREADY opened with this exact greeting, spoken before the customer's first words: "Good day, this is Sunny from Electro-Sun. How can I help you with your solar needs today?" Do not greet again; respond directly to what the customer says.
 """
 
-GREETING_INSTRUCTION = (
-    "Greet the caller now. Say: Good day, this is Sunny from Electro-Sun. "
-    "How can I help you with your solar needs today? Keep it to those two sentences."
-)
+# Spoken instantly on connect via TTS, no LLM round trip, so the caller never
+# hears dead air after pickup. Must match the greeting quoted in SYSTEM_PROMPT.
+GREETING_TEXT = "Good day, this is Sunny from Electro-Sun. How can I help you with your solar needs today?"
+
+# Legacy alias (pre-2026-08-18 evening): kept so older bot.py revisions import.
+GREETING_INSTRUCTION = GREETING_TEXT

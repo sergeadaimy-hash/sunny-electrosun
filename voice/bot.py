@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -33,7 +33,7 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
-from prompt import GREETING_INSTRUCTION, SYSTEM_PROMPT
+from prompt import GREETING_TEXT, SYSTEM_PROMPT
 
 load_dotenv(override=True)
 
@@ -90,7 +90,11 @@ def _collect_transcript(context):
                 (p.get("text", "") if isinstance(p, dict) else str(p)) for p in content
             )
         content = str(content or "").strip()
-        if not content or content == GREETING_INSTRUCTION:
+        if not content:
+            continue
+        # Legacy guard: the pre-canned-greeting builds injected the greeting as
+        # a fake user turn; drop that, but keep it when spoken by the assistant.
+        if role == "user" and content == GREETING_TEXT:
             continue
         turns.append({"role": role, "content": content})
     return turns
@@ -137,7 +141,7 @@ async def run_bot(webrtc_connection, caller=None, call_id=None):
 
     llm = AnthropicLLMService(
         api_key=os.getenv("ANTHROPIC_API_KEY"),
-        model=MODEL_VOICE,
+        settings=AnthropicLLMService.Settings(model=MODEL_VOICE),
     )
 
     tts = CartesiaTTSService(
@@ -176,9 +180,10 @@ async def run_bot(webrtc_connection, caller=None, call_id=None):
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
-        logger.info("Caller connected, starting greeting")
-        context.add_message({"role": "user", "content": GREETING_INSTRUCTION})
-        await task.queue_frames([LLMRunFrame()])
+        # Canned greeting straight to TTS: no LLM round trip, no dead air.
+        # The system prompt tells the model this greeting was already spoken.
+        logger.info("Caller connected, speaking canned greeting")
+        await task.queue_frames([TTSSpeakFrame(GREETING_TEXT)])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
