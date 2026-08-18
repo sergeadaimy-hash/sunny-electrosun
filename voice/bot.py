@@ -11,7 +11,9 @@ live fetch of Sunny's composed context from the Node service.
 """
 
 import os
+from datetime import datetime, timezone
 
+import aiohttp
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -43,8 +45,71 @@ MODEL_VOICE = os.getenv("MODEL_VOICE", "claude-sonnet-4-6")
 # CARTESIA_VOICE_ID on the service.
 CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022ece01c121")
 
+# Where transcripts are posted at call end (Sunny's Node service).
+SUNNY_BASE_URL = os.getenv(
+    "SUNNY_BASE_URL", "https://sunny-electrosun-production.up.railway.app"
+).rstrip("/")
+VOICE_SERVICE_SECRET = os.getenv("VOICE_SERVICE_SECRET", "")
 
-async def run_bot(webrtc_connection):
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _collect_transcript(context):
+    """Flatten the LLM context into [{role, content}] turns, dropping the
+    system prompt and the internal greeting instruction."""
+    try:
+        messages = context.get_messages()
+    except Exception:
+        messages = getattr(context, "messages", None) or []
+    turns = []
+    for m in messages:
+        if not isinstance(m, dict):
+            m = getattr(m, "__dict__", None) or {}
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = m.get("content")
+        if isinstance(content, list):
+            content = " ".join(
+                (p.get("text", "") if isinstance(p, dict) else str(p)) for p in content
+            )
+        content = str(content or "").strip()
+        if not content or content == GREETING_INSTRUCTION:
+            continue
+        turns.append({"role": role, "content": content})
+    return turns
+
+
+async def _post_transcript(caller, call_id, started_at, turns):
+    """Send the finished call's transcript to Sunny. Best effort: a failure is
+    logged, never raised, so it can't break call teardown."""
+    if not caller:
+        logger.warning("No caller phone captured; transcript not posted")
+        return
+    payload = {
+        "phone": caller,
+        "call_id": call_id,
+        "status": "completed" if turns else "no_transcript",
+        "started_at": started_at,
+        "ended_at": _now_iso(),
+        "messages": turns,
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{SUNNY_BASE_URL}/voice-transcript",
+                json=payload,
+                headers={"X-Voice-Secret": VOICE_SERVICE_SECRET},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                logger.info(f"Transcript posted ({len(turns)} turns): HTTP {resp.status}")
+    except Exception as e:
+        logger.error(f"Failed to post transcript: {e}")
+
+
+async def run_bot(webrtc_connection, caller=None, call_id=None):
     transport = SmallWebRTCTransport(
         webrtc_connection=webrtc_connection,
         params=TransportParams(
@@ -95,6 +160,8 @@ async def run_bot(webrtc_connection):
         ),
     )
 
+    started_at = _now_iso()
+
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
         logger.info("Caller connected, starting greeting")
@@ -107,4 +174,8 @@ async def run_bot(webrtc_connection):
         await task.cancel()
 
     runner = PipelineRunner(handle_sigint=False)
-    await runner.run(task)
+    try:
+        await runner.run(task)
+    finally:
+        turns = _collect_transcript(context)
+        await _post_transcript(caller, call_id, started_at, turns)

@@ -109,6 +109,42 @@ app.post('/inbox-login', (req, res) => {
   return res.status(401).json({ error: 'invalid username or password' });
 });
 
+// Voice-call transcript write-back (2026-08-18). The Pipecat voice sidecar
+// posts each finished call here. Auth is the shared VOICE_SERVICE_SECRET
+// (constant-time compare), the same secret the Node service sends when
+// forwarding call webhooks the other way. Not under /api: the sidecar holds
+// the voice secret, not the master API key.
+app.post('/voice-transcript', (req, res) => {
+  const secret = process.env.VOICE_SERVICE_SECRET || '';
+  if (!secret) {
+    return res.status(503).json({ error: 'VOICE_SERVICE_SECRET not configured' });
+  }
+  const security = require('./src/security');
+  if (!security.safeKeyCompare(req.headers['x-voice-secret'] || '', secret)) {
+    logger.warn('voice_transcript.bad_secret', { ip: req.ip });
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  const { phone, call_id, status, started_at, ended_at, messages } = req.body || {};
+  if (!phone) {
+    return res.status(400).json({ error: 'phone required' });
+  }
+  try {
+    const { recordVoiceCall } = require('./src/voice_calls');
+    const saved = recordVoiceCall({
+      phone,
+      wa_call_id: call_id,
+      status,
+      started_at,
+      ended_at,
+      transcript: messages
+    });
+    return res.json({ ok: true, id: saved ? saved.id : null });
+  } catch (err) {
+    logger.error('voice_transcript.store_fail', { message: err.message });
+    return res.status(500).json({ error: 'store failed' });
+  }
+});
+
 app.use((err, req, res, next) => {
   logger.error('express.error', { message: err.message, type: err.type, status: err.status, stack: err.stack });
   if (res.headersSent) return;

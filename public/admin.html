@@ -272,6 +272,43 @@
     #view-knowledge.active { display: flex; flex-direction: column; }
     #view-warehouse.active { display: flex; flex-direction: column; }
     #view-owner.active { display: flex; flex-direction: column; }
+    #view-calls.active { display: flex; flex-direction: column; }
+
+    /* Voice calls tab */
+    #view-calls { padding: 18px 22px; overflow-y: auto; }
+    .calls-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .calls-toolbar h2 { font-size: 17px; }
+    .calls-toolbar .stats { color: var(--text-dim, #667781); font-size: 13px; }
+    .call-card {
+      background: #fff; border: 1px solid #e5e7e9; border-radius: 10px;
+      margin-bottom: 10px; overflow: hidden;
+    }
+    .call-card-head {
+      display: flex; align-items: center; gap: 14px; padding: 12px 16px;
+      cursor: pointer; flex-wrap: wrap;
+    }
+    .call-card-head:hover { background: #f7f8f9; }
+    .call-card-head .who { font-weight: 600; font-size: 14px; }
+    .call-card-head .phone { color: #667781; font-size: 13px; }
+    .call-card-head .when { color: #667781; font-size: 12.5px; margin-left: auto; }
+    .call-badge {
+      font-size: 11.5px; padding: 2px 9px; border-radius: 10px;
+      background: #e7f6e7; color: #1a7a3a; font-weight: 600;
+    }
+    .call-badge.failed, .call-badge.missed { background: #fde8e8; color: #b42318; }
+    .call-badge.no_transcript { background: #f0f0f0; color: #667781; }
+    .call-duration { font-size: 12.5px; color: #667781; }
+    .call-preview {
+      flex-basis: 100%; color: #4a5257; font-size: 13px; font-style: italic;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .call-transcript { display: none; padding: 14px 16px; background: #efeae2; border-top: 1px solid #e5e7e9; }
+    .call-card.open .call-transcript { display: block; }
+    .call-turn { max-width: 72%; margin-bottom: 8px; padding: 8px 12px; border-radius: 9px; font-size: 13.5px; line-height: 1.45; }
+    .call-turn.user { background: #fff; margin-right: auto; border-top-left-radius: 2px; }
+    .call-turn.assistant { background: #DCF8C6; margin-left: auto; border-top-right-radius: 2px; }
+    .call-turn .role { display: block; font-size: 10.5px; font-weight: 700; color: #8696a0; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 2px; }
+    .call-transcript-empty { color: #667781; font-size: 13px; }
     .owner-pane { display: flex; flex-direction: column; height: 100%; padding: 0; background: var(--cream-soft); }
     .owner-header { padding: 16px 24px; background: #fff; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
     .owner-header .who { display: flex; flex-direction: column; }
@@ -1882,6 +1919,7 @@
         <button class="active" data-view="view-inbox">Inbox</button>
         <button data-view="view-contacts">Contacts</button>
         <button data-view="view-owner">Owner Chat</button>
+        <button data-view="view-calls">Calls</button>
         <button data-view="view-warehouse">Warehouse Stock</button>
         <button data-view="view-knowledge">Knowledge</button>
         <button data-view="view-audit">Nightly Audit</button>
@@ -1932,6 +1970,16 @@
           <div class="empty-list">Loading.</div>
         </div>
       </div>
+    </section>
+
+    <section id="view-calls" class="view">
+      <div class="calls-toolbar">
+        <h2>Voice Calls</h2>
+        <span class="stats" id="calls-stats"></span>
+        <button class="btn" id="calls-refresh-btn">Refresh</button>
+      </div>
+      <p class="brain-readonly-hint">Every WhatsApp voice call answered by Sunny's voice agent, newest first. Click a call to read the full transcript. A short marker also appears in the caller's Inbox thread.</p>
+      <div id="calls-list"><div class="empty-list">Loading.</div></div>
     </section>
 
     <section id="view-warehouse" class="view">
@@ -2226,10 +2274,90 @@ function switchView(viewId) {
   if (viewId === 'view-owner') {
     loadOwnerChat();
   }
+  if (viewId === 'view-calls') {
+    loadCalls();
+  }
   if (viewId === 'view-audit' && !auditLoaded) {
     loadAudit();
   }
 }
+
+// VOICE CALLS TAB
+
+const openCallIds = new Set();
+
+async function loadCalls() {
+  const list = document.getElementById('calls-list');
+  try {
+    const data = await apiFetch('/calls?limit=100');
+    const calls = data.calls || [];
+    document.getElementById('calls-stats').textContent =
+      calls.length ? calls.length + ' call' + (calls.length === 1 ? '' : 's') : '';
+    if (!calls.length) {
+      list.innerHTML = '<div class="empty-list">No voice calls yet. When a customer calls the WhatsApp number, the call and its transcript appear here.</div>';
+      return;
+    }
+    list.innerHTML = calls.map(callCardHtml).join('');
+    list.querySelectorAll('.call-card-head').forEach(head => {
+      head.addEventListener('click', () => toggleCallTranscript(head.parentElement));
+    });
+  } catch (err) {
+    list.innerHTML = '<div class="empty-list">Failed to load calls: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function callCardHtml(c) {
+  const who = c.contact_name || 'Unknown caller';
+  const when = c.created_at ? new Date(c.created_at).toLocaleString([], {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+  }) : '';
+  const status = c.status || 'completed';
+  const isOpen = openCallIds.has(c.id);
+  return [
+    '<div class="call-card' + (isOpen ? ' open' : '') + '" data-call-id="' + c.id + '">',
+    '  <div class="call-card-head">',
+    '    <span class="who">' + escapeHtml(who) + '</span>',
+    '    <span class="phone">+' + escapeHtml(c.phone || '') + '</span>',
+    '    <span class="call-badge ' + escapeHtml(status) + '">' + escapeHtml(status.replace('_', ' ')) + '</span>',
+    (c.duration_text ? '    <span class="call-duration">' + escapeHtml(c.duration_text) + '</span>' : ''),
+    '    <span class="call-duration">' + c.transcript_turns + ' turns</span>',
+    '    <span class="when">' + escapeHtml(when) + '</span>',
+    (c.preview ? '    <span class="call-preview">"' + escapeHtml(c.preview) + '"</span>' : ''),
+    '  </div>',
+    '  <div class="call-transcript"><div class="call-transcript-empty">Loading transcript.</div></div>',
+    '</div>'
+  ].join('\n');
+}
+
+async function toggleCallTranscript(card) {
+  const id = parseInt(card.dataset.callId, 10);
+  const wasOpen = card.classList.contains('open');
+  if (wasOpen) {
+    card.classList.remove('open');
+    openCallIds.delete(id);
+    return;
+  }
+  card.classList.add('open');
+  openCallIds.add(id);
+  const pane = card.querySelector('.call-transcript');
+  if (pane.dataset.loaded === '1') return;
+  try {
+    const data = await apiFetch('/calls/' + id);
+    const turns = (data.call && data.call.transcript) || [];
+    pane.innerHTML = turns.length
+      ? turns.map(t =>
+          '<div class="call-turn ' + (t.role === 'assistant' ? 'assistant' : 'user') + '">'
+          + '<span class="role">' + (t.role === 'assistant' ? 'Sunny' : 'Caller') + '</span>'
+          + escapeHtml(t.content) + '</div>'
+        ).join('')
+      : '<div class="call-transcript-empty">No transcript was captured for this call.</div>';
+    pane.dataset.loaded = '1';
+  } catch (err) {
+    pane.innerHTML = '<div class="call-transcript-empty">Failed to load transcript: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+document.getElementById('calls-refresh-btn').addEventListener('click', loadCalls);
 
 // Which routed recipient's thread is shown (Patrick / Charbel / Abuja / Lagos).
 // Null until the first load resolves the default from the server.

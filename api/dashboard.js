@@ -347,6 +347,22 @@ router.get('/inbox', (req, res) => {
   res.json({ conversations, limit, offset });
 });
 
+// Voice calls (2026-08-18): admin Calls tab. Transcripts are recorded by the
+// Pipecat voice sidecar via POST /voice-transcript on the main app.
+router.get('/calls', (req, res) => {
+  const { listVoiceCalls } = require('../src/voice_calls');
+  const limit = Math.min(200, parseInt32(req.query.limit, 50));
+  const offset = parseInt32(req.query.offset, 0);
+  res.json({ calls: listVoiceCalls({ limit, offset }), limit, offset });
+});
+
+router.get('/calls/:id', (req, res) => {
+  const { getVoiceCallById } = require('../src/voice_calls');
+  const call = getVoiceCallById(parseInt32(req.params.id, 0));
+  if (!call) return res.status(404).json({ error: 'not found' });
+  res.json({ call });
+});
+
 router.get('/conversations/:id', (req, res) => {
   const id = parseInt32(req.params.id, 0);
   const conversation = getConversationById(id);

@@ -111,6 +111,23 @@ def _check_secret(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Invalid voice secret")
 
 
+def _extract_caller(body: WhatsAppWebhookRequest):
+    """Pull the caller phone and Meta call id from the webhook payload so the
+    bot can attribute the transcript. Returns (phone, call_id), either may be
+    None."""
+    try:
+        raw = body.model_dump(by_alias=True) if hasattr(body, "model_dump") else body.dict(by_alias=True)
+        for entry in raw.get("entry") or []:
+            for change in entry.get("changes") or []:
+                value = change.get("value") or {}
+                for call in value.get("calls") or []:
+                    if call.get("from"):
+                        return call.get("from"), call.get("id")
+    except Exception as e:
+        logger.warning(f"Could not extract caller from webhook: {e}")
+    return None, None
+
+
 @app.post("/")
 async def whatsapp_webhook(
     body: WhatsAppWebhookRequest, request: Request, background_tasks: BackgroundTasks
@@ -120,9 +137,14 @@ async def whatsapp_webhook(
     if body.object != "whatsapp_business_account":
         raise HTTPException(status_code=400, detail="Invalid object type")
 
+    caller, call_id = _extract_caller(body)
+
     async def connection_callback(connection: SmallWebRTCConnection):
-        logger.info(f"Call answered, starting bot for connection {connection.pc_id}")
-        background_tasks.add_task(run_bot, connection)
+        logger.info(
+            f"Call answered, starting bot for connection {connection.pc_id} "
+            f"(caller tail ...{str(caller or '')[-4:]}, call {call_id})"
+        )
+        background_tasks.add_task(run_bot, connection, caller=caller, call_id=call_id)
 
     try:
         await whatsapp_client.handle_webhook_request(body, connection_callback)

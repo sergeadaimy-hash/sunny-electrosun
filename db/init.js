@@ -167,6 +167,28 @@ function applyMigrations(db) {
     CREATE INDEX IF NOT EXISTS idx_sales_followups_status_due ON sales_followups(status, due_at);
     CREATE INDEX IF NOT EXISTS idx_sales_followups_contact ON sales_followups(contact_id);
   `);
+
+  // WhatsApp voice calls (2026-08-18). One row per call answered by the
+  // Pipecat voice sidecar; the transcript is posted back by the sidecar at
+  // call end (POST /voice-transcript) and rendered in the admin Calls tab.
+  // wa_call_id is Meta's call id, used for idempotent upserts on retries.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS voice_calls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER,
+      phone TEXT,
+      wa_call_id TEXT,
+      status TEXT NOT NULL DEFAULT 'completed',
+      started_at TEXT,
+      ended_at TEXT,
+      duration_seconds INTEGER,
+      transcript TEXT,
+      created_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_calls_contact ON voice_calls(contact_id);
+    CREATE INDEX IF NOT EXISTS idx_voice_calls_created ON voice_calls(created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_voice_calls_wa_call_id ON voice_calls(wa_call_id) WHERE wa_call_id IS NOT NULL;
+  `);
 }
 
 let instance = null;
