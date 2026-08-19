@@ -262,3 +262,37 @@ test('full 2026-07-15 spam sequence never resets the streak', () => {
   const habibi = assessIdleChatter({ text: TRANSLIT_VOICE, priorMessages: prior });
   assert.equal(habibi.mute, true);
 });
+
+// 2026-08-19 fake-customer hardening: Whisper hallucination loops and
+// broadcast chain spam (live examples from Aug 18 production traffic).
+
+const LOOP_BASIRU = '[voice note transcribed]: As-salamu alaykum, my name is Agari Adindari. I am from Subabra, Nanduka. I have been living here for a long time. I have been living here for a long time. I have been living here for a long time. I have been living here for a long time.';
+const LOOP_TAMEZ = '[voice note transcribed]: My name is Tamez. I am from the Utility Town of the U.S.A. I have been living in the U.S.A. since I was 10 years old. I have been living in the U.S.A. since I was 10 years old. I have been living in the U.S.A. since I was 10 years old.';
+const CAC_SPAM = '*FG FREE CAC REGISTRATION IS ONGOING*\n\nThe Federal Government through the *SMEDAN and CAC partnership*, has open Free Registration for 250,000 Businesses and Companies in Nigeria.\n\nThis is an Opportunity to legally register that your Small Business/Company and get your Certificate.\n\n*REGISTER NOW*\nhttps://gvly.xyz/FG-Free-CAC-Registration-Portal\n\nN.B: SHARE THIS OPPORTUNITY WITH OTHERS.';
+
+test('Whisper hallucination loops are low value despite digits', () => {
+  assert.equal(classifyLowValue(LOOP_BASIRU), 'looped_transcript');
+  assert.equal(classifyLowValue(LOOP_TAMEZ), 'looped_transcript');
+});
+
+test('looped transcripts are muted immediately, even as the first message', () => {
+  const res = assessIdleChatter({ text: LOOP_BASIRU, priorMessages: [] });
+  assert.equal(res.mute, true);
+  assert.equal(res.reason, 'looped_transcript');
+});
+
+test('broadcast chain spam with a link is muted immediately', () => {
+  assert.equal(classifyLowValue(CAC_SPAM), 'broadcast_spam');
+  const res = assessIdleChatter({ text: CAC_SPAM, priorMessages: [] });
+  assert.equal(res.mute, true);
+  assert.equal(res.reason, 'broadcast_spam');
+});
+
+test('a real customer repeating a phrase twice is NOT a loop', () => {
+  assert.equal(classifyLowValue('I need it urgently. I need it urgently.'), null);
+  assert.equal(classifyLowValue('[voice note transcribed]: Hello, I want a 5kva inverter for my shop in Abuja.'), null);
+});
+
+test('a real customer sharing a product link with a question is NOT broadcast spam', () => {
+  assert.equal(classifyLowValue('Do you sell this inverter? https://deye.com/product/sun-8k'), null);
+});

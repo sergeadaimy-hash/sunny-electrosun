@@ -36,6 +36,30 @@ const IMAGE_MARKER_RE = /^\[(customer sent an image|image\b)/i;
 const ROMANIZED_STRONG_RE = /^(habibi|habibti|habib|yalla|shukran|sukran|marhaba|ahlan|khalas|akhi|ukhti|hayati|albi|mishtaq\w*|walla|wallah\w*)$/;
 const ROMANIZED_WEAK_RE = /^(ya|ana|anta|enta|inta|kif|keef|kaif|kheir|khair|alik|aleik|alaik|shlonak|shu|wain|fi|mafi|tamam|misal|masa|sabah)$/;
 
+// Broadcast chain spam (2026-08-19): mass-forwarded promos ("FG FREE CAC
+// REGISTRATION", "share this opportunity") carry a link plus substantive-
+// looking English, so the bare_link remainder check never fires and the
+// digits ("250,000 businesses") mark them substantive. These phrases are
+// chain-message vocabulary that a real solar customer never types.
+const BROADCAST_SPAM_RE = /\b(share\s+(this|with\s+others)|forward\s+(this|to)|register\s+now|click\s+(here|the\s+link|below)|you\s+have\s+(won|been\s+selected)|congratulations!?\s+you)\b/i;
+
+// Whisper hallucination loops (2026-08-19): junk or non-speech audio pinned
+// to English comes back as one sentence repeated over and over ("I have been
+// living here for a long time." x4). No real customer repeats a sentence of
+// this length three times verbatim, so a loop marks the whole message junk
+// regardless of digits or product tokens inside it.
+function detectSentenceLoop(t) {
+  const counts = new Map();
+  for (const raw of String(t).split(/[.!?\n]+/)) {
+    const norm = raw.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (!norm || norm.split(' ').length < 4) continue;
+    const n = (counts.get(norm) || 0) + 1;
+    if (n >= 3) return true;
+    counts.set(norm, n);
+  }
+  return false;
+}
+
 // Courtesy-only messages (thanks, greetings, affection) with nothing else.
 // These are normal from real customers, so they are only muted when the
 // conversation is already inside a junk streak (see assessIdleChatter).
@@ -65,8 +89,14 @@ function classifyLowValue(text) {
   // surrounding text saves it. (2026-07-15: an Arabic TikTok share slipped
   // through because the URLs and "TikTok Lite" boilerplate inflated the
   // Latin-letter ratio.)
+  // Repeated-sentence hallucination loops: checked before the URL and
+  // digit/product guards, because the looped sentence often contains a digit
+  // ("since I was 10 years old") that would otherwise mark it substantive.
+  if (detectSentenceLoop(t)) return 'looped_transcript';
+
   const urls = t.match(URL_RE);
   if (urls && urls.length) {
+    if (BROADCAST_SPAM_RE.test(t)) return 'broadcast_spam';
     const remainder = t.replace(URL_RE, ' ').trim();
     const leftoverWordChars = (remainder.match(/[\p{L}\p{N}]/gu) || []).length;
     if (leftoverWordChars < 4) return 'bare_link';
@@ -154,8 +184,14 @@ function assessIdleChatter({ text, priorMessages, freeReplies } = {}) {
 
   if (!reason) return { mute: false, reason: null, priorStreak };
 
-  // Junk links never earn a reply (owner decision 2026-07-11).
-  if (reason === 'bare_link') return { mute: true, reason, priorStreak };
+  // Junk links never earn a reply (owner decision 2026-07-11). Broadcast
+  // chain spam and Whisper hallucination loops joined them 2026-08-19 (owner
+  // directive: fake customers with unrelated messages get no reply at all).
+  // Muting from the FIRST message also suppresses the welcome card and any
+  // classification, so junk can never be tagged HOT or escalated.
+  if (reason === 'bare_link' || reason === 'broadcast_spam' || reason === 'looped_transcript') {
+    return { mute: true, reason, priorStreak };
+  }
 
   // Courtesy is normal from real customers (thanks after a quote, greetings).
   // It is muted only when the conversation is already inside a junk streak.

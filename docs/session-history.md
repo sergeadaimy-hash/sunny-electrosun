@@ -2,6 +2,16 @@
 
 Chronological changelog of Sunny development sessions, extracted from CLAUDE.md on 2026-05-05 to keep the always-loaded working memory tight. Each session below is dated and appears in reverse chronological order (most recent first). Cross-reference commit hashes against `git log` for the actual code.
 
+## 2026-08-19: Voice calls put ON HOLD; fake-customer spam wave blocked + muted
+
+Two owner directives this morning.
+
+**1. Voice calls on hold.** After the 2026-08-18 build-out (live calls proven, transcripts + Calls tab + escalation bridge all shipped), Serge asked to pause the feature. Done without code changes: `VOICE_SERVICE_URL` DELETED from the Node service on Railway (kill switch: calls webhook falls back to the legacy "text only" autoreply), and calling DISABLED on the number via Graph API (`POST /1143874562134501/settings {"calling":{"status":"DISABLED"}}`, verified), so customers no longer see a call button at all. The `sunny-voice` Railway service stays deployed but idle. Re-enable = restore the env var + POST status ENABLED. Note for the record, the 2026-08-18 evening latency work that predates the hold: instant canned greeting via `TTSSpeakFrame` (`d36369b`), `CARTESIA_SPEED` env (`27216bc`, set 0.9), `VAD_STOP_SECS` default 0.5 (`c7af234`), `MODEL_VOICE=claude-haiku-4-5-20251001` on the voice service, and the call-transcript escalation bridge (`c264013`: `assessVoiceCallEscalation`/`handleVoiceCallEscalation`, HOT payment + Sales Manager ask/promise on a call fire the same routed alerts as text).
+
+**2. Fake-customer wave (Aug 18 traffic).** Four spam contacts got replies, welcome cards, and in one case a HOT_LEAD_HANDOFF: two Whisper-hallucination voice-note loops ("I have been living here for a long time." repeated 4x; the loops carry digits like "10 years old" which reset the idle-chatter streak) and two copies of a "FG FREE CAC REGISTRATION" chain broadcast (URL + digits made it look substantive). Fixes:
+- All four numbers added to `BLOCKED_NUMBERS` on Railway (now 5 entries, dropped before any processing).
+- `src/idle_chatter.js` hardening (TDD, suite 354/354): new zero-reply kinds `looped_transcript` (`detectSentenceLoop`: any normalized sentence of 4+ words appearing 3+ times; checked before the digit/product guard) and `broadcast_spam` (URL + chain vocabulary: share this / forward to / register now / click here / you have won). Both mute from the FIRST message like `bare_link`, which also suppresses the welcome card and classifier, so this class of junk can never be tagged HOT or escalated again. Real-customer safety: a phrase repeated twice is not a loop, and a product link with a question ("Do you sell this inverter? https://...") is untouched.
+
 ## 2026-08-18: WhatsApp voice calls, Phase 1 scaffold (Pipecat sidecar)
 
 Serge asked to build real WhatsApp VOICE CALLS for Sunny using [Pipecat](https://github.com/pipecat-ai/pipecat), with the call knowledge based on Sunny's knowledge. Decisions taken this session: vendor accounts approved (Deepgram STT + Cartesia TTS; LLM stays Claude on the existing Anthropic key), the voice service lives in a `voice/` folder inside the Sunny repo (not a separate repo), and it targets the current production number (+234 913 055 4747), not a Meta test number.
